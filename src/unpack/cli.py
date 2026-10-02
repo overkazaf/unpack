@@ -154,16 +154,23 @@ def scan(
     Covers 24 vendors (360, Tencent, Bangbang, iJiami, NetEase, Ali, etc).
     No device required.
     """
+    import sys
+    pipe_mode = report or (output_json and str(output_json) == "-")
+
     if not apk.exists():
-        console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
+        if pipe_mode:
+            if output_json and str(output_json) == "-":
+                print(json.dumps({"error": f"APK not found: {apk}"}))
+            else:
+                print(f"Error: APK not found: {apk}", file=sys.stderr)
+        else:
+            console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
         raise typer.Exit(1)
 
     from unpack.utils.apk import find_sibling_splits
     extra_apks = find_sibling_splits(apk)
-    if extra_apks:
+    if extra_apks and not pipe_mode:
         console.print(f"  [{C_DIM}]Found {len(extra_apks)} split APK(s) alongside base[/]")
-
-    pipe_mode = report or (output_json and str(output_json) == "-")
     scanner = PackerScanner()
 
     if pipe_mode:
