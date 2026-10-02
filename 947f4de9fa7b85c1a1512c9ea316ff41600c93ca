@@ -1,0 +1,33 @@
+src/unpack/web.py
+  cddddbaf40c704a4 27,36-57,95,97,99-101,106-115,121-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "947f4de9fa7b85c1a1512c9ea316ff41600c93ca",
+  "prompts": {
+    "cddddbaf40c704a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d4894bd-331b-4fdc-9d1e-9e291a9fdfb9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 40,
+      "total_deletions": 13,
+      "accepted_lines": 49,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "result.json": {
+          "accepted_lines": 9
+        },
+        "src/unpack/web.py": {
+          "additions": 40,
+          "deletions": 13,
+          "accepted_lines": 40
+        }
+      }
+    }
+  }
+}
