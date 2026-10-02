@@ -7,17 +7,17 @@
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #020617;
-      --bg-card: rgba(15, 23, 42, 0.6);
-      --border: #1e293b;
-      --text: #f1f5f9;
-      --text-dim: #94a3b8;
-      --text-muted: #64748b;
-      --cyan: #22d3ee;
-      --emerald: #34d399;
-      --amber: #fbbf24;
-      --violet: #a78bfa;
-      --rose: #fb7185;
+      --bg: #f8fafc;
+      --bg-card: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --text-dim: #475569;
+      --text-muted: #94a3b8;
+      --cyan: #0891b2;
+      --emerald: #059669;
+      --amber: #d97706;
+      --violet: #7c3aed;
+      --rose: #e11d48;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -41,16 +41,16 @@
       position: absolute;
       inset: 0;
       background:
-        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(34,211,238,0.08) 0%, transparent 60%),
-        radial-gradient(ellipse 60% 40% at 30% 100%, rgba(167,139,250,0.06) 0%, transparent 50%);
+        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(8,145,178,0.06) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 30% 100%, rgba(124,58,237,0.04) 0%, transparent 50%);
       pointer-events: none;
     }
     .hero-badge {
       display: inline-flex;
       align-items: center;
       gap: 0.5rem;
-      background: rgba(34,211,238,0.1);
-      border: 1px solid rgba(34,211,238,0.2);
+      background: rgba(8,145,178,0.08);
+      border: 1px solid rgba(8,145,178,0.2);
       border-radius: 999px;
       padding: 0.375rem 1rem;
       font-size: 0.8rem;
@@ -70,11 +70,9 @@
       font-weight: 700;
       letter-spacing: -0.03em;
       margin-bottom: 1rem;
-      background: linear-gradient(135deg, #f1f5f9 0%, #94a3b8 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+      color: var(--text);
     }
-    .hero h1 span { -webkit-text-fill-color: var(--cyan); }
+    .hero h1 span { color: var(--cyan); }
     .hero p {
       font-size: 1.15rem;
       color: var(--text-dim);
@@ -102,15 +100,15 @@
     }
     .btn-primary {
       background: var(--cyan);
-      color: var(--bg);
+      color: #fff;
     }
-    .btn-primary:hover { background: #06b6d4; }
+    .btn-primary:hover { background: #0e7490; }
     .btn-ghost {
       background: transparent;
       color: var(--text-dim);
       border: 1px solid var(--border);
     }
-    .btn-ghost:hover { color: var(--text); border-color: #334155; }
+    .btn-ghost:hover { color: var(--text); border-color: #94a3b8; }
 
     /* Pipeline */
     .pipeline {
@@ -138,10 +136,10 @@
       font-size: 1.2rem;
       padding: 0 0.25rem;
     }
-    .pipe-scan { background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.3); color: var(--cyan); }
-    .pipe-dump { background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.3); color: var(--amber); }
-    .pipe-repair { background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.3); color: var(--emerald); }
-    .pipe-verify { background: rgba(167,139,250,0.1); border-color: rgba(167,139,250,0.3); color: var(--violet); }
+    .pipe-scan { background: rgba(8,145,178,0.08); border-color: rgba(8,145,178,0.25); color: var(--cyan); }
+    .pipe-dump { background: rgba(217,119,6,0.08); border-color: rgba(217,119,6,0.25); color: var(--amber); }
+    .pipe-repair { background: rgba(5,150,105,0.08); border-color: rgba(5,150,105,0.25); color: var(--emerald); }
+    .pipe-verify { background: rgba(124,58,237,0.08); border-color: rgba(124,58,237,0.25); color: var(--violet); }
 
     /* Sections */
     .section {
@@ -184,7 +182,7 @@
       padding: 1.5rem;
       transition: border-color 0.2s;
     }
-    .feature-card:hover { border-color: #334155; }
+    .feature-card:hover { border-color: #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
     .feature-icon {
       width: 36px; height: 36px;
       border-radius: 0.5rem;
@@ -218,7 +216,7 @@
       overflow: hidden;
       transition: border-color 0.2s;
     }
-    .engine-card:hover { border-color: #334155; }
+    .engine-card:hover { border-color: #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
     .engine-header {
       padding: 1.25rem 1.5rem;
       display: flex;
@@ -275,18 +273,18 @@
     }
 
     .e-memory .engine-header { border-bottom: 2px solid var(--cyan); }
-    .e-memory .engine-badge { background: rgba(34,211,238,0.15); color: var(--cyan); }
+    .e-memory .engine-badge { background: rgba(8,145,178,0.1); color: var(--cyan); }
     .e-memory li::before { background: var(--cyan); }
     .e-memory .engine-link { color: var(--cyan); }
     .e-memory .engine-link:hover { color: #06b6d4; }
 
     .e-frida .engine-header { border-bottom: 2px solid var(--amber); }
-    .e-frida .engine-badge { background: rgba(251,191,36,0.15); color: var(--amber); }
+    .e-frida .engine-badge { background: rgba(217,119,6,0.1); color: var(--amber); }
     .e-frida li::before { background: var(--amber); }
     .e-frida .engine-link { color: var(--amber); }
 
     .e-ebpf .engine-header { border-bottom: 2px solid var(--emerald); }
-    .e-ebpf .engine-badge { background: rgba(52,211,153,0.15); color: var(--emerald); }
+    .e-ebpf .engine-badge { background: rgba(5,150,105,0.1); color: var(--emerald); }
     .e-ebpf li::before { background: var(--emerald); }
     .e-ebpf .engine-link { color: var(--emerald); }
 
@@ -318,7 +316,7 @@
 
     /* Code block */
     .code-block {
-      background: rgba(2, 6, 23, 0.8);
+      background: #f1f5f9;
       border: 1px solid var(--border);
       border-radius: 0.75rem;
       padding: 1.5rem;
@@ -392,7 +390,7 @@
       text-decoration: none;
       transition: border-color 0.2s;
     }
-    .ref-item:hover { border-color: #334155; }
+    .ref-item:hover { border-color: #cbd5e1; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
     .ref-stars {
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.7rem;
@@ -453,32 +451,32 @@
     <p class="section-desc">现有脱壳工具碎片化严重，每个只做一件事。UNPACK 把识别、脱壳、修复、验证整合成一个工具链。</p>
     <div class="features">
       <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(34,211,238,0.1);color:var(--cyan)">&#128270;</div>
+        <div class="feature-icon" style="background:rgba(8,145,178,0.08);color:var(--cyan)">ID</div>
         <h3>24 家壳自动识别</h3>
         <p>6 维加权评分（SO/Manifest/Assets/DEX/Cert/Size），支持版本检测（360 v1-v4、乐固 v1-v3），置信度透明可解释。</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(251,191,36,0.1);color:var(--amber)">&#9881;</div>
+        <div class="feature-icon" style="background:rgba(217,119,6,0.08);color:var(--amber)">3x</div>
         <h3>三引擎自动调度</h3>
         <p>Memory（零注入，VDEX 解析）、Frida（4 策略 + 7 项反检测）、eBPF（内核 uprobe）。根据壳类型和设备能力自动选择。</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(52,211,153,0.1);color:var(--emerald)">&#128295;</div>
+        <div class="feature-icon" style="background:rgba(5,150,105,0.08);color:var(--emerald)">7s</div>
         <h3>7 步 DEX 修复</h3>
         <p>Header / Checksum / Signature / Map / NOP 检测 / 对齐 / 验证。修复后的 DEX 可直接被 baksmali / jadx / JEB 解析。</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(167,139,250,0.1);color:var(--violet)">&#128202;</div>
+        <div class="feature-icon" style="background:rgba(124,58,237,0.08);color:var(--violet)">%</div>
         <h3>质量评估报告</h3>
         <p>类/方法覆盖率、NOP 方法检测（仍被加密的函数抽取方法）、结构化 JSON 报告，脱壳效果一目了然。</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(251,113,133,0.1);color:var(--rose)">&#129302;</div>
+        <div class="feature-icon" style="background:rgba(225,29,72,0.08);color:var(--rose)">AI</div>
         <h3>AI 管道集成</h3>
         <p><code class="mono">unpack analyze app.apk | claude -p</code> &mdash; 生成结构化报告直接管道给 Claude 做深度分析：壳特征、绕过方案、类似样本。</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(34,211,238,0.1);color:var(--cyan)">&#128640;</div>
+        <div class="feature-icon" style="background:rgba(8,145,178,0.08);color:var(--cyan)">&gt;_</div>
         <h3>极客 CLI 体验</h3>
         <p>Rich 面板 + spinner 动画 + 进度条置信度 + 彩色输出。JSON / report / verbose 多种输出模式，适配脚本和管道。</p>
       </div>
@@ -665,18 +663,18 @@
     <div style="overflow-x:auto;">
     <table class="bench-table" style="min-width:700px;">
       <thead>
-        <tr><th>Feature</th><th style="color:var(--cyan)">UNPACK</th><th>frida-dexdump</th><th>BlackDex</th><th>clsdumper</th><th>BPFDex</th></tr>
+        <tr><th>Feature</th><th style="color:var(--cyan)">UNPACK</th><th>frida-dexdump</th><th>BlackDex</th><th>r0dump</th><th>clsdumper</th><th>BPFDex</th></tr>
       </thead>
       <tbody>
-        <tr><td>Packer ID</td><td class="packer">24 vendors + version</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td><td>behavioral</td></tr>
-        <tr><td>Engines</td><td class="packer">3 (auto-dispatch)</td><td>1 (Frida)</td><td>1 (cookie)</td><td>1 (Frida 9-strat)</td><td>1 (eBPF)</td></tr>
-        <tr><td>DEX repair</td><td class="packer">7-step pipeline</td><td>&#10007;</td><td>partial</td><td>&#10007;</td><td>&#10007;</td></tr>
-        <tr><td>Quality report</td><td class="packer">coverage + NOP</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td></tr>
-        <tr><td>Anti-detect</td><td class="packer">7 bypasses</td><td>&#10007;</td><td>N/A</td><td>3 bypasses</td><td>N/A</td></tr>
-        <tr><td>SO dump</td><td class="packer">&#10003;</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td><td>&#10003;</td></tr>
-        <tr><td>Zero injection</td><td class="packer">&#10003; (Memory)</td><td>&#10007;</td><td>&#10003;</td><td>&#10007;</td><td>&#10003;</td></tr>
-        <tr><td>AI pipeline</td><td class="packer">claude -p</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td></tr>
-        <tr><td>Status</td><td style="color:var(--emerald)">Active</td><td style="color:var(--rose)">Archived</td><td style="color:var(--rose)">Stale</td><td style="color:var(--emerald)">Active</td><td style="color:var(--text-muted)">Academic</td></tr>
+        <tr><td>Packer ID</td><td class="packer">24 vendors</td><td>-</td><td>-</td><td>-</td><td>-</td><td>behavioral</td></tr>
+        <tr><td>Engines</td><td class="packer">3 (auto)</td><td>1 (Frida)</td><td>1 (cookie)</td><td>1 (ART mod)</td><td>1 (Frida 9)</td><td>1 (eBPF)</td></tr>
+        <tr><td>Active invoke</td><td>-</td><td>-</td><td>deep mode</td><td class="packer">FART-style</td><td>partial</td><td>-</td></tr>
+        <tr><td>DEX repair</td><td class="packer">7-step</td><td>-</td><td>partial</td><td class="packer">rebuild</td><td>-</td><td>-</td></tr>
+        <tr><td>Quality report</td><td class="packer">coverage</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+        <tr><td>No flash</td><td class="packer">yes</td><td>yes</td><td>yes</td><td style="color:var(--rose)">ROM required</td><td>yes</td><td>yes</td></tr>
+        <tr><td>Zero injection</td><td class="packer">Memory</td><td>-</td><td>yes</td><td>system-level</td><td>-</td><td>yes</td></tr>
+        <tr><td>AI pipeline</td><td class="packer">claude -p</td><td>-</td><td>-</td><td>-</td><td>-</td><td>-</td></tr>
+        <tr><td>Status</td><td style="color:var(--emerald)">Active</td><td style="color:var(--rose)">Archived</td><td style="color:var(--rose)">Stale</td><td style="color:var(--emerald)">Active</td><td style="color:var(--emerald)">Active</td><td style="color:var(--text-muted)">Academic</td></tr>
       </tbody>
     </table>
     </div>
