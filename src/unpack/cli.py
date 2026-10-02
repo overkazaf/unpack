@@ -1,8 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Annotated, Optional
+
+# Suppress androguard's loguru noise before any import can trigger it
+os.environ.setdefault("LOGURU_LEVEL", "ERROR")
+try:
+    from loguru import logger as _loguru_logger
+    _loguru_logger.disable("androguard")
+except ImportError:
+    pass
 
 import typer
 from rich.console import Console

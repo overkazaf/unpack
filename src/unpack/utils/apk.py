@@ -8,6 +8,13 @@ from pathlib import Path
 
 def get_package_name(apk_path: Path) -> str | None:
     try:
+        import os as _os
+        _os.environ.setdefault("LOGURU_LEVEL", "ERROR")
+        try:
+            from loguru import logger as _lg
+            _lg.disable("androguard")
+        except ImportError:
+            pass
         from androguard.core.apk import APK
         a = APK(str(apk_path))
         return a.get_package()

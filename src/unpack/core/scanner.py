@@ -611,6 +611,13 @@ def _build_app_class_patterns() -> list[bytes]:
 
 def _extract_application_class(apk_zip: zipfile.ZipFile) -> str | None:
     try:
+        import os as _os
+        _os.environ.setdefault("LOGURU_LEVEL", "ERROR")
+        try:
+            from loguru import logger as _lg
+            _lg.disable("androguard")
+        except ImportError:
+            pass
         from androguard.core.apk import APK as AndroAPK
         a = AndroAPK(apk_zip.filename)
         return a.get_attribute_value("application", "name")
