@@ -163,11 +163,16 @@ def scan(
     if extra_apks:
         console.print(f"  [{C_DIM}]Found {len(extra_apks)} split APK(s) alongside base[/]")
 
+    pipe_mode = report or (output_json and str(output_json) == "-")
     scanner = PackerScanner()
 
-    if report:
+    if pipe_mode:
         result = scanner.scan(apk, verbose=True, extra_apks=extra_apks or None)
-        print(result.to_report())
+        if report:
+            print(result.to_report())
+        else:
+            d = result.to_verbose_dict() if verbose else result.to_dict()
+            print(json.dumps(d, indent=2, ensure_ascii=False))
         return
 
     with _spinner("Scanning APK..."):
@@ -175,17 +180,14 @@ def scan(
 
     _print_scan_result(result, apk)
 
-    if verbose and not output_json:
+    if verbose:
         _print_verbose(result)
 
     if output_json:
         d = result.to_verbose_dict() if verbose else result.to_dict()
         data = json.dumps(d, indent=2, ensure_ascii=False)
-        if str(output_json) == "-":
-            print(data)
-        else:
-            output_json.write_text(data)
-            console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
+        output_json.write_text(data)
+        console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
 
 
 @app.command()
@@ -200,8 +202,13 @@ def analyze(
     strategies, and similar samples.
     """
     if not apk.exists():
-        console.print(f"[{C_FAIL}]APK not found:[/] {apk}", err=True)
+        import sys
+        print(f"APK not found: {apk}", file=sys.stderr)
         raise typer.Exit(1)
+
+    import sys
+    print("# UNPACK Analysis Report", flush=True)
+    print(f"# Scanning {apk.name}...", flush=True)
 
     scanner = PackerScanner()
     result = scanner.scan(apk, verbose=True)
