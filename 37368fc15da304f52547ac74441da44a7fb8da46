@@ -1,0 +1,49 @@
+src/unpack/engines/active_invoke.py
+  cddddbaf40c704a4 1-603
+src/unpack/cli.py
+  cddddbaf40c704a4 226,234-237,281-344,346,354
+src/unpack/repair/codeitem_merger.py
+  cddddbaf40c704a4 1-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "37368fc15da304f52547ac74441da44a7fb8da46",
+  "prompts": {
+    "cddddbaf40c704a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d4894bd-331b-4fdc-9d1e-9e291a9fdfb9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 1095,
+      "total_deletions": 187,
+      "accepted_lines": 919,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "src/unpack/repair/codeitem_merge.py": {
+          "additions": 185,
+          "deletions": 185
+        },
+        "src/unpack/repair/codeitem_merger.py": {
+          "additions": 236,
+          "accepted_lines": 236
+        },
+        "src/unpack/cli.py": {
+          "additions": 71,
+          "deletions": 2,
+          "accepted_lines": 71
+        },
+        "src/unpack/engines/active_invoke.py": {
+          "additions": 603,
+          "accepted_lines": 603
+        },
+        "result.json": {
+          "accepted_lines": 9
+        }
+      }
+    }
+  }
+}
