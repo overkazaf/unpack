@@ -1,0 +1,40 @@
+docs/index.html
+  cddddbaf40c704a4 1-706
+README.md
+  cddddbaf40c704a4 227-229,233-248
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "ff716030a9814d0f6be3b7abdcdd7a2c1611b9db",
+  "prompts": {
+    "cddddbaf40c704a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d4894bd-331b-4fdc-9d1e-9e291a9fdfb9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 732,
+      "total_deletions": 10,
+      "accepted_lines": 734,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "README.md": {
+          "additions": 19,
+          "deletions": 3,
+          "accepted_lines": 19
+        },
+        "docs/index.html": {
+          "additions": 713,
+          "deletions": 7,
+          "accepted_lines": 706
+        },
+        "result.json": {
+          "accepted_lines": 9
+        }
+      }
+    }
+  }
+}
