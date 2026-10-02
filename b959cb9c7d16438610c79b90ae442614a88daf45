@@ -1,0 +1,65 @@
+docs/index.html
+  cddddbaf40c704a4 431
+README.md
+  cddddbaf40c704a4 3
+pyproject.toml
+  cddddbaf40c704a4 18-19,24
+src/unpack/web.py
+  cddddbaf40c704a4 1-250
+src/unpack/cli.py
+  cddddbaf40c704a4 587-607
+src/unpack/templates/index.html
+  cddddbaf40c704a4 1-526
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "b959cb9c7d16438610c79b90ae442614a88daf45",
+  "prompts": {
+    "cddddbaf40c704a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d4894bd-331b-4fdc-9d1e-9e291a9fdfb9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 802,
+      "total_deletions": 3,
+      "accepted_lines": 811,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "pyproject.toml": {
+          "additions": 3,
+          "deletions": 1,
+          "accepted_lines": 3
+        },
+        "src/unpack/web.py": {
+          "additions": 250,
+          "accepted_lines": 250
+        },
+        "result.json": {
+          "accepted_lines": 9
+        },
+        "src/unpack/cli.py": {
+          "additions": 21,
+          "accepted_lines": 21
+        },
+        "src/unpack/templates/index.html": {
+          "additions": 526,
+          "accepted_lines": 526
+        },
+        "docs/index.html": {
+          "additions": 1,
+          "deletions": 1,
+          "accepted_lines": 1
+        },
+        "README.md": {
+          "additions": 1,
+          "deletions": 1,
+          "accepted_lines": 1
+        }
+      }
+    }
+  }
+}
