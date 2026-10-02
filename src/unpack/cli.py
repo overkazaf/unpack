@@ -223,6 +223,7 @@ def dump(
     device: Annotated[Optional[str], typer.Option("--device", "-d", help="ADB device serial (default: first USB device)")] = None,
     engine: Annotated[Optional[str], typer.Option("--engine", "-e", help="Force engine: frida | ebpf | memory")] = None,
     timeout: Annotated[int, typer.Option("--timeout", "-t", help="Seconds to wait for packer to unpack (default: auto)")] = 0,
+    deep: Annotated[bool, typer.Option("--deep", help="Active invocation: force-call all methods to defeat function extraction packers")] = False,
     skip_repair: Annotated[bool, typer.Option("--skip-repair", help="Skip automatic DEX repair after dump")] = False,
     no_anti_detect: Annotated[bool, typer.Option("--no-anti-detect", help="Disable Frida anti-detection bypasses")] = False,
 ):
@@ -230,6 +231,10 @@ def dump(
 
     Requires a connected Android device. Engine is auto-selected based on
     packer type and device capabilities (eBPF > Frida > Memory).
+
+    Use --deep for function extraction packers: after dumping the DEX skeleton,
+    Frida active invocation forces every method to resolve, capturing the
+    decrypted CodeItems and merging them back into the skeleton.
     """
     if not apk.exists():
         console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
@@ -273,8 +278,72 @@ def dump(
     if removed_count > 0:
         console.print(f"  [{C_DIM}]Removed {removed_count} duplicate(s), {len(unique)} unique DEX file(s)[/]")
 
+    total_phases = 5 if deep else 4
+    phase_offset = 0
+
+    if deep:
+        from unpack.core.scanner import ProtectionLevel
+        _phase(3, total_phases, "Active invocation (deep mode)")
+
+        if scan_result.protection_level not in (
+            ProtectionLevel.FUNCTION_EXTRACTION, ProtectionLevel.VMP, ProtectionLevel.DEX2C,
+        ):
+            console.print(f"  [{C_WARN}]Packer is not function-extraction level, deep mode may not help[/]")
+
+        try:
+            from unpack.engines.active_invoke import ActiveInvoker
+            from unpack.repair.codeitem_merger import CodeItemMerger
+
+            pkg_name = None
+            try:
+                from unpack.utils.apk import get_package_name
+                pkg_name = get_package_name(apk)
+            except Exception:
+                pass
+
+            if pkg_name:
+                invoker = ActiveInvoker(
+                    wait_seconds=timeout if timeout > 0 else 15,
+                    anti_detect=not no_anti_detect,
+                )
+                with _spinner(f"Force-invoking methods in {pkg_name}..."):
+                    invoke_result = invoker.invoke(
+                        package_name=pkg_name,
+                        output_dir=output,
+                        device_serial=device,
+                    )
+
+                if invoke_result.code_items:
+                    console.print(f"  [{C_OK}]+[/] Captured [{C_OK}]{len(invoke_result.code_items)}[/] CodeItem(s)")
+
+                    merger = CodeItemMerger()
+                    merged_count = 0
+                    for dex_path in list(dump_result.dex_files):
+                        with _spinner(f"Merging CodeItems into {dex_path.name}...", show_time=False):
+                            merge_result = merger.merge(dex_path, invoke_result.code_items)
+                        if merge_result.methods_merged > 0:
+                            merged_count += merge_result.methods_merged
+                            console.print(
+                                f"  [{C_OK}]+[/] {dex_path.name}: "
+                                f"[{C_OK}]{merge_result.methods_merged}[/] merged, "
+                                f"[{C_WARN}]{merge_result.methods_still_nop}[/] still NOP"
+                            )
+                    if merged_count > 0:
+                        console.print(f"  [{C_OK}]Total: {merged_count} methods restored[/]")
+                    else:
+                        console.print(f"  [{C_DIM}]No NOP methods found to merge (DEX may not use function extraction)[/]")
+                else:
+                    msg = invoke_result.error or "no CodeItems captured"
+                    console.print(f"  [{C_WARN}]{msg}[/]")
+            else:
+                console.print(f"  [{C_FAIL}]Could not determine package name for active invocation[/]")
+        except ImportError:
+            console.print(f"  [{C_FAIL}]Active invocation requires frida: pip install -e '.[frida]'[/]")
+
+        phase_offset = 1
+
     if not skip_repair:
-        _phase(3, 4, "Repairing DEX files")
+        _phase(3 + phase_offset, total_phases, "Repairing DEX files")
         pipeline = DexRepairPipeline()
         for dex_path in dump_result.dex_files:
             with _spinner(f"Repairing {dex_path.name}...", show_time=False):
@@ -282,7 +351,7 @@ def dump(
             icon = f"[{C_OK}]+[/]" if repair_result.success else f"[{C_FAIL}]x[/]"
             console.print(f"  {icon} {dex_path.name} [{C_DIM}]({', '.join(repair_result.actions)})[/]")
 
-    _phase(4, 4, "Verifying quality")
+    _phase(4 + phase_offset, total_phases, "Verifying quality")
     with _spinner("Analyzing DEX coverage..."):
         reporter = Reporter()
         report = reporter.evaluate(output, scan_result)
