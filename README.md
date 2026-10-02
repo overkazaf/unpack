@@ -4,15 +4,52 @@ Android 加固分析平台 —— 识别壳 → 选择引擎 → 脱壳 → 修�
 
 ## 为什么做这个项目
 
-现有的 Android 脱壳工具存在几个核心问题：
+现有的 Android 脱壳工具存在几个核心问题。UNPACK 逐一解决：
 
-1. **碎片化严重** —— Frida 系、ART 修改系、Xposed 系、eBPF 系各自为战，用户需要自己判断该用哪个工具
-2. **"dump 完就丢"** —— 大部分工具只管 dump，不管修复。dump 出来的 DEX 经常 checksum 错误、header 损坏、baksmali/jadx 无法解析
-3. **没有质量反馈** —— dump 完了不知道成功率多少，哪些方法还是加密的
-4. **壳识别靠人** —— 没有工具能自动识别壳类型并选择最优策略
-5. **反检测各自为战** —— 每个工具单独处理 anti-Frida、anti-root，缺乏统一框架
+### 1. 碎片化严重 → 三引擎自动调度
 
-UNPACK 的目标是把这些能力整合成一个工具链：**scan → dump → repair → verify**，每个环节都自动化。
+现状：Frida 系、ART 修改系、Xposed 系、eBPF 系各自为战，用户需要自己判断该用哪个。
+
+UNPACK 的做法：`core/dispatcher.py` 根据 `scanner` 的检测结果自动选择最优引擎。DEX 加密壳 → Memory 引擎（零注入）；需要 Frida 特性 → Frida 引擎（4 策略）；内核支持 → eBPF 引擎。用户只需 `unpack dump app.apk`，不需要知道底层用的是哪个。
+
+### 2. "dump 完就丢" → 7 步 DEX 修复流水线
+
+现状：frida-dexdump、drizzleDumper 等工具 dump 出 DEX 后直接丢给用户，checksum 错误、header 损坏是常态。
+
+UNPACK 的做法：`repair/dex_repair.py` 对每个 dump 产物自动执行 magic 修复 → file_size 修正 → map_list 验证 → NOP 方法检测 → CodeItem 对齐 → SHA-1 重算 → Adler32 重算。修复后的 DEX 可直接被 baksmali / jadx / JEB 解析。
+
+### 3. 没有质量反馈 → 覆盖率 + NOP 检测报告
+
+现状：dump 完了不知道成功了多少，哪些方法还被加密。
+
+UNPACK 的做法：`core/reporter.py` 统计每个 DEX 的类数量、方法数量、有 CodeItem 的方法数、NOP-only 方法数（仍被加密的函数抽取方法），计算代码覆盖率和综合评分。输出结构化 JSON + 终端面板。
+
+### 4. 壳识别靠人 → 24 家自动识别 + 策略路由
+
+现状：用户需要自己用 APKiD 或手动查看 SO/manifest 来判断壳类型，再选择对应的脱壳工具。
+
+UNPACK 的做法：`core/scanner.py` 通过 6 维加权评分（SO 文件、Manifest Application class、Assets、DEX 类名、证书关键字、小 DEX 启发式）自动识别 24 家壳厂商 + 版本。识别结果直接驱动 `dispatcher` 选择引擎和参数 —— 检测到函数抽取壳时自动提示 `--deep` 模式。
+
+### 5. 反检测各自为战 → 统一反检测模块
+
+现状：每个脱壳工具各自硬编码几行 anti-Frida patch，互不复用。
+
+UNPACK 的做法：独立的 `_ANTI_DETECT_BLOCK` 模块（6 项绕过），以 IIFE 方式在 Frida 脚本 load 后、process resume 前立即执行。Frida 引擎和 active_invoke 引擎共用同一套反检测代码 —— maps 过滤、端口隐藏、信号拦截、TracerPid、线程改名、时间检测缓解。通过 `--no-anti-detect` 可整体关闭。
+
+### 全链路联动
+
+这 5 个能力不是孤立的模块，而是一条数据驱动的流水线：
+
+```
+scan 输出壳类型+保护等级
+  → dispatcher 根据保护等级选引擎+参数
+    → engine dump 出 DEX 骨架
+      → deep 模式：active invoke 触发解密 + merge 回填 CodeItem
+        → repair 修复 header/checksum/signature
+          → reporter 统计覆盖率，NOP 方法数 → 报告给用户
+```
+
+每个环节的输出是下一个环节的输入，不需要人工干预。
 
 ## 安装
 
