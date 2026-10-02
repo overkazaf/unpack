@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UNPACK</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#f8fafc;--card:#fff;--border:#e2e8f0;--text:#0f172a;--dim:#64748b;--muted:#94a3b8;
+  --cyan:#0891b2;--emerald:#059669;--amber:#d97706;--violet:#7c3aed;--rose:#e11d48;
+  --radius:0.5rem;
+}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+code,.mono{font-family:'JetBrains Mono',monospace}
+
+/* Header */
+.header{display:flex;align-items:center;gap:1rem;padding:1rem 2rem;border-bottom:1px solid var(--border);background:#fff}
+.header h1{font-family:'JetBrains Mono',monospace;font-size:1.25rem;font-weight:700;letter-spacing:-0.03em}
+.header h1 span{color:var(--cyan)}
+.engine-status{margin-left:auto;display:flex;gap:0.75rem;font-size:0.75rem;color:var(--dim)}
+.engine-dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px}
+.engine-dot.on{background:var(--emerald)}.engine-dot.off{background:var(--rose)}
+
+/* Tabs */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 2rem;background:#fff}
+.tab{padding:0.75rem 1.5rem;font-size:0.85rem;font-weight:500;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+
+/* Content */
+.content{max-width:960px;margin:0 auto;padding:2rem}
+.tab-panel{display:none}.tab-panel.active{display:block}
+
+/* Drop zone */
+.dropzone{border:2px dashed var(--border);border-radius:var(--radius);padding:3rem 2rem;text-align:center;cursor:pointer;transition:all 0.2s;background:#fff}
+.dropzone:hover,.dropzone.dragover{border-color:var(--cyan);background:rgba(8,145,178,0.03)}
+.dropzone-label{font-size:0.9rem;color:var(--dim)}
+.dropzone-label strong{color:var(--text)}
+.dropzone-file{margin-top:0.75rem;font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--cyan)}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:0.5rem;padding:0.6rem 1.25rem;border-radius:var(--radius);font-family:'JetBrains Mono',monospace;font-size:0.8rem;font-weight:600;border:none;cursor:pointer;transition:all 0.15s}
+.btn-primary{background:var(--cyan);color:#fff}.btn-primary:hover{background:#0e7490}
+.btn-primary:disabled{opacity:0.5;cursor:not-allowed}
+.btn-ghost{background:transparent;color:var(--dim);border:1px solid var(--border)}.btn-ghost:hover{border-color:var(--muted)}
+
+/* Cards */
+.card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-top:1rem}
+.card-title{font-size:0.85rem;font-weight:600;margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem}
+.card-title .dot{width:8px;height:8px;border-radius:50%}
+
+/* Result panel */
+.result{margin-top:1.5rem}
+.result-header{display:flex;align-items:center;gap:1rem;padding:1rem 1.25rem;border-radius:var(--radius);margin-bottom:1rem}
+.result-header.detected{background:rgba(8,145,178,0.06);border:1px solid rgba(8,145,178,0.2)}
+.result-header.clean{background:rgba(100,116,139,0.06);border:1px solid var(--border)}
+.result-packer{font-family:'JetBrains Mono',monospace;font-size:1.1rem;font-weight:700}
+.result-version{font-size:0.8rem;color:var(--cyan);font-family:'JetBrains Mono',monospace}
+.result-level{font-size:0.7rem;padding:0.2rem 0.6rem;border-radius:999px;font-weight:600;font-family:'JetBrains Mono',monospace}
+.level-none{background:#f1f5f9;color:var(--dim)}
+.level-dex{background:rgba(217,119,6,0.1);color:var(--amber)}
+.level-extract{background:rgba(217,119,6,0.15);color:var(--amber)}
+.level-vmp{background:rgba(225,29,72,0.1);color:var(--rose)}
+.level-dex2c{background:rgba(225,29,72,0.15);color:var(--rose)}
+
+/* Confidence bar */
+.conf-bar{display:flex;align-items:center;gap:0.5rem;margin:0.5rem 0}
+.conf-track{flex:1;height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden;max-width:200px}
+.conf-fill{height:100%;border-radius:4px;transition:width 0.5s}
+.conf-pct{font-family:'JetBrains Mono',monospace;font-size:0.8rem;font-weight:600;min-width:3rem}
+
+/* Breakdown table */
+.breakdown{width:100%;border-collapse:collapse;font-size:0.8rem;margin-top:0.5rem}
+.breakdown th{text-align:left;padding:0.4rem 0.75rem;font-weight:500;color:var(--dim);border-bottom:1px solid var(--border);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em}
+.breakdown td{padding:0.4rem 0.75rem;border-bottom:1px solid #f1f5f9}
+.breakdown .hit{color:var(--emerald);font-weight:600}
+.breakdown .miss{color:var(--muted)}
+
+/* SO / DEX lists */
+.collapsible-header{display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.8rem;font-weight:500;color:var(--dim);padding:0.5rem 0;user-select:none}
+.collapsible-header:hover{color:var(--text)}
+.collapsible-body{display:none;padding:0.25rem 0}
+.collapsible-body.open{display:block}
+.so-item,.dex-item{font-family:'JetBrains Mono',monospace;font-size:0.7rem;padding:0.2rem 0;color:var(--dim)}
+.so-item.suspicious{color:var(--amber)}
+
+/* Form controls */
+.form-row{display:flex;align-items:center;gap:1rem;margin:0.75rem 0;flex-wrap:wrap}
+.form-label{font-size:0.8rem;font-weight:500;min-width:80px}
+select,input[type=range]{font-family:inherit;font-size:0.8rem}
+select{padding:0.4rem 0.75rem;border:1px solid var(--border);border-radius:var(--radius);background:#fff}
+.toggle{display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;cursor:pointer}
+.toggle input{accent-color:var(--cyan)}
+
+/* Progress */
+.progress-area{margin-top:1rem;padding:1rem;background:#f8fafc;border-radius:var(--radius);border:1px solid var(--border)}
+.phase-indicator{font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--cyan);margin-bottom:0.5rem}
+.log-output{font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--dim);max-height:200px;overflow-y:auto;white-space:pre-wrap}
+
+/* Verify/Repair results */
+.file-result{display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0;border-bottom:1px solid #f8fafc;font-size:0.8rem}
+.file-result:last-child{border-bottom:none}
+.badge-pass{background:rgba(5,150,105,0.1);color:var(--emerald);padding:0.15rem 0.5rem;border-radius:999px;font-size:0.7rem;font-weight:600;font-family:'JetBrains Mono',monospace}
+.badge-fail{background:rgba(225,29,72,0.1);color:var(--rose);padding:0.15rem 0.5rem;border-radius:999px;font-size:0.7rem;font-weight:600;font-family:'JetBrains Mono',monospace}
+.file-actions{font-size:0.7rem;color:var(--dim);margin-left:auto}
+
+/* Report card */
+.report-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0.75rem;margin-top:0.75rem}
+.report-stat{text-align:center;padding:0.75rem;background:#f8fafc;border-radius:var(--radius)}
+.report-value{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:700}
+.report-label{font-size:0.7rem;color:var(--dim);margin-top:0.25rem}
+
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--cyan);border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.hidden{display:none}
+@media(max-width:640px){.content{padding:1rem}.form-row{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>UN<span>PACK</span></h1>
+  <div class="engine-status" id="engine-status">loading...</div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="scan">Scan</div>
+  <div class="tab" data-tab="dump">Dump</div>
+  <div class="tab" data-tab="repair">Repair</div>
+  <div class="tab" data-tab="verify">Verify</div>
+</div>
+
+<div class="content">
+
+  <!-- ═══ SCAN TAB ═══ -->
+  <div class="tab-panel active" id="panel-scan">
+    <div class="dropzone" id="scan-dropzone">
+      <div class="dropzone-label"><strong>Drop APK here</strong> or click to browse</div>
+      <div class="dropzone-file" id="scan-filename"></div>
+      <input type="file" accept=".apk" id="scan-file" class="hidden">
+    </div>
+    <div style="margin-top:1rem;display:flex;gap:0.5rem">
+      <button class="btn btn-primary" id="scan-btn" disabled>Scan</button>
+      <span id="scan-spinner" class="spinner hidden"></span>
+    </div>
+    <div id="scan-result" class="result hidden"></div>
+  </div>
+
+  <!-- ═══ DUMP TAB ═══ -->
+  <div class="tab-panel" id="panel-dump">
+    <div class="dropzone" id="dump-dropzone">
+      <div class="dropzone-label"><strong>Drop APK here</strong> or click to browse</div>
+      <div class="dropzone-file" id="dump-filename"></div>
+      <input type="file" accept=".apk" id="dump-file" class="hidden">
+    </div>
+    <div class="card">
+      <div class="card-title">Options</div>
+      <div class="form-row">
+        <span class="form-label">Engine</span>
+        <select id="dump-engine">
+          <option value="">Auto</option>
+          <option value="memory">Memory</option>
+          <option value="frida">Frida</option>
+          <option value="ebpf">eBPF</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <span class="form-label">Timeout</span>
+        <input type="range" id="dump-timeout" min="5" max="60" value="15" style="flex:1;max-width:200px">
+        <span class="mono" style="font-size:0.8rem" id="dump-timeout-val">15s</span>
+      </div>
+      <div class="form-row">
+        <label class="toggle"><input type="checkbox" id="dump-deep"> Deep mode (active invocation)</label>
+      </div>
+      <div class="form-row">
+        <label class="toggle"><input type="checkbox" id="dump-antidetect" checked> Anti-detection</label>
+      </div>
+    </div>
+    <div style="margin-top:1rem">
+      <button class="btn btn-primary" id="dump-btn" disabled>Start Dump</button>
+    </div>
+    <div id="dump-progress" class="progress-area hidden">
+      <div class="phase-indicator"><span class="spinner"></span> <span id="dump-phase">Starting...</span></div>
+      <div class="log-output" id="dump-log"></div>
+    </div>
+    <div id="dump-result" class="result hidden"></div>
+  </div>
+
+  <!-- ═══ REPAIR TAB ═══ -->
+  <div class="tab-panel" id="panel-repair">
+    <div class="dropzone" id="repair-dropzone">
+      <div class="dropzone-label"><strong>Drop DEX file(s)</strong> or click to browse</div>
+      <div class="dropzone-file" id="repair-filename"></div>
+      <input type="file" accept=".dex" multiple id="repair-file" class="hidden">
+    </div>
+    <div class="form-row" style="margin-top:0.75rem">
+      <label class="toggle"><input type="checkbox" id="repair-inplace"> Repair in place</label>
+    </div>
+    <button class="btn btn-primary" id="repair-btn" disabled style="margin-top:0.5rem">Repair</button>
+    <span id="repair-spinner" class="spinner hidden"></span>
+    <div id="repair-result" class="result hidden"></div>
+  </div>
+
+  <!-- ═══ VERIFY TAB ═══ -->
+  <div class="tab-panel" id="panel-verify">
+    <div class="dropzone" id="verify-dropzone">
+      <div class="dropzone-label"><strong>Drop DEX file(s)</strong> or click to browse</div>
+      <div class="dropzone-file" id="verify-filename"></div>
+      <input type="file" accept=".dex" multiple id="verify-file" class="hidden">
+    </div>
+    <button class="btn btn-primary" id="verify-btn" disabled style="margin-top:1rem">Verify</button>
+    <span id="verify-spinner" class="spinner hidden"></span>
+    <div id="verify-result" class="result hidden"></div>
+  </div>
+
+</div>
+
+<script>
+// ── Tab switching ──
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-' + t.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Engine status ──
+fetch('/api/engines').then(r=>r.json()).then(d => {
+  const el = document.getElementById('engine-status');
+  el.innerHTML = d.engines.map(e =>
+    `<span><span class="engine-dot ${e.available?'on':'off'}"></span>${e.name}</span>`
+  ).join('');
+}).catch(() => {
+  document.getElementById('engine-status').textContent = 'offline';
+});
+
+// ── Dropzone helper ──
+function setupDropzone(zoneId, fileId, filenameId, btnId) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(fileId);
+  const fname = document.getElementById(filenameId);
+  const btn = document.getElementById(btnId);
+  zone.addEventListener('click', () => input.click());
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault(); zone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; input.dispatchEvent(new Event('change')); }
+  });
+  input.addEventListener('change', () => {
+    if (input.files.length) {
+      const f = input.files[0] || input.files;
+      const names = Array.from(input.files).map(x => x.name);
+      const size = Array.from(input.files).reduce((a,x) => a+x.size, 0);
+      fname.textContent = names.join(', ') + ' (' + (size/1024/1024).toFixed(1) + ' MB)';
+      btn.disabled = false;
+    }
+  });
+}
+setupDropzone('scan-dropzone', 'scan-file', 'scan-filename', 'scan-btn');
+setupDropzone('dump-dropzone', 'dump-file', 'dump-filename', 'dump-btn');
+setupDropzone('repair-dropzone', 'repair-file', 'repair-filename', 'repair-btn');
+setupDropzone('verify-dropzone', 'verify-file', 'verify-filename', 'verify-btn');
+
+// ── Timeout slider ──
+document.getElementById('dump-timeout').addEventListener('input', e => {
+  document.getElementById('dump-timeout-val').textContent = e.target.value + 's';
+});
+
+// ── Level badge helper ──
+function levelBadge(level) {
+  const map = {none:['No protection','level-none'],dex_encryption:['DEX encryption','level-dex'],
+    function_extraction:['Function extraction','level-extract'],vmp:['VMP','level-vmp'],dex2c:['DEX2C','level-dex2c'],unknown:['Unknown','level-none']};
+  const [label, cls] = map[level] || map.unknown;
+  return `<span class="result-level ${cls}">${label}</span>`;
+}
+
+// ── Confidence bar ──
+function confBar(val) {
+  const pct = Math.round(val * 100);
+  const color = val >= 0.6 ? 'var(--emerald)' : val >= 0.3 ? 'var(--amber)' : 'var(--rose)';
+  return `<div class="conf-bar"><div class="conf-track"><div class="conf-fill" style="width:${pct}%;background:${color}"></div></div><span class="conf-pct">${pct}%</span></div>`;
+}
+
+// ── SCAN ──
+document.getElementById('scan-btn').addEventListener('click', async () => {
+  const file = document.getElementById('scan-file').files[0];
+  if (!file) return;
+  const btn = document.getElementById('scan-btn');
+  const spinner = document.getElementById('scan-spinner');
+  const resultEl = document.getElementById('scan-result');
+  btn.disabled = true; spinner.classList.remove('hidden'); resultEl.classList.add('hidden');
+
+  const fd = new FormData(); fd.append('file', file);
+  try {
+    const res = await fetch('/api/scan', {method:'POST', body:fd});
+    const d = await res.json();
+    if (d.error) { resultEl.innerHTML = `<div class="card" style="color:var(--rose)">${d.error}</div>`; }
+    else { resultEl.innerHTML = renderScanResult(d); }
+    resultEl.classList.remove('hidden');
+  } catch(e) { resultEl.innerHTML = `<div class="card" style="color:var(--rose)">Error: ${e.message}</div>`; resultEl.classList.remove('hidden'); }
+  btn.disabled = false; spinner.classList.add('hidden');
+});
+
+function renderScanResult(d) {
+  let html = '';
+  if (d.packer_name) {
+    html += `<div class="result-header detected">
+      <div><div class="result-packer">${d.packer_name}</div>
+      ${d.packer_version ? `<span class="result-version">${d.packer_version}</span>` : ''}</div>
+      <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:0.25rem">
+        ${levelBadge(d.protection_level)}
+        ${confBar(d.confidence)}
+      </div></div>`;
+  } else {
+    html += `<div class="result-header clean"><span style="color:var(--dim)">No packer detected</span></div>`;
+  }
+
+  // Signatures
+  if (d.matched_signatures && d.matched_signatures.length) {
+    html += `<div class="card"><div class="card-title"><span class="dot" style="background:var(--cyan)"></span>Matched Signatures</div>`;
+    html += d.matched_signatures.map(s => `<div class="so-item">${s}</div>`).join('');
+    html += '</div>';
+  }
+
+  // Breakdown
+  if (d.score_breakdown && d.score_breakdown.length) {
+    html += `<div class="card"><div class="card-title"><span class="dot" style="background:var(--violet)"></span>Confidence Breakdown</div>
+    <table class="breakdown"><thead><tr><th>Dimension</th><th>Score</th><th>Max</th><th>Status</th></tr></thead><tbody>`;
+    let total=0, totalMax=0;
+    d.score_breakdown.forEach(b => {
+      total+=b.score; totalMax+=b.max;
+      html += `<tr><td>${b.dimension}</td><td class="mono">${b.score.toFixed(1)}</td><td class="mono">${b.max.toFixed(1)}</td><td class="${b.matched?'hit':'miss'}">${b.matched?'HIT':'-'}</td></tr>`;
+    });
+    html += `<tr style="font-weight:600;border-top:1px solid var(--border)"><td>Total</td><td class="mono">${total.toFixed(1)}</td><td class="mono">${totalMax.toFixed(1)}</td><td class="mono">${Math.round(total/totalMax*100)}%</td></tr>`;
+    html += '</tbody></table></div>';
+  }
+
+  // DEX info
+  if (d.all_dex_info && d.all_dex_info.length) {
+    html += `<div class="card"><div class="collapsible-header" onclick="this.nextElementSibling.classList.toggle('open')">DEX Files (${d.all_dex_info.length}) &#9662;</div>
+    <div class="collapsible-body">`;
+    d.all_dex_info.forEach(x => {
+      html += `<div class="dex-item">${x.name} &mdash; ${Math.round(x.size_kb)}KB, ${x.classes} classes</div>`;
+    });
+    html += '</div></div>';
+  }
+
+  // SO files
+  if (d.all_so_files && d.all_so_files.length) {
+    html += `<div class="card"><div class="collapsible-header" onclick="this.nextElementSibling.classList.toggle('open')">Native Libraries (${d.all_so_files.length}) &#9662;</div>
+    <div class="collapsible-body">`;
+    const susKeywords = ['secure','protect','shield','safe','guard','crypt','hook','jiagu','shell','sec','vmp','dex'];
+    d.all_so_files.forEach(s => {
+      const name = s.split('/').pop().toLowerCase();
+      const sus = susKeywords.some(k => name.includes(k));
+      html += `<div class="so-item${sus?' suspicious':''}">${s}</div>`;
+    });
+    html += '</div></div>';
+  }
+
+  // Candidates
+  if (d.all_candidates && d.all_candidates.length > 1) {
+    html += `<div class="card"><div class="card-title"><span class="dot" style="background:var(--amber)"></span>All Candidates</div>`;
+    d.all_candidates.forEach(c => {
+      html += `<div style="font-size:0.8rem;padding:0.25rem 0;color:var(--dim)"><strong style="color:var(--text)">${c.name}</strong> score=${c.score.toFixed(1)}</div>`;
+    });
+    html += '</div>';
+  }
+  return html;
+}
+
+// ── DUMP ──
+document.getElementById('dump-btn').addEventListener('click', async () => {
+  const file = document.getElementById('dump-file').files[0];
+  if (!file) return;
+
+  const btn = document.getElementById('dump-btn');
+  const progressEl = document.getElementById('dump-progress');
+  const resultEl = document.getElementById('dump-result');
+  const phaseEl = document.getElementById('dump-phase');
+  const logEl = document.getElementById('dump-log');
+
+  btn.disabled = true;
+  progressEl.classList.remove('hidden');
+  resultEl.classList.add('hidden');
+  logEl.textContent = '';
+  phaseEl.textContent = 'Uploading...';
+
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('engine', document.getElementById('dump-engine').value);
+  fd.append('timeout', document.getElementById('dump-timeout').value);
+  fd.append('deep', document.getElementById('dump-deep').checked);
+  fd.append('anti_detect', document.getElementById('dump-antidetect').checked);
+
+  try {
+    const res = await fetch('/api/dump', {method:'POST', body:fd});
+    const {job_id, error} = await res.json();
+    if (error) { logEl.textContent = error; btn.disabled = false; return; }
+
+    // Poll
+    const poll = async () => {
+      const r = await fetch(`/api/dump/${job_id}`);
+      const job = await r.json();
+      phaseEl.textContent = job.phase || job.status;
+      logEl.textContent = `Status: ${job.status}\nPhase: ${job.phase}\nAPK: ${job.apk}\nEngine: ${job.engine}`;
+
+      if (job.status === 'running') { setTimeout(poll, 1500); return; }
+      if (job.status === 'failed') {
+        logEl.textContent += `\n\nError: ${job.error}`;
+        phaseEl.textContent = 'Failed';
+        btn.disabled = false;
+        return;
+      }
+      // Done
+      progressEl.classList.add('hidden');
+      resultEl.innerHTML = renderDumpResult(job.result);
+      resultEl.classList.remove('hidden');
+      btn.disabled = false;
+    };
+    setTimeout(poll, 2000);
+  } catch(e) {
+    logEl.textContent = 'Error: ' + e.message;
+    btn.disabled = false;
+  }
+});
+
+function renderDumpResult(r) {
+  if (!r) return '<div class="card">No result</div>';
+  let html = '';
+  // Report stats
+  if (r.report) {
+    const rp = r.report;
+    html += `<div class="card"><div class="card-title"><span class="dot" style="background:var(--emerald)"></span>Quality Report</div>
+    <div class="report-grid">
+      <div class="report-stat"><div class="report-value" style="color:var(--cyan)">${rp.dex_count}</div><div class="report-label">DEX files</div></div>
+      <div class="report-stat"><div class="report-value" style="color:var(--text)">${(rp.total_classes||0).toLocaleString()}</div><div class="report-label">Classes</div></div>
+      <div class="report-stat"><div class="report-value" style="color:var(--text)">${(rp.total_methods||0).toLocaleString()}</div><div class="report-label">Methods</div></div>
+      <div class="report-stat"><div class="report-value" style="color:var(--emerald)">${Math.round((rp.code_coverage||0)*100)}%</div><div class="report-label">Coverage</div></div>
+      <div class="report-stat"><div class="report-value" style="color:var(--violet)">${Math.round((rp.score||0)*100)}%</div><div class="report-label">Score</div></div>
+    </div></div>`;
+  }
+  // Repairs
+  if (r.repairs && r.repairs.length) {
+    html += `<div class="card"><div class="card-title"><span class="dot" style="background:var(--amber)"></span>Repairs (${r.repairs.length})</div>`;
+    r.repairs.forEach(rr => {
+      html += `<div class="file-result"><span class="${rr.success?'badge-pass':'badge-fail'}">${rr.success?'OK':'FAIL'}</span>
+        <span class="mono" style="font-size:0.8rem">${rr.file}</span>
+        <span class="file-actions">${rr.actions.join(', ')}</span></div>`;
+    });
+    html += '</div>';
+  }
+  html += `<div style="margin-top:0.5rem;font-size:0.75rem;color:var(--dim)">Duration: ${r.duration_ms}ms</div>`;
+  return html;
+}
+
+// ── REPAIR ──
+document.getElementById('repair-btn').addEventListener('click', async () => {
+  const files = document.getElementById('repair-file').files;
+  if (!files.length) return;
+  const btn = document.getElementById('repair-btn');
+  const spinner = document.getElementById('repair-spinner');
+  const resultEl = document.getElementById('repair-result');
+  btn.disabled = true; spinner.classList.remove('hidden'); resultEl.classList.add('hidden');
+
+  const fd = new FormData();
+  Array.from(files).forEach(f => fd.append('files', f));
+  fd.append('in_place', document.getElementById('repair-inplace').checked);
+
+  try {
+    const res = await fetch('/api/repair', {method:'POST', body:fd});
+    const d = await res.json();
+    let html = '<div class="card"><div class="card-title"><span class="dot" style="background:var(--emerald)"></span>Repair Results</div>';
+    (d.results||[]).forEach(r => {
+      html += `<div class="file-result"><span class="${r.success?'badge-pass':'badge-fail'}">${r.success?'OK':'FAIL'}</span>
+        <span class="mono" style="font-size:0.8rem">${r.file}</span>
+        <span class="file-actions">${r.actions.join(', ')}</span></div>`;
+    });
+    html += '</div>';
+    resultEl.innerHTML = html;
+    resultEl.classList.remove('hidden');
+  } catch(e) { resultEl.innerHTML = `<div class="card" style="color:var(--rose)">${e.message}</div>`; resultEl.classList.remove('hidden'); }
+  btn.disabled = false; spinner.classList.add('hidden');
+});
+
+// ── VERIFY ──
+document.getElementById('verify-btn').addEventListener('click', async () => {
+  const files = document.getElementById('verify-file').files;
+  if (!files.length) return;
+  const btn = document.getElementById('verify-btn');
+  const spinner = document.getElementById('verify-spinner');
+  const resultEl = document.getElementById('verify-result');
+  btn.disabled = true; spinner.classList.remove('hidden'); resultEl.classList.add('hidden');
+
+  const fd = new FormData();
+  Array.from(files).forEach(f => fd.append('files', f));
+
+  try {
+    const res = await fetch('/api/verify', {method:'POST', body:fd});
+    const d = await res.json();
+    let html = '<div class="card"><div class="card-title"><span class="dot" style="background:var(--violet)"></span>Verify Results</div>';
+    (d.results||[]).forEach(r => {
+      html += `<div class="file-result"><span class="${r.valid?'badge-pass':'badge-fail'}">${r.valid?'PASS':'FAIL'}</span>
+        <span class="mono" style="font-size:0.8rem">${r.file}</span></div>`;
+      if (r.issues && r.issues.length) {
+        r.issues.forEach(i => { html += `<div style="font-size:0.7rem;color:var(--amber);padding-left:4rem">${i}</div>`; });
+      }
+      if (r.stats) {
+        html += `<div style="font-size:0.7rem;color:var(--dim);padding-left:4rem">classes=${r.stats.class_count||0} methods=${r.stats.method_count||0} strings=${r.stats.string_count||0}</div>`;
+      }
+    });
+    html += '</div>';
+    resultEl.innerHTML = html;
+    resultEl.classList.remove('hidden');
+  } catch(e) { resultEl.innerHTML = `<div class="card" style="color:var(--rose)">${e.message}</div>`; resultEl.classList.remove('hidden'); }
+  btn.disabled = false; spinner.classList.add('hidden');
+});
+</script>
+</body>
+</html>

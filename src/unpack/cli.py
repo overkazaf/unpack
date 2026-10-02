@@ -584,5 +584,26 @@ def _print_verify_result(name: str, result):
             console.print(f"    [{C_WARN}]▸[/] {issue}")
 
 
+@app.command()
+def web(
+    port: Annotated[int, typer.Option("--port", "-p", help="Port to listen on")] = 8080,
+    host: Annotated[str, typer.Option("--host", help="Host to bind to")] = "127.0.0.1",
+):
+    """Launch the web UI.
+
+    Opens a browser-based interface for scan, dump, repair, and verify.
+    Requires flask: pip install -e '.[web]'
+    """
+    try:
+        from unpack.web import create_app
+    except ImportError:
+        console.print(f"[{C_FAIL}]Flask not installed. Run: pip install -e '.\\[web]'[/]")
+        raise typer.Exit(1)
+
+    console.print(f"  [{C_OK}]UNPACK Web UI[/] http://{host}:{port}")
+    webapp = create_app()
+    webapp.run(host=host, port=port, debug=False)
+
+
 if __name__ == "__main__":
     app()
