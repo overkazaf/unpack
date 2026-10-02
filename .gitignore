@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+test_apks/
+e2e_test/
+bpftrace-linux-arm64
+benchmark_results.json
+*.dex
+result.json
