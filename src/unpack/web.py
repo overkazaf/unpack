@@ -24,6 +24,7 @@ def create_app() -> Flask:
     _jobs: dict[str, dict] = {}
     # APK cache: sha256 -> {path, filename, scan_result, work_dir}
     _cache: dict[str, dict] = {}
+    _cache_dir = Path(tempfile.mkdtemp(prefix="unpack_cache_"))
 
     def _file_hash(path: Path) -> str:
         h = hashlib.sha256()
@@ -31,6 +32,28 @@ def create_app() -> Flask:
             for chunk in iter(lambda: f.read(65536), b""):
                 h.update(chunk)
         return h.hexdigest()[:16]
+
+    # ── Error handlers (always return JSON, never HTML) ──
+
+    @app.errorhandler(400)
+    def bad_request(e):
+        return jsonify(error=str(e)), 400
+
+    @app.errorhandler(404)
+    def not_found(e):
+        if request.path.startswith("/api/"):
+            return jsonify(error="Not found"), 404
+        return render_template("index.html"), 404
+
+    @app.errorhandler(500)
+    def server_error(e):
+        return jsonify(error=str(e)), 500
+
+    @app.errorhandler(Exception)
+    def handle_exception(e):
+        if request.path.startswith("/api/"):
+            return jsonify(error=str(e)), 500
+        return render_template("index.html"), 500
 
     # ── Pages ──
 
@@ -69,32 +92,36 @@ def create_app() -> Flask:
             apk_path = entry["path"]
             work_dir = entry["work_dir"]
             filename = entry["filename"]
-        elif "file" in request.files:
+        elif "file" in request.files and request.files["file"].filename:
             f = request.files["file"]
-            if not f.filename or not f.filename.endswith(".apk"):
+            if not f.filename.endswith(".apk"):
                 return jsonify(error="File must be an .apk"), 400
-            job_id_tmp = str(uuid.uuid4())[:8]
-            work_dir = Path(tempfile.mkdtemp(prefix=f"unpack_{job_id_tmp}_"))
+            # Save to persistent cache dir
+            work_dir = _cache_dir / str(uuid.uuid4())[:8]
+            work_dir.mkdir(parents=True, exist_ok=True)
             apk_path = work_dir / f.filename
             f.save(str(apk_path))
             filename = f.filename
-            # Cache it
             h = _file_hash(apk_path)
-            _cache[h] = {"path": apk_path, "filename": filename, "work_dir": work_dir, "scan_result": None, "last_job": None}
+            # Dedup: if same APK already cached, reuse
+            if h in _cache:
+                apk_path.unlink(missing_ok=True)
+                work_dir.rmdir()
+                entry = _cache[h]
+                apk_path = entry["path"]
+                work_dir = entry["work_dir"]
+                filename = entry["filename"]
+            else:
+                _cache[h] = {"path": apk_path, "filename": filename, "work_dir": work_dir, "scan_result": None, "last_job": None}
             cached_hash = h
         else:
             return jsonify(error="No file uploaded and no cached APK specified"), 400
 
-        output_dir = work_dir / "output"
-        output_dir.mkdir(exist_ok=True)
-
         job_id = str(uuid.uuid4())[:8]
+        output_dir = work_dir / f"output_{job_id}"
+        output_dir.mkdir(parents=True, exist_ok=True)
         if cached_hash:
             _cache[cached_hash]["last_job"] = job_id
-        apk_path = work_dir / f.filename
-        f.save(str(apk_path))
-        output_dir = work_dir / "output"
-        output_dir.mkdir()
 
         _jobs[job_id] = {
             "status": "running",
