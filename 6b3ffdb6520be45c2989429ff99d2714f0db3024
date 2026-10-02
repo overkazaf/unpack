@@ -1,0 +1,44 @@
+src/unpack/core/scanner.py
+  cddddbaf40c704a4 614-620
+src/unpack/cli.py
+  cddddbaf40c704a4 4,8-14
+src/unpack/utils/apk.py
+  cddddbaf40c704a4 11-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "6b3ffdb6520be45c2989429ff99d2714f0db3024",
+  "prompts": {
+    "cddddbaf40c704a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d4894bd-331b-4fdc-9d1e-9e291a9fdfb9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 23,
+      "total_deletions": 0,
+      "accepted_lines": 32,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "src/unpack/utils/apk.py": {
+          "additions": 7,
+          "accepted_lines": 7
+        },
+        "src/unpack/core/scanner.py": {
+          "additions": 7,
+          "accepted_lines": 7
+        },
+        "src/unpack/cli.py": {
+          "additions": 9,
+          "accepted_lines": 9
+        },
+        "result.json": {
+          "accepted_lines": 9
+        }
+      }
+    }
+  }
+}
