@@ -8,519 +8,400 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#f8fafc;--card:#fff;--border:#e2e8f0;--text:#0f172a;--dim:#64748b;--muted:#94a3b8;
+  --bg:#f8fafc;--card:#fff;--border:#e2e8f0;--text:#0f172a;--dim:#475569;--muted:#94a3b8;
   --cyan:#0891b2;--emerald:#059669;--amber:#d97706;--violet:#7c3aed;--rose:#e11d48;
-  --radius:0.5rem;
+  --r:0.5rem;
 }
 body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 code,.mono{font-family:'JetBrains Mono',monospace}
 
-/* Header */
 .header{display:flex;align-items:center;gap:1rem;padding:1rem 2rem;border-bottom:1px solid var(--border);background:#fff}
 .header h1{font-family:'JetBrains Mono',monospace;font-size:1.25rem;font-weight:700;letter-spacing:-0.03em}
 .header h1 span{color:var(--cyan)}
-.engine-status{margin-left:auto;display:flex;gap:0.75rem;font-size:0.75rem;color:var(--dim)}
-.engine-dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px}
-.engine-dot.on{background:var(--emerald)}.engine-dot.off{background:var(--rose)}
+.header .status{margin-left:auto;font-size:0.75rem;color:var(--muted);display:flex;gap:1rem}
+.header .status .dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px}
+.header .status .on{background:var(--emerald)}
+.header .status .off{background:var(--rose)}
 
-/* Tabs */
-.tabs{display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 2rem;background:#fff}
-.tab{padding:0.75rem 1.5rem;font-size:0.85rem;font-weight:500;color:var(--dim);cursor:pointer;border-bottom:2px solid transparent;transition:all 0.2s}
-.tab:hover{color:var(--text)}
-.tab.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+.main{max-width:960px;margin:0 auto;padding:2rem}
 
-/* Content */
-.content{max-width:960px;margin:0 auto;padding:2rem}
-.tab-panel{display:none}.tab-panel.active{display:block}
+/* Upload zone */
+.upload-zone{border:2px dashed var(--border);border-radius:var(--r);padding:3rem 2rem;text-align:center;cursor:pointer;transition:all 0.2s;margin-bottom:1.5rem}
+.upload-zone:hover,.upload-zone.drag{border-color:var(--cyan);background:rgba(8,145,178,0.04)}
+.upload-zone h3{font-size:1rem;margin-bottom:0.5rem}
+.upload-zone p{font-size:0.85rem;color:var(--dim)}
+.upload-zone .file-info{font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--cyan);margin-top:0.5rem}
+.upload-zone input{display:none}
 
-/* Drop zone */
-.dropzone{border:2px dashed var(--border);border-radius:var(--radius);padding:3rem 2rem;text-align:center;cursor:pointer;transition:all 0.2s;background:#fff}
-.dropzone:hover,.dropzone.dragover{border-color:var(--cyan);background:rgba(8,145,178,0.03)}
-.dropzone-label{font-size:0.9rem;color:var(--dim)}
-.dropzone-label strong{color:var(--text)}
-.dropzone-file{margin-top:0.75rem;font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--cyan)}
+/* Options bar */
+.options{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin-bottom:1.5rem}
+.opt-group{display:flex;align-items:center;gap:0.5rem;font-size:0.8rem}
+.opt-group label{color:var(--dim);white-space:nowrap}
+.opt-group select,.opt-group input[type=number]{font-family:'JetBrains Mono',monospace;font-size:0.8rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:var(--r);background:#fff;color:var(--text)}
+.opt-group input[type=checkbox]{accent-color:var(--cyan)}
+.btn-run{margin-left:auto;padding:0.6rem 1.5rem;border:none;border-radius:var(--r);background:var(--cyan);color:#fff;font-family:'JetBrains Mono',monospace;font-size:0.85rem;font-weight:600;cursor:pointer;transition:background 0.2s}
+.btn-run:hover{background:#0e7490}
+.btn-run:disabled{background:var(--muted);cursor:not-allowed}
 
-/* Buttons */
-.btn{display:inline-flex;align-items:center;gap:0.5rem;padding:0.6rem 1.25rem;border-radius:var(--radius);font-family:'JetBrains Mono',monospace;font-size:0.8rem;font-weight:600;border:none;cursor:pointer;transition:all 0.15s}
-.btn-primary{background:var(--cyan);color:#fff}.btn-primary:hover{background:#0e7490}
-.btn-primary:disabled{opacity:0.5;cursor:not-allowed}
-.btn-ghost{background:transparent;color:var(--dim);border:1px solid var(--border)}.btn-ghost:hover{border-color:var(--muted)}
+/* Pipeline stepper */
+.pipeline{display:flex;gap:0;margin-bottom:2rem;overflow-x:auto}
+.step{flex:1;min-width:120px;text-align:center;position:relative;padding:0.75rem 0.5rem}
+.step .label{font-size:0.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.25rem}
+.step .bar{height:3px;background:var(--border);border-radius:2px;margin:0 8px}
+.step.active .label{color:var(--cyan)}
+.step.active .bar{background:var(--cyan);animation:pulse-bar 1.5s infinite}
+.step.done .label{color:var(--emerald)}
+.step.done .bar{background:var(--emerald)}
+.step.fail .label{color:var(--rose)}
+.step.fail .bar{background:var(--rose)}
+@keyframes pulse-bar{0%,100%{opacity:1}50%{opacity:0.4}}
 
-/* Cards */
-.card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-top:1rem}
-.card-title{font-size:0.85rem;font-weight:600;margin-bottom:0.75rem;display:flex;align-items:center;gap:0.5rem}
-.card-title .dot{width:8px;height:8px;border-radius:50%}
+/* Result sections */
+.results{display:flex;flex-direction:column;gap:1rem}
+.result-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;display:none}
+.result-card.show{display:block}
+.result-card .card-head{padding:0.75rem 1rem;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
+.result-card .card-head h3{font-size:0.85rem;font-weight:600}
+.result-card .card-head .badge{font-family:'JetBrains Mono',monospace;font-size:0.65rem;padding:0.15rem 0.5rem;border-radius:999px;font-weight:600;margin-left:auto}
+.result-card .card-body{padding:1rem;font-size:0.85rem}
+.result-card .card-body.collapsed{display:none}
 
-/* Result panel */
-.result{margin-top:1.5rem}
-.result-header{display:flex;align-items:center;gap:1rem;padding:1rem 1.25rem;border-radius:var(--radius);margin-bottom:1rem}
-.result-header.detected{background:rgba(8,145,178,0.06);border:1px solid rgba(8,145,178,0.2)}
-.result-header.clean{background:rgba(100,116,139,0.06);border:1px solid var(--border)}
-.result-packer{font-family:'JetBrains Mono',monospace;font-size:1.1rem;font-weight:700}
-.result-version{font-size:0.8rem;color:var(--cyan);font-family:'JetBrains Mono',monospace}
-.result-level{font-size:0.7rem;padding:0.2rem 0.6rem;border-radius:999px;font-weight:600;font-family:'JetBrains Mono',monospace}
-.level-none{background:#f1f5f9;color:var(--dim)}
-.level-dex{background:rgba(217,119,6,0.1);color:var(--amber)}
-.level-extract{background:rgba(217,119,6,0.15);color:var(--amber)}
-.level-vmp{background:rgba(225,29,72,0.1);color:var(--rose)}
-.level-dex2c{background:rgba(225,29,72,0.15);color:var(--rose)}
-
-/* Confidence bar */
-.conf-bar{display:flex;align-items:center;gap:0.5rem;margin:0.5rem 0}
-.conf-track{flex:1;height:8px;background:#f1f5f9;border-radius:4px;overflow:hidden;max-width:200px}
-.conf-fill{height:100%;border-radius:4px;transition:width 0.5s}
-.conf-pct{font-family:'JetBrains Mono',monospace;font-size:0.8rem;font-weight:600;min-width:3rem}
+/* Scan result */
+.scan-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.75rem}
+.scan-row{display:flex;justify-content:space-between;padding:0.25rem 0;border-bottom:1px solid rgba(0,0,0,0.04)}
+.scan-row .key{color:var(--dim);font-size:0.8rem}
+.scan-row .val{font-family:'JetBrains Mono',monospace;font-size:0.8rem;font-weight:500}
+.conf-bar{display:flex;align-items:center;gap:0.5rem}
+.conf-bar .track{flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.conf-bar .fill{height:100%;border-radius:3px;transition:width 0.3s}
 
 /* Breakdown table */
-.breakdown{width:100%;border-collapse:collapse;font-size:0.8rem;margin-top:0.5rem}
-.breakdown th{text-align:left;padding:0.4rem 0.75rem;font-weight:500;color:var(--dim);border-bottom:1px solid var(--border);font-size:0.7rem;text-transform:uppercase;letter-spacing:0.05em}
-.breakdown td{padding:0.4rem 0.75rem;border-bottom:1px solid #f1f5f9}
+.breakdown{width:100%;font-size:0.8rem;border-collapse:collapse;margin-top:0.5rem}
+.breakdown th{text-align:left;padding:0.35rem 0.5rem;font-weight:600;color:var(--dim);border-bottom:1px solid var(--border)}
+.breakdown td{padding:0.35rem 0.5rem;border-bottom:1px solid rgba(0,0,0,0.04)}
 .breakdown .hit{color:var(--emerald);font-weight:600}
 .breakdown .miss{color:var(--muted)}
 
-/* SO / DEX lists */
-.collapsible-header{display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.8rem;font-weight:500;color:var(--dim);padding:0.5rem 0;user-select:none}
-.collapsible-header:hover{color:var(--text)}
-.collapsible-body{display:none;padding:0.25rem 0}
-.collapsible-body.open{display:block}
-.so-item,.dex-item{font-family:'JetBrains Mono',monospace;font-size:0.7rem;padding:0.2rem 0;color:var(--dim)}
-.so-item.suspicious{color:var(--amber)}
+/* Quality report */
+.stat-row{display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.5rem}
+.stat-box{flex:1;min-width:100px;text-align:center;padding:0.75rem;background:var(--bg);border-radius:var(--r)}
+.stat-box .num{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:700}
+.stat-box .lbl{font-size:0.7rem;color:var(--muted)}
 
-/* Form controls */
-.form-row{display:flex;align-items:center;gap:1rem;margin:0.75rem 0;flex-wrap:wrap}
-.form-label{font-size:0.8rem;font-weight:500;min-width:80px}
-select,input[type=range]{font-family:inherit;font-size:0.8rem}
-select{padding:0.4rem 0.75rem;border:1px solid var(--border);border-radius:var(--radius);background:#fff}
-.toggle{display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;cursor:pointer}
-.toggle input{accent-color:var(--cyan)}
+/* Repair list */
+.repair-item{display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;font-size:0.8rem;border-bottom:1px solid rgba(0,0,0,0.04)}
+.repair-item .icon{font-weight:700;width:16px;text-align:center}
+.repair-item .actions{color:var(--dim);font-size:0.75rem;margin-left:auto}
 
-/* Progress */
-.progress-area{margin-top:1rem;padding:1rem;background:#f8fafc;border-radius:var(--radius);border:1px solid var(--border)}
-.phase-indicator{font-family:'JetBrains Mono',monospace;font-size:0.8rem;color:var(--cyan);margin-bottom:0.5rem}
-.log-output{font-family:'JetBrains Mono',monospace;font-size:0.7rem;color:var(--dim);max-height:200px;overflow-y:auto;white-space:pre-wrap}
+/* Collapsible */
+.collapsible{cursor:pointer}
+.collapsible::before{content:'+ ';font-weight:700;color:var(--muted)}
+.collapsible.open::before{content:'- '}
+.coll-body{display:none;margin-top:0.5rem}
+.coll-body.open{display:block}
+.so-list{font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--dim);max-height:200px;overflow-y:auto;padding:0.5rem;background:var(--bg);border-radius:var(--r)}
 
-/* Verify/Repair results */
-.file-result{display:flex;align-items:center;gap:0.75rem;padding:0.5rem 0;border-bottom:1px solid #f8fafc;font-size:0.8rem}
-.file-result:last-child{border-bottom:none}
-.badge-pass{background:rgba(5,150,105,0.1);color:var(--emerald);padding:0.15rem 0.5rem;border-radius:999px;font-size:0.7rem;font-weight:600;font-family:'JetBrains Mono',monospace}
-.badge-fail{background:rgba(225,29,72,0.1);color:var(--rose);padding:0.15rem 0.5rem;border-radius:999px;font-size:0.7rem;font-weight:600;font-family:'JetBrains Mono',monospace}
-.file-actions{font-size:0.7rem;color:var(--dim);margin-left:auto}
+.footer{text-align:center;padding:2rem;font-size:0.7rem;color:var(--muted)}
 
-/* Report card */
-.report-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0.75rem;margin-top:0.75rem}
-.report-stat{text-align:center;padding:0.75rem;background:#f8fafc;border-radius:var(--radius)}
-.report-value{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:700}
-.report-label{font-size:0.7rem;color:var(--dim);margin-top:0.25rem}
-
-.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--cyan);border-radius:50%;animation:spin 0.8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-
-.hidden{display:none}
-@media(max-width:640px){.content{padding:1rem}.form-row{flex-direction:column;align-items:flex-start}}
+@media(max-width:640px){
+  .main{padding:1rem}
+  .scan-grid{grid-template-columns:1fr}
+  .options{flex-direction:column;align-items:stretch}
+  .btn-run{margin-left:0}
+}
 </style>
 </head>
 <body>
 
 <div class="header">
   <h1>UN<span>PACK</span></h1>
-  <div class="engine-status" id="engine-status">loading...</div>
+  <div class="status" id="engineStatus">loading...</div>
 </div>
 
-<div class="tabs">
-  <div class="tab active" data-tab="scan">Scan</div>
-  <div class="tab" data-tab="dump">Dump</div>
-  <div class="tab" data-tab="repair">Repair</div>
-  <div class="tab" data-tab="verify">Verify</div>
+<div class="main">
+
+  <!-- Upload -->
+  <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+    <h3>Drop APK here or click to browse</h3>
+    <p>Upload once, full pipeline runs automatically</p>
+    <div class="file-info" id="fileInfo"></div>
+    <input type="file" id="fileInput" accept=".apk">
+  </div>
+
+  <!-- Options + Run -->
+  <div class="options">
+    <div class="opt-group">
+      <label>Engine</label>
+      <select id="optEngine"><option value="">Auto</option><option value="memory">Memory</option><option value="frida">Frida</option><option value="ebpf">eBPF</option></select>
+    </div>
+    <div class="opt-group">
+      <label>Timeout</label>
+      <input type="number" id="optTimeout" value="15" min="5" max="120" style="width:60px"> s
+    </div>
+    <div class="opt-group">
+      <input type="checkbox" id="optDeep"><label for="optDeep">Deep mode (active invoke)</label>
+    </div>
+    <div class="opt-group">
+      <input type="checkbox" id="optAntiDetect" checked><label for="optAntiDetect">Anti-detect</label>
+    </div>
+    <button class="btn-run" id="btnRun" disabled onclick="startPipeline()">Run Pipeline</button>
+  </div>
+
+  <!-- Pipeline stepper -->
+  <div class="pipeline" id="pipeline">
+    <div class="step" data-phase="scanning"><div class="label">Scan</div><div class="bar"></div></div>
+    <div class="step" data-phase="dumping"><div class="label">Dump</div><div class="bar"></div></div>
+    <div class="step" data-phase="active_invoke"><div class="label">Deep</div><div class="bar"></div></div>
+    <div class="step" data-phase="repairing"><div class="label">Repair</div><div class="bar"></div></div>
+    <div class="step" data-phase="verifying"><div class="label">Verify</div><div class="bar"></div></div>
+  </div>
+
+  <!-- Results -->
+  <div class="results">
+
+    <!-- Scan result -->
+    <div class="result-card" id="cardScan">
+      <div class="card-head" onclick="toggleCard('cardScan')">
+        <h3>Scan Result</h3>
+        <span class="badge" id="scanBadge" style="background:var(--bg);color:var(--dim)">--</span>
+      </div>
+      <div class="card-body" id="scanBody"></div>
+    </div>
+
+    <!-- Dump result -->
+    <div class="result-card" id="cardDump">
+      <div class="card-head" onclick="toggleCard('cardDump')">
+        <h3>Dump Result</h3>
+        <span class="badge" id="dumpBadge" style="background:var(--bg);color:var(--dim)">--</span>
+      </div>
+      <div class="card-body" id="dumpBody"></div>
+    </div>
+
+    <!-- Repair result -->
+    <div class="result-card" id="cardRepair">
+      <div class="card-head" onclick="toggleCard('cardRepair')">
+        <h3>Repair</h3>
+        <span class="badge" id="repairBadge" style="background:var(--bg);color:var(--dim)">--</span>
+      </div>
+      <div class="card-body" id="repairBody"></div>
+    </div>
+
+    <!-- Quality report -->
+    <div class="result-card" id="cardReport">
+      <div class="card-head" onclick="toggleCard('cardReport')">
+        <h3>Quality Report</h3>
+        <span class="badge" id="reportBadge" style="background:var(--bg);color:var(--dim)">--</span>
+      </div>
+      <div class="card-body" id="reportBody"></div>
+    </div>
+
+    <!-- Error -->
+    <div class="result-card" id="cardError" style="border-color:var(--rose)">
+      <div class="card-head"><h3 style="color:var(--rose)">Error</h3></div>
+      <div class="card-body" id="errorBody" style="color:var(--rose)"></div>
+    </div>
+
+  </div>
 </div>
 
-<div class="content">
-
-  <!-- ═══ SCAN TAB ═══ -->
-  <div class="tab-panel active" id="panel-scan">
-    <div class="dropzone" id="scan-dropzone">
-      <div class="dropzone-label"><strong>Drop APK here</strong> or click to browse</div>
-      <div class="dropzone-file" id="scan-filename"></div>
-      <input type="file" accept=".apk" id="scan-file" class="hidden">
-    </div>
-    <div style="margin-top:1rem;display:flex;gap:0.5rem">
-      <button class="btn btn-primary" id="scan-btn" disabled>Scan</button>
-      <span id="scan-spinner" class="spinner hidden"></span>
-    </div>
-    <div id="scan-result" class="result hidden"></div>
-  </div>
-
-  <!-- ═══ DUMP TAB ═══ -->
-  <div class="tab-panel" id="panel-dump">
-    <div class="dropzone" id="dump-dropzone">
-      <div class="dropzone-label"><strong>Drop APK here</strong> or click to browse</div>
-      <div class="dropzone-file" id="dump-filename"></div>
-      <input type="file" accept=".apk" id="dump-file" class="hidden">
-    </div>
-    <div class="card">
-      <div class="card-title">Options</div>
-      <div class="form-row">
-        <span class="form-label">Engine</span>
-        <select id="dump-engine">
-          <option value="">Auto</option>
-          <option value="memory">Memory</option>
-          <option value="frida">Frida</option>
-          <option value="ebpf">eBPF</option>
-        </select>
-      </div>
-      <div class="form-row">
-        <span class="form-label">Timeout</span>
-        <input type="range" id="dump-timeout" min="5" max="60" value="15" style="flex:1;max-width:200px">
-        <span class="mono" style="font-size:0.8rem" id="dump-timeout-val">15s</span>
-      </div>
-      <div class="form-row">
-        <label class="toggle"><input type="checkbox" id="dump-deep"> Deep mode (active invocation)</label>
-      </div>
-      <div class="form-row">
-        <label class="toggle"><input type="checkbox" id="dump-antidetect" checked> Anti-detection</label>
-      </div>
-    </div>
-    <div style="margin-top:1rem">
-      <button class="btn btn-primary" id="dump-btn" disabled>Start Dump</button>
-    </div>
-    <div id="dump-progress" class="progress-area hidden">
-      <div class="phase-indicator"><span class="spinner"></span> <span id="dump-phase">Starting...</span></div>
-      <div class="log-output" id="dump-log"></div>
-    </div>
-    <div id="dump-result" class="result hidden"></div>
-  </div>
-
-  <!-- ═══ REPAIR TAB ═══ -->
-  <div class="tab-panel" id="panel-repair">
-    <div class="dropzone" id="repair-dropzone">
-      <div class="dropzone-label"><strong>Drop DEX file(s)</strong> or click to browse</div>
-      <div class="dropzone-file" id="repair-filename"></div>
-      <input type="file" accept=".dex" multiple id="repair-file" class="hidden">
-    </div>
-    <div class="form-row" style="margin-top:0.75rem">
-      <label class="toggle"><input type="checkbox" id="repair-inplace"> Repair in place</label>
-    </div>
-    <button class="btn btn-primary" id="repair-btn" disabled style="margin-top:0.5rem">Repair</button>
-    <span id="repair-spinner" class="spinner hidden"></span>
-    <div id="repair-result" class="result hidden"></div>
-  </div>
-
-  <!-- ═══ VERIFY TAB ═══ -->
-  <div class="tab-panel" id="panel-verify">
-    <div class="dropzone" id="verify-dropzone">
-      <div class="dropzone-label"><strong>Drop DEX file(s)</strong> or click to browse</div>
-      <div class="dropzone-file" id="verify-filename"></div>
-      <input type="file" accept=".dex" multiple id="verify-file" class="hidden">
-    </div>
-    <button class="btn btn-primary" id="verify-btn" disabled style="margin-top:1rem">Verify</button>
-    <span id="verify-spinner" class="spinner hidden"></span>
-    <div id="verify-result" class="result hidden"></div>
-  </div>
-
-</div>
+<div class="footer">UNPACK v0.1.0 -- Android unpacker tool</div>
 
 <script>
-// ── Tab switching ──
-document.querySelectorAll('.tab').forEach(t => {
-  t.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(x => x.classList.remove('active'));
-    t.classList.add('active');
-    document.getElementById('panel-' + t.dataset.tab).classList.add('active');
-  });
-});
+const $ = id => document.getElementById(id);
+const dropZone = $('dropZone'), fileInput = $('fileInput'), fileInfo = $('fileInfo'), btnRun = $('btnRun');
+let selectedFile = null;
 
-// ── Engine status ──
-fetch('/api/engines').then(r=>r.json()).then(d => {
-  const el = document.getElementById('engine-status');
-  el.innerHTML = d.engines.map(e =>
-    `<span><span class="engine-dot ${e.available?'on':'off'}"></span>${e.name}</span>`
-  ).join('');
-}).catch(() => {
-  document.getElementById('engine-status').textContent = 'offline';
-});
+// Drag & drop
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag'); handleFile(e.dataTransfer.files[0]); });
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
 
-// ── Dropzone helper ──
-function setupDropzone(zoneId, fileId, filenameId, btnId) {
-  const zone = document.getElementById(zoneId);
-  const input = document.getElementById(fileId);
-  const fname = document.getElementById(filenameId);
-  const btn = document.getElementById(btnId);
-  zone.addEventListener('click', () => input.click());
-  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
-  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-  zone.addEventListener('drop', e => {
-    e.preventDefault(); zone.classList.remove('dragover');
-    if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; input.dispatchEvent(new Event('change')); }
-  });
-  input.addEventListener('change', () => {
-    if (input.files.length) {
-      const f = input.files[0] || input.files;
-      const names = Array.from(input.files).map(x => x.name);
-      const size = Array.from(input.files).reduce((a,x) => a+x.size, 0);
-      fname.textContent = names.join(', ') + ' (' + (size/1024/1024).toFixed(1) + ' MB)';
-      btn.disabled = false;
-    }
-  });
-}
-setupDropzone('scan-dropzone', 'scan-file', 'scan-filename', 'scan-btn');
-setupDropzone('dump-dropzone', 'dump-file', 'dump-filename', 'dump-btn');
-setupDropzone('repair-dropzone', 'repair-file', 'repair-filename', 'repair-btn');
-setupDropzone('verify-dropzone', 'verify-file', 'verify-filename', 'verify-btn');
-
-// ── Timeout slider ──
-document.getElementById('dump-timeout').addEventListener('input', e => {
-  document.getElementById('dump-timeout-val').textContent = e.target.value + 's';
-});
-
-// ── Level badge helper ──
-function levelBadge(level) {
-  const map = {none:['No protection','level-none'],dex_encryption:['DEX encryption','level-dex'],
-    function_extraction:['Function extraction','level-extract'],vmp:['VMP','level-vmp'],dex2c:['DEX2C','level-dex2c'],unknown:['Unknown','level-none']};
-  const [label, cls] = map[level] || map.unknown;
-  return `<span class="result-level ${cls}">${label}</span>`;
+function handleFile(f) {
+  if (!f || !f.name.endsWith('.apk')) { fileInfo.textContent = 'Please select an .apk file'; return; }
+  selectedFile = f;
+  fileInfo.textContent = f.name + ' (' + (f.size / 1024 / 1024).toFixed(1) + ' MB)';
+  btnRun.disabled = false;
 }
 
-// ── Confidence bar ──
-function confBar(val) {
-  const pct = Math.round(val * 100);
-  const color = val >= 0.6 ? 'var(--emerald)' : val >= 0.3 ? 'var(--amber)' : 'var(--rose)';
-  return `<div class="conf-bar"><div class="conf-track"><div class="conf-fill" style="width:${pct}%;background:${color}"></div></div><span class="conf-pct">${pct}%</span></div>`;
-}
-
-// ── SCAN ──
-document.getElementById('scan-btn').addEventListener('click', async () => {
-  const file = document.getElementById('scan-file').files[0];
-  if (!file) return;
-  const btn = document.getElementById('scan-btn');
-  const spinner = document.getElementById('scan-spinner');
-  const resultEl = document.getElementById('scan-result');
-  btn.disabled = true; spinner.classList.remove('hidden'); resultEl.classList.add('hidden');
-
-  const fd = new FormData(); fd.append('file', file);
-  try {
-    const res = await fetch('/api/scan', {method:'POST', body:fd});
-    const d = await res.json();
-    if (d.error) { resultEl.innerHTML = `<div class="card" style="color:var(--rose)">${d.error}</div>`; }
-    else { resultEl.innerHTML = renderScanResult(d); }
-    resultEl.classList.remove('hidden');
-  } catch(e) { resultEl.innerHTML = `<div class="card" style="color:var(--rose)">Error: ${e.message}</div>`; resultEl.classList.remove('hidden'); }
-  btn.disabled = false; spinner.classList.add('hidden');
+// Engine status
+fetch('/api/engines').then(r => r.json()).then(data => {
+  const el = $('engineStatus');
+  el.innerHTML = data.engines.map(e => '<span><span class="dot ' + (e.available ? 'on' : 'off') + '"></span>' + e.name + '</span>').join('');
 });
 
-function renderScanResult(d) {
-  let html = '';
-  if (d.packer_name) {
-    html += `<div class="result-header detected">
-      <div><div class="result-packer">${d.packer_name}</div>
-      ${d.packer_version ? `<span class="result-version">${d.packer_version}</span>` : ''}</div>
-      <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:0.25rem">
-        ${levelBadge(d.protection_level)}
-        ${confBar(d.confidence)}
-      </div></div>`;
+// Pipeline
+const PHASES = ['scanning', 'dumping', 'active_invoke', 'repairing', 'verifying', 'done'];
+
+function setPhase(phase) {
+  document.querySelectorAll('.step').forEach(s => {
+    const p = s.dataset.phase;
+    const idx = PHASES.indexOf(p);
+    const cur = PHASES.indexOf(phase);
+    s.className = 'step';
+    if (idx < cur) s.classList.add('done');
+    else if (idx === cur) s.classList.add('active');
+  });
+}
+
+function startPipeline() {
+  if (!selectedFile) return;
+  btnRun.disabled = true;
+  btnRun.textContent = 'Running...';
+
+  // Reset UI
+  document.querySelectorAll('.result-card').forEach(c => c.classList.remove('show'));
+  ['scanBody','dumpBody','repairBody','reportBody','errorBody'].forEach(id => $(id).innerHTML = '');
+  setPhase('scanning');
+
+  const form = new FormData();
+  form.append('file', selectedFile);
+  form.append('engine', $('optEngine').value);
+  form.append('timeout', $('optTimeout').value);
+  form.append('deep', $('optDeep').checked);
+  form.append('anti_detect', $('optAntiDetect').checked);
+
+  fetch('/api/full', { method: 'POST', body: form })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) { showError(data.error); return; }
+      pollJob(data.job_id);
+    })
+    .catch(e => showError(e.message));
+}
+
+function pollJob(jobId) {
+  const poll = () => {
+    fetch('/api/job/' + jobId).then(r => r.json()).then(job => {
+      setPhase(job.phase || 'scanning');
+      renderPhases(job.phases || {});
+
+      if (job.status === 'done') {
+        setPhase('done');
+        btnRun.disabled = false;
+        btnRun.textContent = 'Run Pipeline';
+      } else if (job.status === 'failed') {
+        showError(job.error || 'Unknown error');
+        btnRun.disabled = false;
+        btnRun.textContent = 'Run Pipeline';
+      } else {
+        setTimeout(poll, 1000);
+      }
+    }).catch(() => setTimeout(poll, 2000));
+  };
+  poll();
+}
+
+function renderPhases(phases) {
+  if (phases.scan) renderScan(phases.scan);
+  if (phases.dump) renderDump(phases.dump);
+  if (phases.repair) renderRepair(phases.repair);
+  if (phases.report) renderReport(phases.report);
+}
+
+function renderScan(s) {
+  const card = $('cardScan'); card.classList.add('show');
+  const badge = $('scanBadge');
+
+  if (s.packer_name) {
+    badge.textContent = s.packer_name + (s.packer_version ? ' ' + s.packer_version : '');
+    badge.style.background = 'rgba(8,145,178,0.1)';
+    badge.style.color = 'var(--cyan)';
   } else {
-    html += `<div class="result-header clean"><span style="color:var(--dim)">No packer detected</span></div>`;
+    badge.textContent = 'No packer';
+    badge.style.background = 'var(--bg)';
+    badge.style.color = 'var(--muted)';
   }
 
-  // Signatures
-  if (d.matched_signatures && d.matched_signatures.length) {
-    html += `<div class="card"><div class="card-title"><span class="dot" style="background:var(--cyan)"></span>Matched Signatures</div>`;
-    html += d.matched_signatures.map(s => `<div class="so-item">${s}</div>`).join('');
-    html += '</div>';
-  }
+  const conf = Math.round((s.confidence || 0) * 100);
+  const confColor = conf >= 60 ? 'var(--emerald)' : conf >= 30 ? 'var(--amber)' : 'var(--rose)';
 
-  // Breakdown
-  if (d.score_breakdown && d.score_breakdown.length) {
-    html += `<div class="card"><div class="card-title"><span class="dot" style="background:var(--violet)"></span>Confidence Breakdown</div>
-    <table class="breakdown"><thead><tr><th>Dimension</th><th>Score</th><th>Max</th><th>Status</th></tr></thead><tbody>`;
-    let total=0, totalMax=0;
-    d.score_breakdown.forEach(b => {
-      total+=b.score; totalMax+=b.max;
-      html += `<tr><td>${b.dimension}</td><td class="mono">${b.score.toFixed(1)}</td><td class="mono">${b.max.toFixed(1)}</td><td class="${b.matched?'hit':'miss'}">${b.matched?'HIT':'-'}</td></tr>`;
+  let html = '<div class="scan-grid">';
+  html += row('Packer', s.packer_name || '--');
+  html += row('Version', s.packer_version || '--');
+  html += row('Protection', s.protection_level || '--');
+  html += row('Confidence', '<div class="conf-bar"><div class="track"><div class="fill" style="width:'+conf+'%;background:'+confColor+'"></div></div><span class="mono">'+conf+'%</span></div>');
+  html += row('Signatures', (s.matched_signatures||[]).join(', ') || '--');
+  html += '</div>';
+
+  if (s.score_breakdown && s.score_breakdown.length) {
+    html += '<table class="breakdown"><thead><tr><th>Dimension</th><th>Score</th><th>Max</th><th>Status</th></tr></thead><tbody>';
+    s.score_breakdown.forEach(b => {
+      const cls = b.matched ? 'hit' : 'miss';
+      html += '<tr><td>'+b.dimension+'</td><td class="mono '+cls+'">'+b.score.toFixed(1)+'</td><td class="mono">'+b.max.toFixed(1)+'</td><td class="'+cls+'">'+(b.matched?'HIT':'--')+'</td></tr>';
     });
-    html += `<tr style="font-weight:600;border-top:1px solid var(--border)"><td>Total</td><td class="mono">${total.toFixed(1)}</td><td class="mono">${totalMax.toFixed(1)}</td><td class="mono">${Math.round(total/totalMax*100)}%</td></tr>`;
-    html += '</tbody></table></div>';
+    html += '</tbody></table>';
   }
 
-  // DEX info
-  if (d.all_dex_info && d.all_dex_info.length) {
-    html += `<div class="card"><div class="collapsible-header" onclick="this.nextElementSibling.classList.toggle('open')">DEX Files (${d.all_dex_info.length}) &#9662;</div>
-    <div class="collapsible-body">`;
-    d.all_dex_info.forEach(x => {
-      html += `<div class="dex-item">${x.name} &mdash; ${Math.round(x.size_kb)}KB, ${x.classes} classes</div>`;
-    });
-    html += '</div></div>';
+  if (s.all_so_files && s.all_so_files.length) {
+    html += '<div class="collapsible" onclick="toggleColl(this)">Native Libraries ('+s.all_so_files.length+')</div>';
+    html += '<div class="coll-body"><div class="so-list">'+s.all_so_files.join('<br>')+'</div></div>';
   }
 
-  // SO files
-  if (d.all_so_files && d.all_so_files.length) {
-    html += `<div class="card"><div class="collapsible-header" onclick="this.nextElementSibling.classList.toggle('open')">Native Libraries (${d.all_so_files.length}) &#9662;</div>
-    <div class="collapsible-body">`;
-    const susKeywords = ['secure','protect','shield','safe','guard','crypt','hook','jiagu','shell','sec','vmp','dex'];
-    d.all_so_files.forEach(s => {
-      const name = s.split('/').pop().toLowerCase();
-      const sus = susKeywords.some(k => name.includes(k));
-      html += `<div class="so-item${sus?' suspicious':''}">${s}</div>`;
-    });
-    html += '</div></div>';
-  }
-
-  // Candidates
-  if (d.all_candidates && d.all_candidates.length > 1) {
-    html += `<div class="card"><div class="card-title"><span class="dot" style="background:var(--amber)"></span>All Candidates</div>`;
-    d.all_candidates.forEach(c => {
-      html += `<div style="font-size:0.8rem;padding:0.25rem 0;color:var(--dim)"><strong style="color:var(--text)">${c.name}</strong> score=${c.score.toFixed(1)}</div>`;
-    });
-    html += '</div>';
-  }
-  return html;
+  $('scanBody').innerHTML = html;
 }
 
-// ── DUMP ──
-document.getElementById('dump-btn').addEventListener('click', async () => {
-  const file = document.getElementById('dump-file').files[0];
-  if (!file) return;
+function renderDump(d) {
+  const card = $('cardDump'); card.classList.add('show');
+  $('dumpBadge').textContent = d.dex_count + ' DEX';
+  $('dumpBadge').style.background = 'rgba(5,150,105,0.1)';
+  $('dumpBadge').style.color = 'var(--emerald)';
 
-  const btn = document.getElementById('dump-btn');
-  const progressEl = document.getElementById('dump-progress');
-  const resultEl = document.getElementById('dump-result');
-  const phaseEl = document.getElementById('dump-phase');
-  const logEl = document.getElementById('dump-log');
+  let html = '<div class="scan-grid">';
+  html += row('Engine', d.engine);
+  html += row('DEX files', d.dex_count);
+  html += row('SO files', d.so_count || 0);
+  html += row('Duration', (d.duration_ms / 1000).toFixed(1) + 's');
+  if (d.duplicates_removed) html += row('Duplicates removed', d.duplicates_removed);
+  html += '</div>';
+  $('dumpBody').innerHTML = html;
+}
 
-  btn.disabled = true;
-  progressEl.classList.remove('hidden');
-  resultEl.classList.add('hidden');
-  logEl.textContent = '';
-  phaseEl.textContent = 'Uploading...';
+function renderRepair(repairs) {
+  const card = $('cardRepair'); card.classList.add('show');
+  const ok = repairs.filter(r => r.success).length;
+  $('repairBadge').textContent = ok + '/' + repairs.length;
+  $('repairBadge').style.background = 'rgba(5,150,105,0.1)';
+  $('repairBadge').style.color = 'var(--emerald)';
 
-  const fd = new FormData();
-  fd.append('file', file);
-  fd.append('engine', document.getElementById('dump-engine').value);
-  fd.append('timeout', document.getElementById('dump-timeout').value);
-  fd.append('deep', document.getElementById('dump-deep').checked);
-  fd.append('anti_detect', document.getElementById('dump-antidetect').checked);
-
-  try {
-    const res = await fetch('/api/dump', {method:'POST', body:fd});
-    const {job_id, error} = await res.json();
-    if (error) { logEl.textContent = error; btn.disabled = false; return; }
-
-    // Poll
-    const poll = async () => {
-      const r = await fetch(`/api/dump/${job_id}`);
-      const job = await r.json();
-      phaseEl.textContent = job.phase || job.status;
-      logEl.textContent = `Status: ${job.status}\nPhase: ${job.phase}\nAPK: ${job.apk}\nEngine: ${job.engine}`;
-
-      if (job.status === 'running') { setTimeout(poll, 1500); return; }
-      if (job.status === 'failed') {
-        logEl.textContent += `\n\nError: ${job.error}`;
-        phaseEl.textContent = 'Failed';
-        btn.disabled = false;
-        return;
-      }
-      // Done
-      progressEl.classList.add('hidden');
-      resultEl.innerHTML = renderDumpResult(job.result);
-      resultEl.classList.remove('hidden');
-      btn.disabled = false;
-    };
-    setTimeout(poll, 2000);
-  } catch(e) {
-    logEl.textContent = 'Error: ' + e.message;
-    btn.disabled = false;
-  }
-});
-
-function renderDumpResult(r) {
-  if (!r) return '<div class="card">No result</div>';
   let html = '';
-  // Report stats
-  if (r.report) {
-    const rp = r.report;
-    html += `<div class="card"><div class="card-title"><span class="dot" style="background:var(--emerald)"></span>Quality Report</div>
-    <div class="report-grid">
-      <div class="report-stat"><div class="report-value" style="color:var(--cyan)">${rp.dex_count}</div><div class="report-label">DEX files</div></div>
-      <div class="report-stat"><div class="report-value" style="color:var(--text)">${(rp.total_classes||0).toLocaleString()}</div><div class="report-label">Classes</div></div>
-      <div class="report-stat"><div class="report-value" style="color:var(--text)">${(rp.total_methods||0).toLocaleString()}</div><div class="report-label">Methods</div></div>
-      <div class="report-stat"><div class="report-value" style="color:var(--emerald)">${Math.round((rp.code_coverage||0)*100)}%</div><div class="report-label">Coverage</div></div>
-      <div class="report-stat"><div class="report-value" style="color:var(--violet)">${Math.round((rp.score||0)*100)}%</div><div class="report-label">Score</div></div>
-    </div></div>`;
-  }
-  // Repairs
-  if (r.repairs && r.repairs.length) {
-    html += `<div class="card"><div class="card-title"><span class="dot" style="background:var(--amber)"></span>Repairs (${r.repairs.length})</div>`;
-    r.repairs.forEach(rr => {
-      html += `<div class="file-result"><span class="${rr.success?'badge-pass':'badge-fail'}">${rr.success?'OK':'FAIL'}</span>
-        <span class="mono" style="font-size:0.8rem">${rr.file}</span>
-        <span class="file-actions">${rr.actions.join(', ')}</span></div>`;
-    });
-    html += '</div>';
-  }
-  html += `<div style="margin-top:0.5rem;font-size:0.75rem;color:var(--dim)">Duration: ${r.duration_ms}ms</div>`;
-  return html;
+  repairs.forEach(r => {
+    html += '<div class="repair-item"><span class="icon" style="color:'+(r.success?'var(--emerald)':'var(--rose)')+'">'+
+      (r.success?'+':'x')+'</span><span class="mono">'+r.file+'</span>'+
+      '<span class="actions">'+r.actions.join(', ')+'</span></div>';
+  });
+  $('repairBody').innerHTML = html;
 }
 
-// ── REPAIR ──
-document.getElementById('repair-btn').addEventListener('click', async () => {
-  const files = document.getElementById('repair-file').files;
-  if (!files.length) return;
-  const btn = document.getElementById('repair-btn');
-  const spinner = document.getElementById('repair-spinner');
-  const resultEl = document.getElementById('repair-result');
-  btn.disabled = true; spinner.classList.remove('hidden'); resultEl.classList.add('hidden');
+function renderReport(r) {
+  const card = $('cardReport'); card.classList.add('show');
+  const cov = Math.round((r.code_coverage || 0) * 100);
+  $('reportBadge').textContent = cov + '%';
+  $('reportBadge').style.background = cov >= 80 ? 'rgba(5,150,105,0.1)' : 'rgba(217,119,6,0.1)';
+  $('reportBadge').style.color = cov >= 80 ? 'var(--emerald)' : 'var(--amber)';
 
-  const fd = new FormData();
-  Array.from(files).forEach(f => fd.append('files', f));
-  fd.append('in_place', document.getElementById('repair-inplace').checked);
+  let html = '<div class="stat-row">';
+  html += stat(r.dex_count, 'DEX files', '--cyan');
+  html += stat(r.total_classes?.toLocaleString() || 0, 'Classes', '--cyan');
+  html += stat(r.total_methods?.toLocaleString() || 0, 'Methods', '--cyan');
+  html += stat(r.methods_with_code?.toLocaleString() || 0, 'With code', '--emerald');
+  if (r.nop_methods > 0) html += stat(r.nop_methods, 'NOP-only', '--rose');
+  html += stat(cov + '%', 'Coverage', cov >= 80 ? '--emerald' : '--amber');
+  html += stat(Math.round((r.score || 0) * 100) + '%', 'Score', '--violet');
+  html += '</div>';
+  $('reportBody').innerHTML = html;
+}
 
-  try {
-    const res = await fetch('/api/repair', {method:'POST', body:fd});
-    const d = await res.json();
-    let html = '<div class="card"><div class="card-title"><span class="dot" style="background:var(--emerald)"></span>Repair Results</div>';
-    (d.results||[]).forEach(r => {
-      html += `<div class="file-result"><span class="${r.success?'badge-pass':'badge-fail'}">${r.success?'OK':'FAIL'}</span>
-        <span class="mono" style="font-size:0.8rem">${r.file}</span>
-        <span class="file-actions">${r.actions.join(', ')}</span></div>`;
-    });
-    html += '</div>';
-    resultEl.innerHTML = html;
-    resultEl.classList.remove('hidden');
-  } catch(e) { resultEl.innerHTML = `<div class="card" style="color:var(--rose)">${e.message}</div>`; resultEl.classList.remove('hidden'); }
-  btn.disabled = false; spinner.classList.add('hidden');
-});
+function showError(msg) {
+  const card = $('cardError'); card.classList.add('show');
+  $('errorBody').textContent = msg;
+  document.querySelectorAll('.step.active').forEach(s => s.classList.replace('active','fail'));
+}
 
-// ── VERIFY ──
-document.getElementById('verify-btn').addEventListener('click', async () => {
-  const files = document.getElementById('verify-file').files;
-  if (!files.length) return;
-  const btn = document.getElementById('verify-btn');
-  const spinner = document.getElementById('verify-spinner');
-  const resultEl = document.getElementById('verify-result');
-  btn.disabled = true; spinner.classList.remove('hidden'); resultEl.classList.add('hidden');
-
-  const fd = new FormData();
-  Array.from(files).forEach(f => fd.append('files', f));
-
-  try {
-    const res = await fetch('/api/verify', {method:'POST', body:fd});
-    const d = await res.json();
-    let html = '<div class="card"><div class="card-title"><span class="dot" style="background:var(--violet)"></span>Verify Results</div>';
-    (d.results||[]).forEach(r => {
-      html += `<div class="file-result"><span class="${r.valid?'badge-pass':'badge-fail'}">${r.valid?'PASS':'FAIL'}</span>
-        <span class="mono" style="font-size:0.8rem">${r.file}</span></div>`;
-      if (r.issues && r.issues.length) {
-        r.issues.forEach(i => { html += `<div style="font-size:0.7rem;color:var(--amber);padding-left:4rem">${i}</div>`; });
-      }
-      if (r.stats) {
-        html += `<div style="font-size:0.7rem;color:var(--dim);padding-left:4rem">classes=${r.stats.class_count||0} methods=${r.stats.method_count||0} strings=${r.stats.string_count||0}</div>`;
-      }
-    });
-    html += '</div>';
-    resultEl.innerHTML = html;
-    resultEl.classList.remove('hidden');
-  } catch(e) { resultEl.innerHTML = `<div class="card" style="color:var(--rose)">${e.message}</div>`; resultEl.classList.remove('hidden'); }
-  btn.disabled = false; spinner.classList.add('hidden');
-});
+function row(k, v) { return '<div class="scan-row"><span class="key">'+k+'</span><span class="val">'+v+'</span></div>'; }
+function stat(n, l, c) { return '<div class="stat-box"><div class="num" style="color:var('+c+')">'+n+'</div><div class="lbl">'+l+'</div></div>'; }
+function toggleCard(id) { $(id).querySelector('.card-body').classList.toggle('collapsed'); }
+function toggleColl(el) { el.classList.toggle('open'); el.nextElementSibling.classList.toggle('open'); }
 </script>
 </body>
 </html>
