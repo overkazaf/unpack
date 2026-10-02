@@ -1,0 +1,231 @@
+src/unpack/engines/memory_engine.py
+  cddddbaf40c704a4 1-446
+src/unpack/repair/dex_parser.py
+  cddddbaf40c704a4 1-338
+README.md
+  cddddbaf40c704a4 1-383
+src/unpack/utils/adb.py
+  cddddbaf40c704a4 1-62
+pyproject.toml
+  cddddbaf40c704a4 1-29
+src/unpack/utils/apk.py
+  cddddbaf40c704a4 1-176
+tests/test_dex_repair.py
+  cddddbaf40c704a4 1-101
+src/unpack/repair/__init__.py
+  cddddbaf40c704a4 1-9
+tests/test_verifier.py
+  cddddbaf40c704a4 1-71
+src/unpack/engines/__init__.py
+  cddddbaf40c704a4 1-13
+src/unpack/engines/base.py
+  cddddbaf40c704a4 1-39
+src/unpack/core/dedup.py
+  cddddbaf40c704a4 1-51
+docs/engine-ebpf.html
+  cddddbaf40c704a4 1-188
+.gitignore
+  cddddbaf40c704a4 1-14
+tests/test_scanner.py
+  cddddbaf40c704a4 1-100
+src/unpack/repair/verifier.py
+  cddddbaf40c704a4 1-117
+docs/engine-frida.html
+  cddddbaf40c704a4 1-218
+src/unpack/engines/ebpf_engine.py
+  cddddbaf40c704a4 1-618
+src/unpack/repair/dex_repair.py
+  cddddbaf40c704a4 1-177
+docs/engine-memory.html
+  cddddbaf40c704a4 1-183
+src/unpack/cli.py
+  cddddbaf40c704a4 1-519
+tests/test_cli.py
+  cddddbaf40c704a4 1-90
+src/unpack/__init__.py
+  cddddbaf40c704a4 1
+src/unpack/engines/frida_engine.py
+  cddddbaf40c704a4 1-599
+src/unpack/core/__init__.py
+  cddddbaf40c704a4 1-9
+docs/architecture.html
+  cddddbaf40c704a4 1-381
+src/unpack/core/dispatcher.py
+  cddddbaf40c704a4 1-157
+src/unpack/core/scanner.py
+  cddddbaf40c704a4 1-1024
+tests/conftest.py
+  cddddbaf40c704a4 1-76
+tests/test_reporter.py
+  cddddbaf40c704a4 1-51
+tests/test_dex_parser.py
+  cddddbaf40c704a4 1-77
+src/unpack/utils/__init__.py
+  cddddbaf40c704a4 1-7
+src/unpack/core/reporter.py
+  cddddbaf40c704a4 1-151
+docs/architecture.svg
+  cddddbaf40c704a4 1-301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "b4739ba99df1baca8fd8b58201811178b11b3f12",
+  "prompts": {
+    "cddddbaf40c704a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d4894bd-331b-4fdc-9d1e-9e291a9fdfb9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 6785,
+      "total_deletions": 0,
+      "accepted_lines": 6785,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "tests/test_scanner.py": {
+          "additions": 100,
+          "accepted_lines": 100
+        },
+        ".gitignore": {
+          "additions": 14,
+          "accepted_lines": 14
+        },
+        "src/unpack/engines/ebpf_engine.py": {
+          "additions": 618,
+          "accepted_lines": 618
+        },
+        "pyproject.toml": {
+          "additions": 29,
+          "accepted_lines": 29
+        },
+        "src/unpack/engines/__init__.py": {
+          "additions": 13,
+          "accepted_lines": 13
+        },
+        "src/unpack/engines/memory_engine.py": {
+          "additions": 446,
+          "accepted_lines": 446
+        },
+        "src/unpack/utils/apk.py": {
+          "additions": 176,
+          "accepted_lines": 176
+        },
+        "src/unpack/repair/dex_repair.py": {
+          "additions": 177,
+          "accepted_lines": 177
+        },
+        "src/unpack/core/dedup.py": {
+          "additions": 51,
+          "accepted_lines": 51
+        },
+        "tests/test_verifier.py": {
+          "additions": 71,
+          "accepted_lines": 71
+        },
+        "docs/architecture.html": {
+          "additions": 381,
+          "accepted_lines": 381
+        },
+        "docs/architecture.svg": {
+          "additions": 301,
+          "accepted_lines": 301
+        },
+        "src/unpack/utils/__init__.py": {
+          "additions": 7,
+          "accepted_lines": 7
+        },
+        "tests/test_cli.py": {
+          "additions": 90,
+          "accepted_lines": 90
+        },
+        "src/unpack/core/dispatcher.py": {
+          "additions": 157,
+          "accepted_lines": 157
+        },
+        "result.json": {
+          "additions": 9,
+          "accepted_lines": 9
+        },
+        "tests/test_reporter.py": {
+          "additions": 51,
+          "accepted_lines": 51
+        },
+        "src/unpack/repair/dex_parser.py": {
+          "additions": 338,
+          "accepted_lines": 338
+        },
+        "src/unpack/engines/frida_engine.py": {
+          "additions": 599,
+          "accepted_lines": 599
+        },
+        "src/unpack/repair/__init__.py": {
+          "additions": 9,
+          "accepted_lines": 9
+        },
+        "src/unpack/core/__init__.py": {
+          "additions": 9,
+          "accepted_lines": 9
+        },
+        "docs/engine-frida.html": {
+          "additions": 218,
+          "accepted_lines": 218
+        },
+        "tests/conftest.py": {
+          "additions": 76,
+          "accepted_lines": 76
+        },
+        "docs/engine-memory.html": {
+          "additions": 183,
+          "accepted_lines": 183
+        },
+        "src/unpack/utils/adb.py": {
+          "additions": 62,
+          "accepted_lines": 62
+        },
+        "src/unpack/__init__.py": {
+          "additions": 1,
+          "accepted_lines": 1
+        },
+        "docs/engine-ebpf.html": {
+          "additions": 188,
+          "accepted_lines": 188
+        },
+        "tests/test_dex_parser.py": {
+          "additions": 77,
+          "accepted_lines": 77
+        },
+        "tests/test_dex_repair.py": {
+          "additions": 101,
+          "accepted_lines": 101
+        },
+        "README.md": {
+          "additions": 383,
+          "accepted_lines": 383
+        },
+        "src/unpack/core/reporter.py": {
+          "additions": 151,
+          "accepted_lines": 151
+        },
+        "src/unpack/core/scanner.py": {
+          "additions": 1024,
+          "accepted_lines": 1024
+        },
+        "src/unpack/engines/base.py": {
+          "additions": 39,
+          "accepted_lines": 39
+        },
+        "src/unpack/repair/verifier.py": {
+          "additions": 117,
+          "accepted_lines": 117
+        },
+        "src/unpack/cli.py": {
+          "additions": 519,
+          "accepted_lines": 519
+        }
+      }
+    }
+  }
+}
