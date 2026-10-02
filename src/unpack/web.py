@@ -16,11 +16,21 @@ from flask import Flask, jsonify, render_template, request
 
 
 def create_app() -> Flask:
+    import hashlib
+
     app = Flask(__name__, template_folder=str(Path(__file__).parent / "templates"))
     app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024  # 512 MB
 
     _jobs: dict[str, dict] = {}
-    _apk_store: dict[str, Path] = {}
+    # APK cache: sha256 -> {path, filename, scan_result, work_dir}
+    _cache: dict[str, dict] = {}
+
+    def _file_hash(path: Path) -> str:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()[:16]
 
     # ── Pages ──
 
@@ -28,23 +38,59 @@ def create_app() -> Flask:
     def index():
         return render_template("index.html")
 
+    # ── Cache: list cached APKs ──
+
+    @app.get("/api/cache")
+    def api_cache():
+        items = []
+        for h, c in _cache.items():
+            item = {"hash": h, "filename": c["filename"], "size_mb": round(c["path"].stat().st_size / 1024 / 1024, 1)}
+            if c.get("scan_result"):
+                item["packer"] = c["scan_result"].get("packer_name")
+            if c.get("last_job"):
+                item["last_job"] = c["last_job"]
+            items.append(item)
+        return jsonify(items=items)
+
     # ── Full pipeline (one-click) ──
 
     @app.post("/api/full")
     def api_full():
-        if "file" not in request.files:
-            return jsonify(error="No file uploaded"), 400
-        f = request.files["file"]
-        if not f.filename or not f.filename.endswith(".apk"):
-            return jsonify(error="File must be an .apk"), 400
-
         engine = request.form.get("engine", "")
         timeout_s = int(request.form.get("timeout", "15"))
         deep = request.form.get("deep", "false") == "true"
         anti_detect = request.form.get("anti_detect", "true") == "true"
+        start_from = request.form.get("start_from", "scan")
+        cached_hash = request.form.get("apk_hash", "")
+
+        # Resolve APK: from cache or new upload
+        if cached_hash and cached_hash in _cache:
+            entry = _cache[cached_hash]
+            apk_path = entry["path"]
+            work_dir = entry["work_dir"]
+            filename = entry["filename"]
+        elif "file" in request.files:
+            f = request.files["file"]
+            if not f.filename or not f.filename.endswith(".apk"):
+                return jsonify(error="File must be an .apk"), 400
+            job_id_tmp = str(uuid.uuid4())[:8]
+            work_dir = Path(tempfile.mkdtemp(prefix=f"unpack_{job_id_tmp}_"))
+            apk_path = work_dir / f.filename
+            f.save(str(apk_path))
+            filename = f.filename
+            # Cache it
+            h = _file_hash(apk_path)
+            _cache[h] = {"path": apk_path, "filename": filename, "work_dir": work_dir, "scan_result": None, "last_job": None}
+            cached_hash = h
+        else:
+            return jsonify(error="No file uploaded and no cached APK specified"), 400
+
+        output_dir = work_dir / "output"
+        output_dir.mkdir(exist_ok=True)
 
         job_id = str(uuid.uuid4())[:8]
-        work_dir = Path(tempfile.mkdtemp(prefix=f"unpack_{job_id}_"))
+        if cached_hash:
+            _cache[cached_hash]["last_job"] = job_id
         apk_path = work_dir / f.filename
         f.save(str(apk_path))
         output_dir = work_dir / "output"
@@ -52,11 +98,16 @@ def create_app() -> Flask:
 
         _jobs[job_id] = {
             "status": "running",
-            "phase": "scanning",
+            "phase": start_from,
             "phases": {},
-            "apk": f.filename,
+            "apk": filename,
+            "apk_hash": cached_hash,
             "error": None,
         }
+
+        # Pre-populate cached phases
+        if start_from != "scan" and cached_hash and _cache.get(cached_hash, {}).get("scan_result"):
+            _jobs[job_id]["phases"]["scan"] = _cache[cached_hash]["scan_result"]
 
         def _run_full():
             try:
@@ -66,11 +117,24 @@ def create_app() -> Flask:
                 from unpack.core.dedup import dedup_dex_files
                 from unpack.repair.dex_repair import DexRepairPipeline
 
-                # Phase 1: Scan
-                _jobs[job_id]["phase"] = "scanning"
-                scanner = PackerScanner()
-                scan_result = scanner.scan(apk_path, verbose=True)
-                _jobs[job_id]["phases"]["scan"] = scan_result.to_verbose_dict()
+                # Phase 1: Scan (skip if cached and start_from is later)
+                if start_from == "scan" or "scan" not in _jobs[job_id]["phases"]:
+                    _jobs[job_id]["phase"] = "scanning"
+                    scanner = PackerScanner()
+                    scan_result = scanner.scan(apk_path, verbose=True)
+                    scan_dict = scan_result.to_verbose_dict()
+                    _jobs[job_id]["phases"]["scan"] = scan_dict
+                    if cached_hash:
+                        _cache[cached_hash]["scan_result"] = scan_dict
+                else:
+                    scan_dict = _jobs[job_id]["phases"]["scan"]
+                    scanner = PackerScanner()
+                    scan_result = scanner.scan(apk_path)
+
+                if start_from == "scan_only":
+                    _jobs[job_id]["status"] = "done"
+                    _jobs[job_id]["phase"] = "done"
+                    return
 
                 # Phase 2: Dump
                 _jobs[job_id]["phase"] = "dumping"
@@ -159,7 +223,7 @@ def create_app() -> Flask:
                 _jobs[job_id]["error"] = str(exc)
 
         threading.Thread(target=_run_full, daemon=True).start()
-        return jsonify(job_id=job_id)
+        return jsonify(job_id=job_id, apk_hash=cached_hash)
 
     @app.get("/api/job/<job_id>")
     def api_job_status(job_id: str):
@@ -167,6 +231,32 @@ def create_app() -> Flask:
         if not job:
             return jsonify(error="Job not found"), 404
         return jsonify(job)
+
+    # ── Job result export (for LLM/agent integration) ──
+
+    @app.get("/api/job/<job_id>/export")
+    def api_job_export(job_id: str):
+        """Export full job result as structured JSON for LLM consumption."""
+        job = _jobs.get(job_id)
+        if not job:
+            return jsonify(error="Job not found"), 404
+        if job["status"] != "done":
+            return jsonify(error="Job not finished yet", status=job["status"]), 400
+
+        export = {
+            "tool": "unpack",
+            "version": "0.1.0",
+            "apk": job.get("apk"),
+            "phases": job.get("phases", {}),
+            "prompt_hint": (
+                "This is an UNPACK scan/dump result. Analyze: "
+                "1) packer technology and version "
+                "2) protection mechanisms to expect "
+                "3) recommended next steps for deeper analysis "
+                "4) which classes/methods to focus on"
+            ),
+        }
+        return jsonify(export)
 
     # ── Scan ──
 

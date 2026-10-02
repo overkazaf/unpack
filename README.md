@@ -437,6 +437,32 @@ $(unpack scan test_apks/com.netease.cloudmusic.apk --report)
 | JSON | `unpack scan app.apk -j out.json` | 结构化数据，脚本处理 |
 | JSON Verbose | `unpack scan app.apk -v -j -` | 完整数据输出到 stdout |
 
+## Web UI
+
+```bash
+pip install -e ".[web]"
+unpack web                    # http://127.0.0.1:8080
+unpack web --port 3000        # custom port
+```
+
+一把梭模式：上传 APK 一次 → scan → dump → repair → verify 全自动运行，实时显示每个阶段的进度和结果。
+
+- APK 自动缓存（SHA-256），再次分析无需重新上传
+- 可从任意阶段重跑（改参数后 re-dump / re-repair）
+- `/api/job/<id>/export` 导出结构化 JSON，方便对接 LLM / coding agent
+
+### LLM / Agent 集成
+
+```bash
+# CLI 管道方式
+unpack analyze app.apk | claude -p
+
+# Web API 方式
+curl -X POST http://localhost:8080/api/full -F file=@app.apk
+# ... wait for job to finish ...
+curl http://localhost:8080/api/job/<job_id>/export | claude -p "analyze this unpack result"
+```
+
 ## License
 
 MIT

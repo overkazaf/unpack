@@ -120,10 +120,16 @@ code,.mono{font-family:'JetBrains Mono',monospace}
 
 <div class="main">
 
+  <!-- Cached APKs -->
+  <div id="cacheBar" style="display:none;margin-bottom:1rem">
+    <div style="font-size:0.75rem;color:var(--dim);margin-bottom:0.5rem">Recent APKs (cached)</div>
+    <div id="cacheList" style="display:flex;gap:0.5rem;flex-wrap:wrap"></div>
+  </div>
+
   <!-- Upload -->
   <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
     <h3>Drop APK here or click to browse</h3>
-    <p>Upload once, full pipeline runs automatically</p>
+    <p>Upload once, full pipeline runs automatically. Cached APKs can re-run instantly.</p>
     <div class="file-info" id="fileInfo"></div>
     <input type="file" id="fileInput" accept=".apk">
   </div>
@@ -143,6 +149,10 @@ code,.mono{font-family:'JetBrains Mono',monospace}
     </div>
     <div class="opt-group">
       <input type="checkbox" id="optAntiDetect" checked><label for="optAntiDetect">Anti-detect</label>
+    </div>
+    <div class="opt-group" id="startFromGroup" style="display:none">
+      <label>From</label>
+      <select id="optStartFrom"><option value="scan">Full (scan)</option><option value="dumping">Re-dump</option><option value="repairing">Re-repair</option></select>
     </div>
     <button class="btn-run" id="btnRun" disabled onclick="startPipeline()">Run Pipeline</button>
   </div>
@@ -210,6 +220,7 @@ code,.mono{font-family:'JetBrains Mono',monospace}
 const $ = id => document.getElementById(id);
 const dropZone = $('dropZone'), fileInput = $('fileInput'), fileInfo = $('fileInfo'), btnRun = $('btnRun');
 let selectedFile = null;
+let currentApkHash = null;
 
 // Drag & drop
 dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
@@ -220,8 +231,18 @@ fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(
 function handleFile(f) {
   if (!f || !f.name.endsWith('.apk')) { fileInfo.textContent = 'Please select an .apk file'; return; }
   selectedFile = f;
+  currentApkHash = null;
   fileInfo.textContent = f.name + ' (' + (f.size / 1024 / 1024).toFixed(1) + ' MB)';
   btnRun.disabled = false;
+  $('startFromGroup').style.display = 'none';
+}
+
+function selectCached(hash, name) {
+  selectedFile = null;
+  currentApkHash = hash;
+  fileInfo.textContent = name + ' (cached)';
+  btnRun.disabled = false;
+  $('startFromGroup').style.display = '';
 }
 
 // Engine status
@@ -229,6 +250,23 @@ fetch('/api/engines').then(r => r.json()).then(data => {
   const el = $('engineStatus');
   el.innerHTML = data.engines.map(e => '<span><span class="dot ' + (e.available ? 'on' : 'off') + '"></span>' + e.name + '</span>').join('');
 });
+
+// Load cached APKs
+function loadCache() {
+  fetch('/api/cache').then(r => r.json()).then(data => {
+    if (!data.items || !data.items.length) return;
+    $('cacheBar').style.display = '';
+    $('cacheList').innerHTML = data.items.map(c =>
+      '<button onclick="selectCached(\''+c.hash+'\',\''+c.filename+'\')" style="'+
+      'font-family:JetBrains Mono,monospace;font-size:0.75rem;padding:0.3rem 0.75rem;'+
+      'border:1px solid var(--border);border-radius:999px;background:#fff;cursor:pointer;'+
+      'color:var(--dim);transition:all 0.2s" onmouseover="this.style.borderColor=\'var(--cyan)\';this.style.color=\'var(--cyan)\'" '+
+      'onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--dim)\'">'+
+      c.filename+' ('+c.size_mb+'MB)'+(c.packer?' ['+c.packer+']':'')+'</button>'
+    ).join('');
+  });
+}
+loadCache();
 
 // Pipeline
 const PHASES = ['scanning', 'dumping', 'active_invoke', 'repairing', 'verifying', 'done'];
@@ -245,26 +283,31 @@ function setPhase(phase) {
 }
 
 function startPipeline() {
-  if (!selectedFile) return;
+  if (!selectedFile && !currentApkHash) return;
   btnRun.disabled = true;
   btnRun.textContent = 'Running...';
 
   // Reset UI
   document.querySelectorAll('.result-card').forEach(c => c.classList.remove('show'));
   ['scanBody','dumpBody','repairBody','reportBody','errorBody'].forEach(id => $(id).innerHTML = '');
-  setPhase('scanning');
+
+  const startFrom = currentApkHash ? ($('optStartFrom').value || 'scan') : 'scan';
+  setPhase(startFrom === 'scan' ? 'scanning' : startFrom);
 
   const form = new FormData();
-  form.append('file', selectedFile);
+  if (selectedFile) form.append('file', selectedFile);
+  if (currentApkHash) form.append('apk_hash', currentApkHash);
   form.append('engine', $('optEngine').value);
   form.append('timeout', $('optTimeout').value);
   form.append('deep', $('optDeep').checked);
   form.append('anti_detect', $('optAntiDetect').checked);
+  form.append('start_from', startFrom);
 
   fetch('/api/full', { method: 'POST', body: form })
     .then(r => r.json())
     .then(data => {
       if (data.error) { showError(data.error); return; }
+      if (data.apk_hash) currentApkHash = data.apk_hash;
       pollJob(data.job_id);
     })
     .catch(e => showError(e.message));
@@ -280,6 +323,8 @@ function pollJob(jobId) {
         setPhase('done');
         btnRun.disabled = false;
         btnRun.textContent = 'Run Pipeline';
+        if (job.apk_hash) { currentApkHash = job.apk_hash; $('startFromGroup').style.display = ''; }
+        loadCache();
       } else if (job.status === 'failed') {
         showError(job.error || 'Unknown error');
         btnRun.disabled = false;
