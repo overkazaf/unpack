@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UNPACK — Android Unpacker</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #020617;
+      --bg-card: rgba(15, 23, 42, 0.6);
+      --border: #1e293b;
+      --text: #f1f5f9;
+      --text-dim: #94a3b8;
+      --text-muted: #64748b;
+      --cyan: #22d3ee;
+      --emerald: #34d399;
+      --amber: #fbbf24;
+      --violet: #a78bfa;
+      --rose: #fb7185;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    code, .mono { font-family: 'JetBrains Mono', monospace; }
+
+    /* Hero */
+    .hero {
+      position: relative;
+      padding: 6rem 2rem 4rem;
+      text-align: center;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% 0%, rgba(34,211,238,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 30% 100%, rgba(167,139,250,0.06) 0%, transparent 50%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(34,211,238,0.1);
+      border: 1px solid rgba(34,211,238,0.2);
+      border-radius: 999px;
+      padding: 0.375rem 1rem;
+      font-size: 0.8rem;
+      color: var(--cyan);
+      margin-bottom: 1.5rem;
+    }
+    .hero-badge .dot {
+      width: 6px; height: 6px;
+      background: var(--emerald);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .hero h1 {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: clamp(2.5rem, 6vw, 4rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 1rem;
+      background: linear-gradient(135deg, #f1f5f9 0%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .hero h1 span { -webkit-text-fill-color: var(--cyan); }
+    .hero p {
+      font-size: 1.15rem;
+      color: var(--text-dim);
+      max-width: 640px;
+      margin: 0 auto 2rem;
+      line-height: 1.7;
+    }
+    .hero-actions {
+      display: flex;
+      gap: 1rem;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: var(--cyan);
+      color: var(--bg);
+    }
+    .btn-primary:hover { background: #06b6d4; }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { color: var(--text); border-color: #334155; }
+
+    /* Pipeline */
+    .pipeline {
+      display: flex;
+      justify-content: center;
+      gap: 0;
+      padding: 2rem 2rem 3rem;
+      flex-wrap: wrap;
+    }
+    .pipe-step {
+      display: flex;
+      align-items: center;
+      gap: 0;
+    }
+    .pipe-box {
+      padding: 0.625rem 1.25rem;
+      border-radius: 0.5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border: 1px solid;
+    }
+    .pipe-arrow {
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      padding: 0 0.25rem;
+    }
+    .pipe-scan { background: rgba(34,211,238,0.1); border-color: rgba(34,211,238,0.3); color: var(--cyan); }
+    .pipe-dump { background: rgba(251,191,36,0.1); border-color: rgba(251,191,36,0.3); color: var(--amber); }
+    .pipe-repair { background: rgba(52,211,153,0.1); border-color: rgba(52,211,153,0.3); color: var(--emerald); }
+    .pipe-verify { background: rgba(167,139,250,0.1); border-color: rgba(167,139,250,0.3); color: var(--violet); }
+
+    /* Sections */
+    .section {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 3rem 2rem;
+    }
+    .section-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 0.5rem;
+    }
+    .section h2 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      letter-spacing: -0.02em;
+    }
+    .section-desc {
+      color: var(--text-dim);
+      font-size: 1rem;
+      max-width: 600px;
+      margin-bottom: 2rem;
+      line-height: 1.7;
+    }
+
+    /* Feature grid */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.25rem;
+    }
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      transition: border-color 0.2s;
+    }
+    .feature-card:hover { border-color: #334155; }
+    .feature-icon {
+      width: 36px; height: 36px;
+      border-radius: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      margin-bottom: 1rem;
+    }
+    .feature-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.5rem;
+    }
+    .feature-card p {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    /* Engine cards */
+    .engines {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.25rem;
+    }
+    .engine-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+    .engine-card:hover { border-color: #334155; }
+    .engine-header {
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .engine-header h3 {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1rem;
+      font-weight: 700;
+    }
+    .engine-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      letter-spacing: 0.05em;
+    }
+    .engine-body {
+      padding: 0 1.5rem 1.5rem;
+    }
+    .engine-body p {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      line-height: 1.6;
+      margin-bottom: 1rem;
+    }
+    .engine-body ul {
+      list-style: none;
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+    .engine-body li {
+      padding: 0.3rem 0;
+      padding-left: 1.25rem;
+      position: relative;
+    }
+    .engine-body li::before {
+      content: '';
+      position: absolute;
+      left: 0; top: 0.7rem;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+    }
+    .engine-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.8rem;
+      margin-top: 0.75rem;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .e-memory .engine-header { border-bottom: 2px solid var(--cyan); }
+    .e-memory .engine-badge { background: rgba(34,211,238,0.15); color: var(--cyan); }
+    .e-memory li::before { background: var(--cyan); }
+    .e-memory .engine-link { color: var(--cyan); }
+    .e-memory .engine-link:hover { color: #06b6d4; }
+
+    .e-frida .engine-header { border-bottom: 2px solid var(--amber); }
+    .e-frida .engine-badge { background: rgba(251,191,36,0.15); color: var(--amber); }
+    .e-frida li::before { background: var(--amber); }
+    .e-frida .engine-link { color: var(--amber); }
+
+    .e-ebpf .engine-header { border-bottom: 2px solid var(--emerald); }
+    .e-ebpf .engine-badge { background: rgba(52,211,153,0.15); color: var(--emerald); }
+    .e-ebpf li::before { background: var(--emerald); }
+    .e-ebpf .engine-link { color: var(--emerald); }
+
+    /* Benchmark */
+    .bench-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      margin-top: 1rem;
+    }
+    .bench-table th {
+      text-align: left;
+      padding: 0.75rem 1rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+    .bench-table td {
+      padding: 0.625rem 1rem;
+      border-bottom: 1px solid rgba(30,41,59,0.5);
+      color: var(--text-dim);
+    }
+    .bench-table tr:hover td { color: var(--text); }
+    .bench-table .packer { color: var(--cyan); font-weight: 500; }
+    .bench-table .score { font-family: 'JetBrains Mono', monospace; }
+
+    /* Code block */
+    .code-block {
+      background: rgba(2, 6, 23, 0.8);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      overflow-x: auto;
+      margin-top: 1.5rem;
+    }
+    .code-block pre {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      line-height: 1.7;
+      color: var(--text-dim);
+    }
+    .code-block .cmd { color: var(--emerald); }
+    .code-block .flag { color: var(--amber); }
+    .code-block .comment { color: var(--text-muted); }
+
+    /* Packer grid */
+    .packer-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+    .packer-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      padding: 0.3rem 0.75rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      transition: all 0.2s;
+    }
+    .packer-tag:hover { border-color: var(--cyan); color: var(--cyan); }
+
+    /* Architecture diagram link */
+    .arch-banner {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.75rem;
+      padding: 2rem;
+      text-align: center;
+      margin-top: 2rem;
+    }
+    .arch-banner a {
+      color: var(--cyan);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .arch-banner a:hover { text-decoration: underline; }
+    .arch-banner p {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      margin-top: 0.5rem;
+    }
+
+    /* References */
+    .ref-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+    .ref-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.75rem 1rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      text-decoration: none;
+      transition: border-color 0.2s;
+    }
+    .ref-item:hover { border-color: #334155; }
+    .ref-stars {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--amber);
+      white-space: nowrap;
+    }
+    .ref-name { font-size: 0.85rem; color: var(--text); font-weight: 500; }
+    .ref-desc { font-size: 0.7rem; color: var(--text-muted); }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 3rem 2rem;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      border-top: 1px solid var(--border);
+    }
+    footer a { color: var(--text-dim); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    @media (max-width: 640px) {
+      .hero { padding: 4rem 1.5rem 2rem; }
+      .section { padding: 2rem 1.5rem; }
+      .pipeline { gap: 0.25rem; }
+      .pipe-box { padding: 0.5rem 0.75rem; font-size: 0.7rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-badge">
+      <span class="dot"></span>
+      v0.1.0 &mdash; open source
+    </div>
+    <h1>UN<span>PACK</span></h1>
+    <p>Android 加固分析平台。自动识别壳类型，选择最优引擎脱壳，修复 DEX，验证质量。一行命令，全链路自动化。</p>
+    <div class="hero-actions">
+      <a href="https://github.com/overkazaf/unpack" class="btn btn-primary">GitHub</a>
+      <a href="architecture.html" class="btn btn-ghost">Architecture</a>
+      <a href="#quickstart" class="btn btn-ghost">Quick Start</a>
+    </div>
+  </section>
+
+  <!-- Pipeline -->
+  <div class="pipeline">
+    <div class="pipe-step"><span class="pipe-box pipe-scan">scan</span><span class="pipe-arrow">&rarr;</span></div>
+    <div class="pipe-step"><span class="pipe-box pipe-dump">dump</span><span class="pipe-arrow">&rarr;</span></div>
+    <div class="pipe-step"><span class="pipe-box pipe-repair">repair</span><span class="pipe-arrow">&rarr;</span></div>
+    <div class="pipe-step"><span class="pipe-box pipe-verify">verify</span></div>
+  </div>
+
+  <!-- Why -->
+  <section class="section">
+    <div class="section-label">Problem</div>
+    <h2>为什么需要 UNPACK</h2>
+    <p class="section-desc">现有脱壳工具碎片化严重，每个只做一件事。UNPACK 把识别、脱壳、修复、验证整合成一个工具链。</p>
+    <div class="features">
+      <div class="feature-card">
+        <div class="feature-icon" style="background:rgba(34,211,238,0.1);color:var(--cyan)">&#128270;</div>
+        <h3>24 家壳自动识别</h3>
+        <p>6 维加权评分（SO/Manifest/Assets/DEX/Cert/Size），支持版本检测（360 v1-v4、乐固 v1-v3），置信度透明可解释。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:rgba(251,191,36,0.1);color:var(--amber)">&#9881;</div>
+        <h3>三引擎自动调度</h3>
+        <p>Memory（零注入，VDEX 解析）、Frida（4 策略 + 7 项反检测）、eBPF（内核 uprobe）。根据壳类型和设备能力自动选择。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:rgba(52,211,153,0.1);color:var(--emerald)">&#128295;</div>
+        <h3>7 步 DEX 修复</h3>
+        <p>Header / Checksum / Signature / Map / NOP 检测 / 对齐 / 验证。修复后的 DEX 可直接被 baksmali / jadx / JEB 解析。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:rgba(167,139,250,0.1);color:var(--violet)">&#128202;</div>
+        <h3>质量评估报告</h3>
+        <p>类/方法覆盖率、NOP 方法检测（仍被加密的函数抽取方法）、结构化 JSON 报告，脱壳效果一目了然。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:rgba(251,113,133,0.1);color:var(--rose)">&#129302;</div>
+        <h3>AI 管道集成</h3>
+        <p><code class="mono">unpack analyze app.apk | claude -p</code> &mdash; 生成结构化报告直接管道给 Claude 做深度分析：壳特征、绕过方案、类似样本。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:rgba(34,211,238,0.1);color:var(--cyan)">&#128640;</div>
+        <h3>极客 CLI 体验</h3>
+        <p>Rich 面板 + spinner 动画 + 进度条置信度 + 彩色输出。JSON / report / verbose 多种输出模式，适配脚本和管道。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Engines -->
+  <section class="section">
+    <div class="section-label">Engines</div>
+    <h2>三种脱壳引擎</h2>
+    <p class="section-desc">每种引擎针对不同场景优化，自动调度或手动指定。</p>
+    <div class="engines">
+      <div class="engine-card e-memory">
+        <div class="engine-header">
+          <h3>Memory Engine</h3>
+          <span class="engine-badge">VERIFIED</span>
+        </div>
+        <div class="engine-body">
+          <p>解析 /proc/pid/maps，从 VDEX 容器提取 DEX。零注入，anti-Frida 完全无感。</p>
+          <ul>
+            <li>Host 侧解析内存布局，不注入目标进程</li>
+            <li>VDEX 027 容器感知（Android 8+）</li>
+            <li>dd bs=4096 块对齐高速读取</li>
+            <li>实测：31 DEX / 164MB / 33.7s / 31/31 PASS</li>
+          </ul>
+          <a href="engine-memory.html" class="engine-link">Flow diagram &rarr;</a>
+        </div>
+      </div>
+      <div class="engine-card e-frida">
+        <div class="engine-header">
+          <h3>Frida Engine</h3>
+          <span class="engine-badge">4 STRATEGIES</span>
+        </div>
+        <div class="engine-body">
+          <p>DBI 注入 + 内存扫描 + ART Hook + ClassLoader 遍历 + SO dump。</p>
+          <ul>
+            <li>7 项反检测（maps/port/TracerPid/signal/thread/class/timing）</li>
+            <li>Anti-detect 在 resume 前同步完成</li>
+            <li>轮询式 DEX header 严格校验</li>
+            <li>dlopen hook 同时 dump 解密 SO</li>
+          </ul>
+          <a href="engine-frida.html" class="engine-link">Flow diagram &rarr;</a>
+        </div>
+      </div>
+      <div class="engine-card e-ebpf">
+        <div class="engine-header">
+          <h3>eBPF Engine</h3>
+          <span class="engine-badge">KERNEL-LEVEL</span>
+        </div>
+        <div class="engine-body">
+          <p>bpftrace uprobe 挂钩 libart.so，内核态捕获 DEX 加载事件。</p>
+          <ul>
+            <li>按符号名挂载，跨 Android 版本兼容</li>
+            <li>不可探测时自动 fallback 到偏移量</li>
+            <li>/proc/pid/mem dump helper 提取 DEX</li>
+            <li>需要 root + kernel 5.4+ + bpftrace</li>
+          </ul>
+          <a href="engine-ebpf.html" class="engine-link">Flow diagram &rarr;</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Start -->
+  <section class="section" id="quickstart">
+    <div class="section-label">Quick Start</div>
+    <h2>开始使用</h2>
+    <div class="code-block"><pre><span class="comment"># Install</span>
+<span class="cmd">python3 -m venv</span> .venv && <span class="cmd">source</span> .venv/bin/activate
+<span class="cmd">pip install</span> <span class="flag">-e .</span>
+
+<span class="comment"># Scan (no device needed)</span>
+<span class="cmd">unpack scan</span> app.apk
+<span class="cmd">unpack scan</span> app.apk <span class="flag">-v</span>              <span class="comment"># verbose: SO list, DEX info, confidence breakdown</span>
+<span class="cmd">unpack scan</span> app.apk <span class="flag">-r</span>              <span class="comment"># report mode (pipe to claude -p)</span>
+
+<span class="comment"># Dump (needs rooted device)</span>
+<span class="cmd">unpack dump</span> app.apk                   <span class="comment"># auto-select engine</span>
+<span class="cmd">unpack dump</span> app.apk <span class="flag">-e memory</span>        <span class="comment"># force Memory engine</span>
+<span class="cmd">unpack dump</span> app.apk <span class="flag">-e frida -t 30</span>   <span class="comment"># Frida with 30s timeout</span>
+
+<span class="comment"># Repair + Verify</span>
+<span class="cmd">unpack repair</span> ./unpacked/             <span class="comment"># fix dumped DEX files</span>
+<span class="cmd">unpack verify</span> ./unpacked/             <span class="comment"># check integrity + quality</span>
+
+<span class="comment"># AI Analysis</span>
+<span class="cmd">unpack analyze</span> app.apk | <span class="cmd">claude</span> <span class="flag">-p</span>   <span class="comment"># deep packer analysis via Claude</span></pre>
+    </div>
+  </section>
+
+  <!-- Benchmark -->
+  <section class="section">
+    <div class="section-label">Benchmark</div>
+    <h2>真机测试数据</h2>
+    <p class="section-desc">Pixel 7 Pro, Android 13, Kernel 5.10. 14 个真实 App 扫描 + dump 测试。</p>
+    <table class="bench-table">
+      <thead>
+        <tr><th>Packer</th><th>Detected</th><th>Version</th><th>Protection</th><th>Scan Time</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="packer">&#26834;&#26834;&#23433;&#20840;</td><td class="score">1 app</td><td>&#20225;&#19994;&#29256;</td><td>Function extraction</td><td class="score">0.2s</td></tr>
+        <tr><td class="packer">&#38463;&#37324;&#32858;&#23433;&#20840;</td><td class="score">2 apps</td><td>v1</td><td>Function extraction</td><td class="score">0.5s</td></tr>
+        <tr><td class="packer">&#32593;&#26131;&#26131;&#30462;</td><td class="score">3 apps</td><td>v2</td><td>Function extraction</td><td class="score">0.7s</td></tr>
+        <tr><td class="packer">&#33150;&#35759;&#20048;&#22266;</td><td class="score">1 app</td><td>&mdash;</td><td>DEX encryption</td><td class="score">1.0s</td></tr>
+        <tr><td style="color:var(--text-muted)">No packer</td><td class="score">7 apps</td><td>&mdash;</td><td>&mdash;</td><td class="score">0.1-0.4s</td></tr>
+      </tbody>
+    </table>
+
+    <div style="margin-top:2rem; padding:1.25rem; background:var(--bg-card); border:1px solid var(--border); border-radius:0.75rem;">
+      <div style="display:flex; gap:2rem; flex-wrap:wrap; justify-content:center; text-align:center;">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:var(--cyan);">31</div>
+          <div style="font-size:0.75rem; color:var(--text-muted);">DEX dumped</div>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:var(--emerald);">164MB</div>
+          <div style="font-size:0.75rem; color:var(--text-muted);">APK size</div>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:var(--amber);">33.7s</div>
+          <div style="font-size:0.75rem; color:var(--text-muted);">dump time</div>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:2rem; font-weight:700; color:var(--violet);">31/31</div>
+          <div style="font-size:0.75rem; color:var(--text-muted);">verify PASS</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Supported Packers -->
+  <section class="section">
+    <div class="section-label">Coverage</div>
+    <h2>24 家壳厂商</h2>
+    <p class="section-desc">覆盖国内主流和国际常见加固方案，支持版本识别。</p>
+    <div class="packer-grid">
+      <span class="packer-tag">360&#21152;&#22266;&#20445; v1-v4</span>
+      <span class="packer-tag">&#33150;&#35759;&#20048;&#22266; v1-v3</span>
+      <span class="packer-tag">&#33150;&#35759;&#24481;&#23433;&#20840;</span>
+      <span class="packer-tag">&#26834;&#26834;&#23433;&#20840;</span>
+      <span class="packer-tag">&#29233;&#21152;&#23494; v1-v3</span>
+      <span class="packer-tag">&#32593;&#26131;&#26131;&#30462; v1-v2</span>
+      <span class="packer-tag">&#30334;&#24230;&#21152;&#22266;</span>
+      <span class="packer-tag">&#38463;&#37324;&#32858;&#23433;&#20840;</span>
+      <span class="packer-tag">&#23068;&#36838;&#21152;&#22266;</span>
+      <span class="packer-tag">&#36890;&#20184;&#30462;</span>
+      <span class="packer-tag">&#20960;&#32500;&#23433;&#20840;</span>
+      <span class="packer-tag">&#28023;&#20113;&#23433;</span>
+      <span class="packer-tag">&#20013;&#22269;&#31227;&#21160;&#21152;&#22266;</span>
+      <span class="packer-tag">&#29642;&#29786;&#28789;&#24481;</span>
+      <span class="packer-tag">&#29790;&#26143;</span>
+      <span class="packer-tag">&#39030;&#35937;</span>
+      <span class="packer-tag">&#30427;&#22823;&#21152;&#22266;</span>
+      <span class="packer-tag">&#32593;&#31206;</span>
+      <span class="packer-tag">UU&#23433;&#20840;</span>
+      <span class="packer-tag">apktoolplus</span>
+      <span class="packer-tag">DexProtector</span>
+      <span class="packer-tag">APKProtect</span>
+      <span class="packer-tag">LIAPP</span>
+      <span class="packer-tag">AppSealing</span>
+    </div>
+  </section>
+
+  <!-- Architecture -->
+  <section class="section">
+    <div class="section-label">Architecture</div>
+    <h2>交互式架构图</h2>
+    <div class="arch-banner">
+      <a href="architecture.html">打开总架构图 &rarr;</a>
+      <p>支持导出 PNG / PDF，带流动动画</p>
+      <div style="display:flex; gap:1rem; justify-content:center; margin-top:1rem;">
+        <a href="engine-memory.html" style="color:var(--cyan); font-size:0.85rem; text-decoration:none;">Memory Engine</a>
+        <a href="engine-frida.html" style="color:var(--amber); font-size:0.85rem; text-decoration:none;">Frida Engine</a>
+        <a href="engine-ebpf.html" style="color:var(--emerald); font-size:0.85rem; text-decoration:none;">eBPF Engine</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison -->
+  <section class="section">
+    <div class="section-label">Comparison</div>
+    <h2>vs 竞品</h2>
+    <p class="section-desc">和主流开源脱壳工具的功能对比（基于公开数据）</p>
+    <div style="overflow-x:auto;">
+    <table class="bench-table" style="min-width:700px;">
+      <thead>
+        <tr><th>Feature</th><th style="color:var(--cyan)">UNPACK</th><th>frida-dexdump</th><th>BlackDex</th><th>clsdumper</th><th>BPFDex</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Packer ID</td><td class="packer">24 vendors + version</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td><td>behavioral</td></tr>
+        <tr><td>Engines</td><td class="packer">3 (auto-dispatch)</td><td>1 (Frida)</td><td>1 (cookie)</td><td>1 (Frida 9-strat)</td><td>1 (eBPF)</td></tr>
+        <tr><td>DEX repair</td><td class="packer">7-step pipeline</td><td>&#10007;</td><td>partial</td><td>&#10007;</td><td>&#10007;</td></tr>
+        <tr><td>Quality report</td><td class="packer">coverage + NOP</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td></tr>
+        <tr><td>Anti-detect</td><td class="packer">7 bypasses</td><td>&#10007;</td><td>N/A</td><td>3 bypasses</td><td>N/A</td></tr>
+        <tr><td>SO dump</td><td class="packer">&#10003;</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td><td>&#10003;</td></tr>
+        <tr><td>Zero injection</td><td class="packer">&#10003; (Memory)</td><td>&#10007;</td><td>&#10003;</td><td>&#10007;</td><td>&#10003;</td></tr>
+        <tr><td>AI pipeline</td><td class="packer">claude -p</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td><td>&#10007;</td></tr>
+        <tr><td>Status</td><td style="color:var(--emerald)">Active</td><td style="color:var(--rose)">Archived</td><td style="color:var(--rose)">Stale</td><td style="color:var(--emerald)">Active</td><td style="color:var(--text-muted)">Academic</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- References -->
+  <section class="section">
+    <div class="section-label">References</div>
+    <h2>参考项目</h2>
+    <div class="ref-grid">
+      <a href="https://github.com/CodingGay/BlackDex" class="ref-item"><div><div class="ref-name">BlackDex</div><div class="ref-desc">DexFile cookie + standalone</div></div><span class="ref-stars">&#9733; 6.4k</span></a>
+      <a href="https://github.com/hluwa/frida-dexdump" class="ref-item"><div><div class="ref-name">frida-dexdump</div><div class="ref-desc">Frida memory scan</div></div><span class="ref-stars">&#9733; 4.6k</span></a>
+      <a href="https://github.com/hanbinglengyue/FART" class="ref-item"><div><div class="ref-name">FART</div><div class="ref-desc">ART active invocation</div></div><span class="ref-stars">&#9733; 2.7k</span></a>
+      <a href="https://github.com/DrizzleRisk/drizzleDumper" class="ref-item"><div><div class="ref-name">drizzleDumper</div><div class="ref-desc">ptrace memory scan</div></div><span class="ref-stars">&#9733; 2.4k</span></a>
+      <a href="https://github.com/lasting-yang/frida_dump" class="ref-item"><div><div class="ref-name">frida_dump</div><div class="ref-desc">DEX + SO dump</div></div><span class="ref-stars">&#9733; 2.1k</span></a>
+      <a href="https://github.com/tiwe0/r0dump" class="ref-item"><div><div class="ref-name">r0dump</div><div class="ref-desc">FART successor, Android 16</div></div><span class="ref-stars">new</span></a>
+      <a href="https://github.com/LLeavesG/eBPFDexDumper" class="ref-item"><div><div class="ref-name">eBPFDexDumper</div><div class="ref-desc">Kernel-level eBPF dump</div></div><span class="ref-stars">new</span></a>
+      <a href="https://github.com/TheQmaks/clsdumper" class="ref-item"><div><div class="ref-name">clsdumper</div><div class="ref-desc">9 strategies + anti-detect</div></div><span class="ref-stars">new</span></a>
+    </div>
+  </section>
+
+  <footer>
+    <p>UNPACK v0.1.0 &bull; MIT License &bull; <a href="https://github.com/overkazaf/unpack">GitHub</a></p>
+  </footer>
+
+</body>
+</html>
