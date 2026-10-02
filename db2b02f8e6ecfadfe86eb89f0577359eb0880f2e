@@ -1,0 +1,33 @@
+src/unpack/engines/active_invoke.py
+  cddddbaf40c704a4 21,24-104,106-168,636,641-643
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "db2b02f8e6ecfadfe86eb89f0577359eb0880f2e",
+  "prompts": {
+    "cddddbaf40c704a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d4894bd-331b-4fdc-9d1e-9e291a9fdfb9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 150,
+      "total_deletions": 17,
+      "accepted_lines": 159,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "src/unpack/engines/active_invoke.py": {
+          "additions": 150,
+          "deletions": 17,
+          "accepted_lines": 150
+        },
+        "result.json": {
+          "accepted_lines": 9
+        }
+      }
+    }
+  }
+}
