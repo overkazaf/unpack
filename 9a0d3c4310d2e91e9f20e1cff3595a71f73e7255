@@ -1,0 +1,39 @@
+src/unpack/templates/index.html
+  cddddbaf40c704a4 11,13,21-76,79-81,85-111,118,121,123-129,131-135,137-139,141-142,144-147,150-166,168,170-177,180-186,188-195,198-201,204,207-208,210-225,227-230,233-243,247-270,273-292,295-300,302-304,306-309,311-313,316-331,333,336-338,341-342,344-357,360-365,368-373,376-393,395-404
+src/unpack/web.py
+  cddddbaf40c704a4 23,31-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "9a0d3c4310d2e91e9f20e1cff3595a71f73e7255",
+  "prompts": {
+    "cddddbaf40c704a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d4894bd-331b-4fdc-9d1e-9e291a9fdfb9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 470,
+      "total_deletions": 448,
+      "accepted_lines": 479,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "src/unpack/templates/index.html": {
+          "additions": 329,
+          "deletions": 448,
+          "accepted_lines": 329
+        },
+        "src/unpack/web.py": {
+          "additions": 141,
+          "accepted_lines": 141
+        },
+        "result.json": {
+          "accepted_lines": 9
+        }
+      }
+    }
+  }
+}
