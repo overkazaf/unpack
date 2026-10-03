@@ -396,7 +396,15 @@ def repair(
     validation, CodeItem alignment. Detects NOP-only methods
     (still-encrypted extracted methods).
     """
-    paths = list(dex.glob("*.dex")) if dex.is_dir() else [dex]
+    if not dex.exists():
+        console.print(f"[{C_FAIL}]Path not found:[/] {dex}")
+        raise typer.Exit(1)
+
+    if dex.is_dir():
+        paths = [p for p in sorted(dex.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
+    else:
+        paths = [dex]
+
     if not paths:
         console.print(f"[{C_FAIL}]No DEX files found.[/]")
         raise typer.Exit(1)
@@ -424,7 +432,15 @@ def verify(
     Validates magic, checksum, SHA-1, file size, section bounds.
     Reports NOP-only methods from function extraction packers.
     """
-    paths = list(path.glob("*.dex")) if path.is_dir() else [path]
+    if not path.exists():
+        console.print(f"[{C_FAIL}]Path not found:[/] {path}")
+        raise typer.Exit(1)
+
+    if path.is_dir():
+        paths = [p for p in sorted(path.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
+    else:
+        paths = [path]
+
     if not paths:
         console.print(f"[{C_FAIL}]No DEX files found.[/]")
         raise typer.Exit(1)
