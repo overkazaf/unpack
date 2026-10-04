@@ -1,3 +1,12 @@
+<div align="center">
+
+![Stars](https://img.shields.io/github/stars/overkazaf/unpack?style=flat-square&color=58a6ff)
+![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)
+![Last Commit](https://img.shields.io/github/last-commit/overkazaf/unpack?style=flat-square&color=58a6ff)
+![Packers](https://img.shields.io/badge/Packers_Supported-24-58a6ff?style=flat-square)
+
+</div>
+
 # UNPACK
 
 Android 脱壳工具 —— 一行命令完成壳识别、DEX dump、修复、质量验证。
