@@ -1,0 +1,35 @@
+tests/test_fingerprint.py
+  6d63699bdef2f7e6 1-179
+src/unpack/core/fingerprint.py
+  6d63699bdef2f7e6 1-188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "ee594a081f56922ac67e84784da06202c9de658c",
+  "prompts": {
+    "6d63699bdef2f7e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41b101db-4c3a-45d7-8237-ad6577bd3194",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 367,
+      "total_deletions": 0,
+      "accepted_lines": 367,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "tests/test_fingerprint.py": {
+          "additions": 179,
+          "accepted_lines": 179
+        },
+        "src/unpack/core/fingerprint.py": {
+          "additions": 188,
+          "accepted_lines": 188
+        }
+      }
+    }
+  }
+}
