@@ -64,6 +64,7 @@ def _print_main_help():
     t.add_row("rescan", "Trigger components to decrypt remaining NOP methods")
     t.add_row("reassemble", "Map dumped classes back to original DEX numbering")
     t.add_row("vmp", "Classify methods: normal / NOP / VMP-stub")
+    t.add_row("xref", "Cross-reference index: strings, calls, fields, reflection")
     console.print(Panel(t, title="[bold]Commands[/]", border_style="dim", box=box.ROUNDED))
 
     examples = [
@@ -80,6 +81,7 @@ def _print_main_help():
         ("unpack rescan app.apk ./unpacked/ -r 5", "trigger components, re-scan memory"),
         ("unpack reassemble app.apk ./unpacked/", "map classes to original DEX"),
         ("unpack vmp ./unpacked/", "classify methods (VMP stub detection)"),
+        ("unpack xref ./unpacked/", "cross-reference strings/calls/fields"),
     ]
     et = Table(show_header=False, box=None, padding=(0, 1))
     et.add_column("$", style="bright_cyan", width=2)
@@ -709,6 +711,78 @@ def vmp(
         else:
             output_json.write_text(payload)
             console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
+
+
+@app.command()
+def xref(
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with DEX files or single DEX")],
+    output_json: Annotated[Optional[Path], typer.Option("--json", "-j", help="Save xref report as JSON (use - for stdout)")] = None,
+):
+    """Build a cross-reference index: strings, method calls, fields, reflection.
+
+    Disassembles every method body and indexes which methods reference
+    which string literals, call which other methods, and touch which
+    fields. Flags call sites that use Java reflection or dynamic class
+    loading (Class.forName, Method.invoke, DexClassLoader, etc) as a
+    likely sign of hidden/obfuscated behavior.
+    """
+    from unpack.analysis.xref import XrefBuilder
+
+    if not dex_dir.exists():
+        console.print(f"[{C_FAIL}]Path not found:[/] {dex_dir}")
+        raise typer.Exit(1)
+
+    if dex_dir.is_dir():
+        paths = [p for p in sorted(dex_dir.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
+    else:
+        paths = [dex_dir]
+
+    if not paths:
+        console.print(f"[{C_FAIL}]No DEX files found.[/]")
+        raise typer.Exit(1)
+
+    pipe_mode = output_json and str(output_json) == "-"
+
+    builder = XrefBuilder()
+    reports = []
+    for p in paths:
+        reports.append(builder.build_file(p))
+    merged = XrefBuilder.merge(reports)
+
+    if pipe_mode:
+        print(json.dumps(merged.to_dict(), indent=2, ensure_ascii=False))
+        return
+
+    console.print(f"  [{C_DIM}]Analyzed {len(paths)} DEX file(s)[/]")
+
+    lines = [
+        f"  [{C_LABEL}]Strings referenced[/]  [{C_INFO}]{len(merged.string_refs):,}[/]",
+        f"  [{C_LABEL}]Methods called[/]      [{C_INFO}]{len(merged.method_calls):,}[/]",
+        f"  [{C_LABEL}]Fields referenced[/]   [{C_INFO}]{len(merged.field_refs):,}[/]",
+        f"  [{C_LABEL}]Reflection calls[/]    [{C_WARN if merged.reflection_calls else C_DIM}]{len(merged.reflection_calls):,}[/]",
+    ]
+    console.print(Panel("\n".join(lines), title=f"[{C_INFO}] XREF SUMMARY [/]", border_style=C_INFO, box=box.HEAVY, padding=(0, 1)))
+
+    if merged.reflection_calls:
+        refl_lines = []
+        for call in merged.reflection_calls[:30]:
+            caller = call["caller"]
+            refl_lines.append(
+                f"  [{C_WARN}]{caller['class']}->{caller['method']}[/] "
+                f"[{C_DIM}]calls[/] [{C_ACCENT}]{call['target']}[/]"
+            )
+        if len(merged.reflection_calls) > 30:
+            refl_lines.append(f"  [{C_DIM}]... and {len(merged.reflection_calls) - 30} more[/]")
+        console.print(Panel(
+            "\n".join(refl_lines),
+            title=f"[{C_WARN}] Reflection / Dynamic Loading [/]",
+            border_style=C_WARN, box=box.ROUNDED, padding=(0, 1),
+        ))
+
+    if output_json:
+        payload = json.dumps(merged.to_dict(), indent=2, ensure_ascii=False)
+        output_json.write_text(payload)
+        console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
 
 
 # ── Output formatting ──
