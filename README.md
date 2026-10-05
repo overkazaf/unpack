@@ -75,6 +75,10 @@ pip install -e ".[all]"        # 全部
 
 ## 使用
 
+### 壳识别
+
+![scan](docs/screenshots/scan-detect.svg)
+
 ```bash
 # 识别壳类型（无需设备）
 unpack scan app.apk
@@ -95,6 +99,18 @@ unpack verify ./unpacked/
 ```
 
 ## 脱壳后分析
+
+### 交叉引用索引
+
+![xref](docs/screenshots/xref.svg)
+
+### VMP 方法分类
+
+![vmp](docs/screenshots/vmp.svg)
+
+### FART 格式导出
+
+![export](docs/screenshots/export-fart.svg)
 
 ```bash
 # APK 重打包（可直接用 jadx/JEB 打开）
