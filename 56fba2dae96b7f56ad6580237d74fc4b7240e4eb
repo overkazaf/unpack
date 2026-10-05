@@ -1,0 +1,29 @@
+tests/test_memory_multiproc.py
+  6d63699bdef2f7e6 1-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "56fba2dae96b7f56ad6580237d74fc4b7240e4eb",
+  "prompts": {
+    "6d63699bdef2f7e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41b101db-4c3a-45d7-8237-ad6577bd3194",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 80,
+      "total_deletions": 0,
+      "accepted_lines": 80,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "tests/test_memory_multiproc.py": {
+          "additions": 80,
+          "accepted_lines": 80
+        }
+      }
+    }
+  }
+}
