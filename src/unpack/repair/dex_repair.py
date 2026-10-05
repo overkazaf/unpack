@@ -43,8 +43,12 @@ class DexRepairPipeline:
         fmt = dex.fmt
 
         data = self._fix_file_size(data, dex.header, fmt, actions)
+        data = self._fix_section_bounds(data, fmt, actions)
+        data = self._fix_truncated_class_defs(data, fmt, actions)
         data = self._fix_map_off(data, dex.header, fmt, actions)
         data = self._fix_code_item_alignment(data, dex, actions)
+        code_item_offsets = [(ci.offset, ci.insns_size) for ci in dex.code_items]
+        data = self._fix_debug_info_offsets(data, code_item_offsets, len(data), actions)
 
         nop_count = self._detect_nop_methods(dex, actions)
 
@@ -135,6 +139,106 @@ class DexRepairPipeline:
                 f"zeroed corrupt map_off: {map_off:#x} "
                 f"(map_size={map_size}, would need {expected_end} bytes)"
             )
+
+        return data
+
+    # (size_off, off_off, entry_size) for each DEX header section that
+    # points into the file via a (size, off) pair.
+    _SECTION_FIELDS = (
+        ("string_ids", 56, 60, 4),
+        ("type_ids", 64, 68, 4),
+        ("proto_ids", 72, 76, 12),
+        ("field_ids", 80, 84, 8),
+        ("method_ids", 88, 92, 8),
+        ("class_defs", 96, 100, 32),
+    )
+
+    @staticmethod
+    def _fix_section_bounds(
+        data: bytearray, fmt: str, actions: list[str]
+    ) -> bytearray:
+        """Zero out any header section (size, off) pair whose span runs
+        past the end of the file. Re-reads values from `data` directly
+        since earlier steps (e.g. _fix_file_size) may have modified the
+        header in place.
+        """
+        file_len = len(data)
+        for name, size_off, off_off, entry_size in DexRepairPipeline._SECTION_FIELDS:
+            size = struct.unpack_from(f"{fmt}I", data, size_off)[0]
+            off = struct.unpack_from(f"{fmt}I", data, off_off)[0]
+            if size == 0:
+                continue
+
+            end = off + size * entry_size
+            if off >= file_len or end > file_len:
+                struct.pack_into(f"{fmt}I", data, size_off, 0)
+                struct.pack_into(f"{fmt}I", data, off_off, 0)
+                actions.append(
+                    f"zeroed out-of-bounds {name} section bounds: "
+                    f"size={size}, off={off:#x} (needs {end} bytes, file_len={file_len})"
+                )
+
+        return data
+
+    @staticmethod
+    def _fix_truncated_class_defs(
+        data: bytearray, fmt: str, actions: list[str]
+    ) -> bytearray:
+        """Walk class_defs entries and zero any class_data_off/annotations_off/
+        static_values_off pointer that lies at or past EOF (truncated dump).
+        Re-reads class_defs_size/off from `data` directly since earlier
+        steps may have modified the header in place.
+        """
+        file_len = len(data)
+        class_defs_size = struct.unpack_from(f"{fmt}I", data, 96)[0]
+        class_defs_off = struct.unpack_from(f"{fmt}I", data, 100)[0]
+        if class_defs_size == 0 or class_defs_off == 0:
+            return data
+
+        entry_size = 32
+        pointer_fields = (
+            ("annotations_off", 20),
+            ("class_data_off", 24),
+            ("static_values_off", 28),
+        )
+
+        for i in range(class_defs_size):
+            entry_off = class_defs_off + i * entry_size
+            if entry_off + entry_size > file_len:
+                break
+
+            for field_name, field_rel_off in pointer_fields:
+                ptr_off = entry_off + field_rel_off
+                value = struct.unpack_from(f"{fmt}I", data, ptr_off)[0]
+                if value != 0 and value >= file_len:
+                    struct.pack_into(f"{fmt}I", data, ptr_off, 0)
+                    actions.append(
+                        f"zeroed truncated class_def[{i}] {field_name} pointer: "
+                        f"{value:#x} >= file_len {file_len}"
+                    )
+
+        return data
+
+    @staticmethod
+    def _fix_debug_info_offsets(
+        data: bytearray,
+        code_item_offsets: list[tuple[int, int]],
+        file_len: int,
+        actions: list[str],
+    ) -> bytearray:
+        """Zero any CodeItem's debug_info_off that points at or past EOF."""
+        for ci_offset, _insns_size in code_item_offsets:
+            debug_info_ptr = ci_offset + 8
+            if debug_info_ptr + 4 > len(data):
+                continue
+
+            debug_info_off = struct.unpack_from("<I", data, debug_info_ptr)[0]
+            if debug_info_off != 0 and debug_info_off >= file_len:
+                struct.pack_into("<I", data, debug_info_ptr, 0)
+                actions.append(
+                    f"zeroed out-of-bounds debug_info_off at code_item {ci_offset:#x}: "
+                    f"{debug_info_off:#x} >= file_len {file_len}"
+                )
 
         return data
 
