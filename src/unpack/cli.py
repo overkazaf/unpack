@@ -26,9 +26,7 @@ from unpack.core.dispatcher import Dispatcher
 from unpack.core.reporter import Reporter
 from unpack.engines.base import DumpResult
 from unpack.repair.dex_repair import DexRepairPipeline
-from unpack.repair.reassemble import ClassMapper, DexClassLister, ReassembleResult
 from unpack.repair.verifier import DexVerifier
-from unpack.repack.repacker import Repacker
 
 app = typer.Typer(
     name="unpack",
@@ -488,9 +486,6 @@ def verify(
 
 
 @app.command()
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
 def export(
     dex_dir: Annotated[Path, typer.Argument(help="Directory containing dumped DEX files")],
     output: Annotated[Path, typer.Option("--output", "-o", help="Output directory")] = Path("./fart_export"),
@@ -524,52 +519,10 @@ def repack(
     dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped/repaired DEX files")],
     output: Annotated[Path, typer.Option("--output", "-o", help="Output directory")] = Path("./repacked"),
 ):
-    """Repack dumped DEX into an analyzable APK.
-
-    Combines the original APK with dumped/repaired DEX files from the
-    `dex_dir`, replacing the original (encrypted/packed) classes*.dex
-    entries while preserving all other resources unchanged. No device
-    required — this is a pure zip-level operation.
-=======
-def rescan(
-    apk: Annotated[Path, typer.Argument(help="Original APK file")],
-    dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped DEX files (must have report.json)")],
-    device: Annotated[Optional[str], typer.Option("--device", "-d", help="ADB device serial (default: first USB device)")] = None,
-    rounds: Annotated[int, typer.Option("--rounds", "-r", help="Number of trigger rounds")] = 3,
-):
-    """Incremental re-scan: trigger app components to decrypt more methods.
-
-    Reads the quality report from a previous `unpack dump`, finds DEX
-    files that still have NOP-only (undecrypted) methods, parses the
-    APK's AndroidManifest for activities/services/receivers/providers,
-    and triggers each of them via `am start` / `am startservice` /
-    `am broadcast` to force the packer to load and decrypt more code.
-    The running process's memory is then re-scanned -- without
-    restarting the app -- for newly decrypted DEX.
->>>>>>> worktree-agent-a3e59ff1ca9d54359
-    """
-=======
-def reassemble(
-    apk: Annotated[Path, typer.Argument(help="Original APK file")],
-    dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped DEX files")],
-):
-    """Map dumped DEX classes back to original APK DEX numbering.
-
-    Compares the class lists of dumped DEX file(s) (e.g. a single memory
-    dump containing classes merged from every original DEX) against the
-    original APK's classes*.dex files, and reports which original DEX
-    each dumped class came from. Classes absent from the original APK
-    (dynamically generated, newly loaded) are reported as unmapped.
-    """
-    from collections import Counter
-
->>>>>>> worktree-agent-a10cea73648c92e7b
+    """Repack dumped DEX into an analyzable APK."""
     if not apk.exists():
         console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
         raise typer.Exit(1)
-
-<<<<<<< HEAD
-<<<<<<< HEAD
     if not dex_dir.exists():
         console.print(f"[{C_FAIL}]DEX directory not found:[/] {dex_dir}")
         raise typer.Exit(1)
@@ -586,24 +539,32 @@ def reassemble(
     console.print(f"  [{C_OK}]+[/] Repacked [{C_OK}]{result.dex_count}[/] DEX file(s), "
                   f"preserved [{C_OK}]{result.resources_preserved}[/] resource(s)")
     console.print(f"  [{C_DIM}]Output:[/] {result.output_path}")
-=======
+
+
+@app.command()
+def rescan(
+    apk: Annotated[Path, typer.Argument(help="Original APK file")],
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped DEX files (must have report.json)")],
+    device: Annotated[Optional[str], typer.Option("--device", "-d", help="ADB device serial")] = None,
+    rounds: Annotated[int, typer.Option("--rounds", "-r", help="Number of trigger rounds")] = 3,
+):
+    """Incremental re-scan: trigger app components to decrypt more methods."""
+    if not apk.exists():
+        console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
+        raise typer.Exit(1)
     if not dex_dir.exists() or not dex_dir.is_dir():
         console.print(f"[{C_FAIL}]Directory not found:[/] {dex_dir}")
         raise typer.Exit(1)
 
     report_path = dex_dir / "report.json"
     if not report_path.exists():
-        console.print(
-            f"[{C_FAIL}]No report.json found in {dex_dir}.[/] "
-            f"Run [{C_DIM}]unpack dump[/] first to produce one."
-        )
+        console.print(f"[{C_FAIL}]No report.json found in {dex_dir}.[/] Run unpack dump first.")
         raise typer.Exit(1)
 
     from unpack.engines.rescan import ComponentExtractor, IncrementalRescanner, RescanPlanner
     from unpack.utils.adb import get_device_serial
     from unpack.utils.apk import get_package_name
 
-    _phase(1, 3, "Planning rescan")
     planner = RescanPlanner()
     plan = planner.plan(report_path)
 
@@ -611,11 +572,7 @@ def reassemble(
         console.print(f"  [{C_OK}]No NOP-only methods found — nothing to rescan.[/]")
         return
 
-    console.print(
-        f"  [{C_WARN}]{plan.nop_count}[/] NOP method(s) across "
-        f"[{C_INFO}]{len(plan.dex_targets)}[/] DEX file(s): "
-        f"[{C_DIM}]{', '.join(plan.dex_targets)}[/]"
-    )
+    console.print(f"  [{C_WARN}]{plan.nop_count}[/] NOP method(s) across [{C_INFO}]{len(plan.dex_targets)}[/] DEX file(s)")
 
     pkg_name = get_package_name(apk)
     if not pkg_name:
@@ -623,82 +580,51 @@ def reassemble(
         raise typer.Exit(1)
 
     extractor = ComponentExtractor()
-    with _spinner("Parsing AndroidManifest for app components...", show_time=False):
-        manifest_strings = extractor.extract_manifest_strings(apk)
-        plan.components = extractor.classify_components(manifest_strings)
-
-    if not plan.components:
-        console.print(f"  [{C_FAIL}]No app components found in manifest — cannot trigger rescan.[/]")
-        raise typer.Exit(1)
-
-    by_type: dict[str, int] = {}
-    for c in plan.components:
-        by_type[c["type"]] = by_type.get(c["type"], 0) + 1
-    summary = ", ".join(f"{n} {t}" for t, n in sorted(by_type.items()))
-    console.print(f"  [{C_DIM}]Found {len(plan.components)} component(s): {summary}[/]")
+    manifest_strings = extractor.extract_manifest_strings(apk)
+    plan.components = extractor.classify_components(manifest_strings)
+    console.print(f"  [{C_DIM}]Found {len(plan.components)} component(s) to trigger[/]")
 
     serial = device or get_device_serial()
     if not serial:
         console.print(f"[{C_FAIL}]No ADB device connected.[/]")
         raise typer.Exit(1)
 
-    _phase(2, 3, "Triggering components")
     rescanner = IncrementalRescanner(rounds=rounds)
-    with _spinner(f"Running {rounds} round(s) against {len(plan.components)} component(s)..."):
+    with _spinner(f"Running {rounds} round(s)..."):
         result = rescanner.rescan(serial, pkg_name, plan, dex_dir)
 
-    _phase(3, 3, "Result")
     if result.success:
-        console.print(
-            f"  [{C_OK}]+[/] Recovered [{C_OK}]{result.methods_recovered}[/] method(s) "
-            f"over {result.rounds} round(s)"
-        )
-    else:
-        console.print(f"  [{C_WARN}]No additional methods recovered[/] [{C_DIM}]({result.rounds} round(s))[/]")
-
+        console.print(f"  [{C_OK}]+[/] Recovered [{C_OK}]{result.methods_recovered}[/] method(s) over {result.rounds} round(s)")
     if result.methods_still_nop:
         console.print(f"  [{C_WARN}]{result.methods_still_nop}[/] method(s) still NOP")
 
-    if result.error:
-        console.print(f"  [{C_DIM}]{result.error}[/]")
->>>>>>> worktree-agent-a3e59ff1ca9d54359
-=======
-=======
-def vmp(
-    dex_dir: Annotated[Path, typer.Argument(help="Directory with DEX files or single DEX")],
-    output_json: Annotated[Optional[Path], typer.Option("--json", "-j", help="Save VMP-stub methods + call graph as JSON (use - for stdout)")] = None,
-):
-    """Classify methods as normal/NOP/VMP-stub.
 
-    Scans every method body in the given DEX file(s) and buckets it as
-    normal, NOP-only (still-encrypted / function-extracted), or a VMP
-    dispatcher stub: a very short body (<=5 code units) whose main
-    operation is an invoke into a native dispatcher.
-    """
->>>>>>> worktree-agent-a2301df0f5ac3465b
+@app.command()
+def reassemble(
+    apk: Annotated[Path, typer.Argument(help="Original APK file")],
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped DEX files")],
+):
+    """Map dumped DEX classes back to original APK DEX numbering."""
+    from collections import Counter
+    from unpack.repair.reassemble import DexClassLister, ClassMapper, ReassembleResult
+
+    if not apk.exists():
+        console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
+        raise typer.Exit(1)
     if not dex_dir.exists():
         console.print(f"[{C_FAIL}]Path not found:[/] {dex_dir}")
         raise typer.Exit(1)
 
-<<<<<<< HEAD
     lister = DexClassLister()
     mapper = ClassMapper()
 
     with _spinner("Reading original APK classes..."):
-        try:
-            original = lister.list_from_apk(apk)
-        except Exception as e:
-            console.print(f"[{C_FAIL}]Failed to read APK:[/] {e}")
-            raise typer.Exit(1)
-
+        original = lister.list_from_apk(apk)
     if not original:
         console.print(f"[{C_FAIL}]No classes*.dex found in APK.[/]")
         raise typer.Exit(1)
 
-    dex_paths = [
-        p for p in sorted(dex_dir.glob("*.dex"))
-        if "_repaired" not in p.stem and "_merged" not in p.stem
-    ]
+    dex_paths = [p for p in sorted(dex_dir.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
     if not dex_paths:
         console.print(f"[{C_FAIL}]No DEX files found in:[/] {dex_dir}")
         raise typer.Exit(1)
@@ -712,27 +638,10 @@ def vmp(
                 dumped[p.name] = []
 
     mapping = mapper.map_classes(original, dumped)
-
-    total_original = sum(len(v) for v in original.values())
-    total_dumped = sum(len(v) for v in dumped.values())
     classes_mapped = sum(1 for v in mapping.values() if v is not None)
     classes_unmapped = len(mapping) - classes_mapped
 
-    result = ReassembleResult(
-        success=True,
-        classes_mapped=classes_mapped,
-        classes_unmapped=classes_unmapped,
-        output_files=[p.name for p in dex_paths],
-    )
-
-    console.print(f"  [{C_DIM}]Original APK[/]  {len(original)} DEX, {total_original} classes")
-    console.print(f"  [{C_DIM}]Dumped dir[/]    {len(dex_paths)} DEX, {total_dumped} classes")
-
-    distribution = Counter(
-        dex_name if dex_name is not None else "(unmapped)"
-        for dex_name in mapping.values()
-    )
-
+    distribution = Counter(v for v in mapping.values() if v is not None)
     table = Table(show_header=True, box=box.ROUNDED)
     table.add_column("Original DEX", style=C_LABEL)
     table.add_column("Classes mapped", style=C_INFO, justify="right")
@@ -742,19 +651,21 @@ def vmp(
     if unmapped_count:
         table.add_row(f"[{C_WARN}](unmapped)[/]", f"[{C_WARN}]{unmapped_count}[/]")
     console.print(table)
+    console.print(f"  [{C_OK}]{classes_mapped}[/] mapped, [{C_WARN}]{classes_unmapped}[/] unmapped")
 
-    icon = f"[{C_OK}]+[/]" if result.classes_unmapped == 0 else f"[{C_WARN}]![/]"
-    console.print(
-        f"\n  {icon} [{C_OK}]{result.classes_mapped}[/] mapped, "
-        f"[{C_WARN}]{result.classes_unmapped}[/] unmapped"
-    )
->>>>>>> worktree-agent-a10cea73648c92e7b
-=======
+
+@app.command()
+def vmp(
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with DEX files or single DEX")],
+    output_json: Annotated[Optional[Path], typer.Option("--json", "-j", help="Save VMP report as JSON")] = None,
+):
+    """Classify methods as normal/NOP/VMP-stub."""
+    if not dex_dir.exists():
+        console.print(f"[{C_FAIL}]Path not found:[/] {dex_dir}")
+        raise typer.Exit(1)
+
     if dex_dir.is_dir():
-        paths = [
-            p for p in sorted(dex_dir.glob("*.dex"))
-            if "_repaired" not in p.stem and "_merged" not in p.stem
-        ]
+        paths = [p for p in sorted(dex_dir.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
     else:
         paths = [dex_dir]
 
@@ -769,62 +680,35 @@ def vmp(
     all_call_graph: list[dict] = []
     total = normal = nop = vmp_total = 0
 
-    console.print(f"  [{C_DIM}]Classifying {len(paths)} DEX file(s)...[/]")
     for p in paths:
-        with _spinner(f"Classifying {p.name}...", show_time=False):
-            report = detector.analyze_dex(p.read_bytes())
-
+        report = detector.analyze_dex(p.read_bytes())
         total += report.total_methods
         normal += report.normal_count
         nop += report.nop_count
         vmp_total += report.vmp_count
-
-        for m in report.vmp_methods:
-            all_vmp_methods.append({**m, "dex_file": p.name})
-        for c in report.call_graph:
-            all_call_graph.append({**c, "dex_file": p.name})
+        all_vmp_methods.extend({**m, "dex_file": p.name} for m in report.vmp_methods)
+        all_call_graph.extend({**c, "dex_file": p.name} for c in report.call_graph)
 
         vmp_color = C_FAIL if report.vmp_count else C_DIM
-        console.print(
-            f"  {p.name:<28s} "
-            f"[{C_LABEL}]{report.total_methods:>7,}[/] methods  "
-            f"[{C_OK}]{report.normal_count:>7,}[/] normal  "
-            f"[{C_WARN}]{report.nop_count:>6,}[/] nop  "
-            f"[{vmp_color}]{report.vmp_count:>6,}[/] vmp-stub"
-        )
+        console.print(f"  {p.name}: [{C_OK}]{report.normal_count}[/] normal, [{C_WARN}]{report.nop_count}[/] NOP, [{vmp_color}]{report.vmp_count}[/] VMP-stub")
 
     vmp_color = C_FAIL if vmp_total else C_DIM
     lines = [
-        f"  [{C_LABEL}]Total methods[/]   [{C_INFO}]{total:,}[/]",
-        f"  [{C_LABEL}]Normal[/]          [{C_OK}]{normal:,}[/]",
-        f"  [{C_LABEL}]NOP-only[/]        [{C_WARN}]{nop:,}[/]",
-        f"  [{C_LABEL}]VMP stub[/]        [{vmp_color}]{vmp_total:,}[/]",
+        f"  [{C_LABEL}]Total[/]    [{C_INFO}]{total:,}[/]",
+        f"  [{C_LABEL}]Normal[/]   [{C_OK}]{normal:,}[/]",
+        f"  [{C_LABEL}]NOP[/]      [{C_WARN}]{nop:,}[/]",
+        f"  [{C_LABEL}]VMP stub[/] [{vmp_color}]{vmp_total:,}[/]",
     ]
-    console.print()
-    console.print(Panel(
-        "\n".join(lines),
-        title=f"[{C_INFO}] VMP CLASSIFICATION [/]",
-        border_style=C_INFO,
-        box=box.HEAVY,
-        padding=(0, 1),
-    ))
+    console.print(Panel("\n".join(lines), title=f"[{C_INFO}] VMP CLASSIFICATION [/]", border_style=C_INFO, box=box.HEAVY, padding=(0, 1)))
 
     if output_json:
-        data = {
-            "total_methods": total,
-            "normal_count": normal,
-            "nop_count": nop,
-            "vmp_count": vmp_total,
-            "vmp_methods": all_vmp_methods,
-            "call_graph": all_call_graph,
-        }
+        data = {"total_methods": total, "normal_count": normal, "nop_count": nop, "vmp_count": vmp_total, "vmp_methods": all_vmp_methods, "call_graph": all_call_graph}
         payload = json.dumps(data, indent=2, ensure_ascii=False)
         if str(output_json) == "-":
             print(payload)
         else:
             output_json.write_text(payload)
             console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
->>>>>>> worktree-agent-a2301df0f5ac3465b
 
 
 # ── Output formatting ──
