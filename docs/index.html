@@ -458,12 +458,12 @@
       <div class="feature-card">
         <div class="feature-icon" style="background:rgba(217,119,6,0.08);color:var(--amber)">3x</div>
         <h3>三引擎自动调度</h3>
-        <p>Memory（零注入，VDEX 解析）、Frida（4 策略 + 7 项反检测）、eBPF（内核 uprobe）。根据壳类型和设备能力自动选择。</p>
+        <p>Memory（零注入 + 多进程 + 滑动扫描）、Frida（5 策略 + 7 项反检测）、eBPF（内核 uprobe）。智能等待 + 行为指纹驱动策略选择。</p>
       </div>
       <div class="feature-card">
-        <div class="feature-icon" style="background:rgba(5,150,105,0.08);color:var(--emerald)">7s</div>
-        <h3>7 步 DEX 修复</h3>
-        <p>Header / Checksum / Signature / Map / NOP 检测 / 对齐 / 验证。修复后的 DEX 可直接被 baksmali / jadx / JEB 解析。</p>
+        <div class="feature-icon" style="background:rgba(5,150,105,0.08);color:var(--emerald)">10</div>
+        <h3>10 步 DEX 修复</h3>
+        <p>CDEX 转换 / Header / Section 边界校验 / 截断恢复 / Map / debug_info / NOP 检测 / 对齐 / SHA-1 / Adler32。修复后可直接被 jadx / JEB 解析。</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon" style="background:rgba(124,58,237,0.08);color:var(--violet)">%</div>
@@ -477,8 +477,23 @@
       </div>
       <div class="feature-card">
         <div class="feature-icon" style="background:rgba(8,145,178,0.08);color:var(--cyan)">&gt;_</div>
-        <h3>极客 CLI 体验</h3>
-        <p>Rich 面板 + spinner 动画 + 进度条置信度 + 彩色输出。JSON / report / verbose 多种输出模式，适配脚本和管道。</p>
+        <h3>12 个 CLI 命令</h3>
+        <p>scan / dump / repair / verify / export / repack / rescan / reassemble / vmp / xref / analyze / web。Rich 面板 + 彩色输出。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:rgba(225,29,72,0.08);color:var(--rose)">X</div>
+        <h3>交叉引用 + VMP 标注</h3>
+        <p>Dalvik 反汇编器解码 40+ opcode。字符串/方法/反射/字段交叉引用索引。方法级 VMP stub 分类（normal / NOP / VMP-stub）。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:rgba(124,58,237,0.08);color:var(--violet)">++</div>
+        <h3>脱壳后自动化</h3>
+        <p>APK 重打包（原始资源 + 脱壳 DEX → 可分析 APK）、DEX 重组（还原 multi-DEX 布局）、FART 格式导出、增量式组件触发重扫。</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background:rgba(217,119,6,0.08);color:var(--amber)">MP</div>
+        <h3>多进程壳对抗</h3>
+        <p>自动枚举子进程 + 滑动窗口 DEX-in-DEX 扫描。运行时行为指纹（/proc 探测 + 风险评分）驱动策略选择。智能等待替代固定 sleep。</p>
       </div>
     </div>
   </section>
@@ -495,12 +510,12 @@
           <span class="engine-badge">VERIFIED</span>
         </div>
         <div class="engine-body">
-          <p>解析 /proc/pid/maps，从 VDEX 容器提取 DEX。零注入，anti-Frida 完全无感。</p>
+          <p>解析 /proc/pid/maps，从 VDEX/OAT 容器提取 DEX。零注入 + 多进程扫描 + 滑动 DEX 搜索。</p>
           <ul>
-            <li>Host 侧解析内存布局，不注入目标进程</li>
-            <li>VDEX 027 容器感知（Android 8+）</li>
-            <li>dd bs=4096 块对齐高速读取</li>
-            <li>实测：31 DEX / 164MB / 33.7s / 31/31 PASS</li>
+            <li>多进程子进程枚举 + 全 PID 内存扫描</li>
+            <li>VDEX / OAT / CDEX 容器感知（Android 5+）</li>
+            <li>匿名区域滑动窗口 DEX-in-DEX 检测</li>
+            <li>智能等待（线程稳定化 + logcat 检测）</li>
           </ul>
           <a href="engine-memory.html" class="engine-link">Flow diagram &rarr;</a>
         </div>
@@ -508,10 +523,10 @@
       <div class="engine-card e-frida">
         <div class="engine-header">
           <h3>Frida Engine</h3>
-          <span class="engine-badge">4 STRATEGIES</span>
+          <span class="engine-badge">5 STRATEGIES</span>
         </div>
         <div class="engine-body">
-          <p>DBI 注入 + 内存扫描 + ART Hook + ClassLoader 遍历 + SO dump。</p>
+          <p>DBI 注入 + 内存扫描 + ART Hook + ClassLinker::DefineClass + ClassLoader 遍历 + SO dump。</p>
           <ul>
             <li>7 项反检测（maps/port/TracerPid/signal/thread/class/timing）</li>
             <li>Anti-detect 在 resume 前同步完成</li>
@@ -561,6 +576,14 @@
 <span class="comment"># Repair + Verify</span>
 <span class="cmd">unpack repair</span> ./unpacked/             <span class="comment"># fix dumped DEX files</span>
 <span class="cmd">unpack verify</span> ./unpacked/             <span class="comment"># check integrity + quality</span>
+
+<span class="comment"># Post-Unpack Analysis</span>
+<span class="cmd">unpack repack</span> app.apk ./unpacked/ <span class="flag">-o</span> ./repacked  <span class="comment"># APK for jadx/JEB</span>
+<span class="cmd">unpack xref</span> ./unpacked/ <span class="flag">-j</span> xref.json    <span class="comment"># strings/calls/reflection index</span>
+<span class="cmd">unpack vmp</span> ./unpacked/                   <span class="comment"># VMP stub classification</span>
+<span class="cmd">unpack reassemble</span> app.apk ./unpacked/    <span class="comment"># map to original DEX layout</span>
+<span class="cmd">unpack export</span> ./unpacked/ <span class="flag">-f fart</span>        <span class="comment"># FART format export</span>
+<span class="cmd">unpack rescan</span> app.apk ./unpacked/ <span class="flag">-r 5</span>  <span class="comment"># trigger components, re-scan</span>
 
 <span class="comment"># AI Analysis</span>
 <span class="cmd">unpack analyze</span> app.apk | <span class="cmd">claude</span> <span class="flag">-p</span>   <span class="comment"># deep packer analysis via Claude</span></pre>
