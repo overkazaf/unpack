@@ -27,6 +27,7 @@ from unpack.core.reporter import Reporter
 from unpack.engines.base import DumpResult
 from unpack.repair.dex_repair import DexRepairPipeline
 from unpack.repair.verifier import DexVerifier
+from unpack.repack.repacker import Repacker
 
 app = typer.Typer(
     name="unpack",
@@ -60,6 +61,7 @@ def _print_main_help():
     t.add_row("repair", "Fix dumped DEX files (header, checksum, signature)")
     t.add_row("verify", "Check DEX integrity and quality metrics")
     t.add_row("export", "Export dumped DEX in alternative formats (FART)")
+    t.add_row("repack", "Combine original APK + dumped DEX into analyzable APK")
     console.print(Panel(t, title="[bold]Commands[/]", border_style="dim", box=box.ROUNDED))
 
     examples = [
@@ -72,6 +74,7 @@ def _print_main_help():
         ("unpack repair ./unpacked/", "fix all DEX in directory"),
         ("unpack repair classes.dex -i", "repair in place"),
         ("unpack verify ./unpacked/", "check integrity"),
+        ("unpack repack app.apk ./unpacked/", "combine into analyzable APK"),
     ]
     et = Table(show_header=False, box=None, padding=(0, 1))
     et.add_column("$", style="bright_cyan", width=2)
@@ -503,6 +506,41 @@ def export(
         console.print(f"  [{C_OK}]+[/] {dex_path.name}: {result.method_count} methods -> {result.bin_path.name}")
 
     console.print(f"  [{C_OK}]Exported {total_methods} methods in FART format to {output}[/]")
+
+
+@app.command()
+def repack(
+    apk: Annotated[Path, typer.Argument(help="Original APK file")],
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped/repaired DEX files")],
+    output: Annotated[Path, typer.Option("--output", "-o", help="Output directory")] = Path("./repacked"),
+):
+    """Repack dumped DEX into an analyzable APK.
+
+    Combines the original APK with dumped/repaired DEX files from the
+    `dex_dir`, replacing the original (encrypted/packed) classes*.dex
+    entries while preserving all other resources unchanged. No device
+    required — this is a pure zip-level operation.
+    """
+    if not apk.exists():
+        console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
+        raise typer.Exit(1)
+
+    if not dex_dir.exists():
+        console.print(f"[{C_FAIL}]DEX directory not found:[/] {dex_dir}")
+        raise typer.Exit(1)
+
+    from unpack.repack.repacker import Repacker
+    repacker = Repacker()
+    with _spinner(f"Repacking {apk.name}..."):
+        result = repacker.repack(apk, dex_dir, output)
+
+    if not result.success:
+        console.print(f"  [{C_FAIL}]x[/] Repack failed: {result.error}")
+        raise typer.Exit(1)
+
+    console.print(f"  [{C_OK}]+[/] Repacked [{C_OK}]{result.dex_count}[/] DEX file(s), "
+                  f"preserved [{C_OK}]{result.resources_preserved}[/] resource(s)")
+    console.print(f"  [{C_DIM}]Output:[/] {result.output_path}")
 
 
 # ── Output formatting ──
