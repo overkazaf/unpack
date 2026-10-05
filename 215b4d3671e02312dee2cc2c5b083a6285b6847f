@@ -1,0 +1,53 @@
+tests/test_xref.py
+  6d63699bdef2f7e6 1-336
+src/unpack/cli.py
+  6d63699bdef2f7e6 67,84,716-787
+src/unpack/analysis/disasm.py
+  6d63699bdef2f7e6 1-163
+src/unpack/analysis/xref.py
+  6d63699bdef2f7e6 1-230
+tests/test_disasm.py
+  6d63699bdef2f7e6 1-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "215b4d3671e02312dee2cc2c5b083a6285b6847f",
+  "prompts": {
+    "6d63699bdef2f7e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41b101db-4c3a-45d7-8237-ad6577bd3194",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 1054,
+      "total_deletions": 0,
+      "accepted_lines": 1054,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "src/unpack/analysis/xref.py": {
+          "additions": 230,
+          "accepted_lines": 230
+        },
+        "tests/test_xref.py": {
+          "additions": 336,
+          "accepted_lines": 336
+        },
+        "tests/test_disasm.py": {
+          "additions": 251,
+          "accepted_lines": 251
+        },
+        "src/unpack/analysis/disasm.py": {
+          "additions": 163,
+          "accepted_lines": 163
+        },
+        "src/unpack/cli.py": {
+          "additions": 74,
+          "accepted_lines": 74
+        }
+      }
+    }
+  }
+}
