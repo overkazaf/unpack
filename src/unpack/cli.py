@@ -59,6 +59,7 @@ def _print_main_help():
     t.add_row("dump", "Full unpack: scan → dump → repair → verify")
     t.add_row("repair", "Fix dumped DEX files (header, checksum, signature)")
     t.add_row("verify", "Check DEX integrity and quality metrics")
+    t.add_row("vmp", "Classify methods: normal / NOP / VMP-stub")
     console.print(Panel(t, title="[bold]Commands[/]", border_style="dim", box=box.ROUNDED))
 
     examples = [
@@ -71,6 +72,7 @@ def _print_main_help():
         ("unpack repair ./unpacked/", "fix all DEX in directory"),
         ("unpack repair classes.dex -i", "repair in place"),
         ("unpack verify ./unpacked/", "check integrity"),
+        ("unpack vmp ./unpacked/", "classify methods (VMP stub detection)"),
     ]
     et = Table(show_header=False, box=None, padding=(0, 1))
     et.add_column("$", style="bright_cyan", width=2)
@@ -451,6 +453,98 @@ def verify(
         with _spinner(f"Checking {p.name}...", show_time=False):
             result = verifier.verify(p)
         _print_verify_result(p.name, result)
+
+
+@app.command()
+def vmp(
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with DEX files or single DEX")],
+    output_json: Annotated[Optional[Path], typer.Option("--json", "-j", help="Save VMP-stub methods + call graph as JSON (use - for stdout)")] = None,
+):
+    """Classify methods as normal/NOP/VMP-stub.
+
+    Scans every method body in the given DEX file(s) and buckets it as
+    normal, NOP-only (still-encrypted / function-extracted), or a VMP
+    dispatcher stub: a very short body (<=5 code units) whose main
+    operation is an invoke into a native dispatcher.
+    """
+    if not dex_dir.exists():
+        console.print(f"[{C_FAIL}]Path not found:[/] {dex_dir}")
+        raise typer.Exit(1)
+
+    if dex_dir.is_dir():
+        paths = [
+            p for p in sorted(dex_dir.glob("*.dex"))
+            if "_repaired" not in p.stem and "_merged" not in p.stem
+        ]
+    else:
+        paths = [dex_dir]
+
+    if not paths:
+        console.print(f"[{C_FAIL}]No DEX files found.[/]")
+        raise typer.Exit(1)
+
+    from unpack.analysis.vmp import VmpDetector
+
+    detector = VmpDetector()
+    all_vmp_methods: list[dict] = []
+    all_call_graph: list[dict] = []
+    total = normal = nop = vmp_total = 0
+
+    console.print(f"  [{C_DIM}]Classifying {len(paths)} DEX file(s)...[/]")
+    for p in paths:
+        with _spinner(f"Classifying {p.name}...", show_time=False):
+            report = detector.analyze_dex(p.read_bytes())
+
+        total += report.total_methods
+        normal += report.normal_count
+        nop += report.nop_count
+        vmp_total += report.vmp_count
+
+        for m in report.vmp_methods:
+            all_vmp_methods.append({**m, "dex_file": p.name})
+        for c in report.call_graph:
+            all_call_graph.append({**c, "dex_file": p.name})
+
+        vmp_color = C_FAIL if report.vmp_count else C_DIM
+        console.print(
+            f"  {p.name:<28s} "
+            f"[{C_LABEL}]{report.total_methods:>7,}[/] methods  "
+            f"[{C_OK}]{report.normal_count:>7,}[/] normal  "
+            f"[{C_WARN}]{report.nop_count:>6,}[/] nop  "
+            f"[{vmp_color}]{report.vmp_count:>6,}[/] vmp-stub"
+        )
+
+    vmp_color = C_FAIL if vmp_total else C_DIM
+    lines = [
+        f"  [{C_LABEL}]Total methods[/]   [{C_INFO}]{total:,}[/]",
+        f"  [{C_LABEL}]Normal[/]          [{C_OK}]{normal:,}[/]",
+        f"  [{C_LABEL}]NOP-only[/]        [{C_WARN}]{nop:,}[/]",
+        f"  [{C_LABEL}]VMP stub[/]        [{vmp_color}]{vmp_total:,}[/]",
+    ]
+    console.print()
+    console.print(Panel(
+        "\n".join(lines),
+        title=f"[{C_INFO}] VMP CLASSIFICATION [/]",
+        border_style=C_INFO,
+        box=box.HEAVY,
+        padding=(0, 1),
+    ))
+
+    if output_json:
+        data = {
+            "total_methods": total,
+            "normal_count": normal,
+            "nop_count": nop,
+            "vmp_count": vmp_total,
+            "vmp_methods": all_vmp_methods,
+            "call_graph": all_call_graph,
+        }
+        payload = json.dumps(data, indent=2, ensure_ascii=False)
+        if str(output_json) == "-":
+            print(payload)
+        else:
+            output_json.write_text(payload)
+            console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
 
 
 # ── Output formatting ──
