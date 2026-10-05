@@ -734,3 +734,40 @@ class ActiveInvoker:
             )
 
         return result
+
+
+class MemoryActiveInvoker:
+    """Triggers packer decryption without Frida by exercising the app
+    and re-scanning memory for newly-decrypted CodeItems."""
+
+    def __init__(self, exercise_rounds: int = 3, exercise_delay: float = 1.5):
+        self._exercise_rounds = exercise_rounds
+        self._exercise_delay = exercise_delay
+
+    def invoke(
+        self,
+        serial: str,
+        pid: str,
+        package_name: str,
+        output_dir: Path,
+    ) -> ActiveInvokeResult:
+        result = ActiveInvokeResult()
+        t0 = time.monotonic_ns()
+
+        try:
+            from unpack.utils.exerciser import AppExerciser
+
+            exerciser = AppExerciser(
+                rounds=self._exercise_rounds,
+                delay=self._exercise_delay,
+            )
+            exercise_result = exerciser.exercise(serial, package_name)
+            result.classes_resolved = exercise_result.actions_performed
+            result.success = True
+
+        except Exception as exc:
+            result.error = str(exc)
+        finally:
+            result.duration_ms = int((time.monotonic_ns() - t0) / 1_000_000)
+
+        return result

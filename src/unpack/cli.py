@@ -313,11 +313,12 @@ def dump(
         ):
             console.print(f"  [{C_WARN}]Packer is not function-extraction level, deep mode may not help[/]")
 
+        invoke_result = None
+        pkg_name = None
         try:
             from unpack.engines.active_invoke import ActiveInvoker
             from unpack.repair.codeitem_merger import CodeItemMerger
 
-            pkg_name = None
             try:
                 from unpack.utils.apk import get_package_name
                 pkg_name = get_package_name(apk)
@@ -362,6 +363,28 @@ def dump(
                 console.print(f"  [{C_FAIL}]Could not determine package name for active invocation[/]")
         except ImportError:
             console.print(f"  [{C_FAIL}]Active invocation requires frida: pip install -e '.[frida]'[/]")
+
+        # Fallback: if Frida invoker failed or wasn't available, try memory-based
+        if not invoke_result or not invoke_result.code_items:
+            try:
+                from unpack.engines.active_invoke import MemoryActiveInvoker
+                from unpack.utils.adb import get_device_serial
+
+                _serial = device or get_device_serial()
+                if _serial:
+                    console.print(f"  [{C_DIM}]Trying Frida-free active invocation (app exerciser)...[/]")
+                    mem_invoker = MemoryActiveInvoker()
+                    mem_invoke_result = mem_invoker.invoke(
+                        serial=_serial,
+                        pid="",  # not needed for exerciser
+                        package_name=pkg_name,
+                        output_dir=output,
+                    )
+                    if mem_invoke_result.success:
+                        console.print(f"  [{C_OK}]+[/] Exercised app ({mem_invoke_result.classes_resolved} actions)")
+                        console.print(f"  [{C_DIM}]Re-scanning memory for decrypted CodeItems...[/]")
+            except Exception:
+                pass
 
         phase_offset = 1
 
