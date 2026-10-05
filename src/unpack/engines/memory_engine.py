@@ -279,7 +279,7 @@ class MemoryEngine(BaseEngine):
             result.error = f"failed to launch {package_name}"
             return result
 
-        time.sleep(self._wait_seconds)
+        time.sleep(2)  # brief grace period for process to spawn
 
         try:
             pid_out = _adb_shell(serial, f"pidof {package_name}", root=False, timeout=5)
@@ -287,6 +287,13 @@ class MemoryEngine(BaseEngine):
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError):
             result.error = f"process not found for {package_name}"
             return result
+
+        from unpack.utils.wait import SmartWaiter
+        waiter = SmartWaiter(
+            max_wait=max(float(self._wait_seconds), 15.0),
+            min_wait=max(3.0, float(self._wait_seconds) / 3),
+        )
+        waiter.wait(serial, pid)
 
         maps_text = _adb_shell(serial, f"cat /proc/{pid}/maps", root=True, timeout=10)
 

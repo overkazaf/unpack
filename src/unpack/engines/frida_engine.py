@@ -569,7 +569,18 @@ class FridaEngine(BaseEngine):
 
             # Resume AFTER hooks are armed
             device.resume(pid)
-            time.sleep(self._wait_seconds + 2)
+
+            from unpack.utils.wait import SmartWaiter
+            from unpack.utils.adb import get_device_serial as _get_serial
+            _serial = device_serial or _get_serial()
+            if _serial:
+                waiter = SmartWaiter(
+                    max_wait=max(float(self._wait_seconds), 15.0) + 2,
+                    min_wait=max(3.0, float(self._wait_seconds) / 3),
+                )
+                waiter.wait(_serial, str(pid))
+            else:
+                time.sleep(self._wait_seconds + 2)
 
             try:
                 script.unload()
