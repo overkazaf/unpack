@@ -32,6 +32,9 @@ class DexVerifier:
         if magic not in VALID_MAGICS:
             issues.append(f"invalid magic: {magic!r}")
 
+        if magic[:4] == b"cdex":
+            issues.append("file is CompactDex (CDEX) — run 'unpack repair' to convert to standard DEX")
+
         endian_tag = struct.unpack_from("<I", data, 40)[0]
         fmt = "<"
         if endian_tag == 0x78563412:

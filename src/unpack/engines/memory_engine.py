@@ -353,6 +353,8 @@ class MemoryEngine(BaseEngine):
             first_dex_off = -1
             if header[:4] == b"dex\n":
                 first_dex_off = 0
+            elif header[:4] == b"cdex":
+                first_dex_off = 0
             elif header[:4] == b"vdex":
                 for voff in range(40, min(len(header) - 4, 200)):
                     if header[voff : voff + 4] == b"dex\n":
@@ -395,7 +397,7 @@ class MemoryEngine(BaseEngine):
             self._dump_mem_to_file(serial, pid, dex_addr, fsize, local_path)
             if local_path.exists() and local_path.stat().st_size > 112:
                 data = local_path.read_bytes()
-                if data[:4] == b"dex\n":
+                if data[:4] == b"dex\n" or data[:4] == b"cdex":
                     result.dex_files.append(local_path)
                 else:
                     local_path.unlink(missing_ok=True)

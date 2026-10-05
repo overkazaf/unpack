@@ -6,7 +6,7 @@ import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from unpack.repair.dex_parser import DexFile, VALID_MAGICS, HEADER_SIZE
+from unpack.repair.dex_parser import DexFile, VALID_MAGICS, HEADER_SIZE, is_cdex
 
 
 @dataclass
@@ -24,6 +24,9 @@ class DexRepairPipeline:
 
         if len(data) < HEADER_SIZE:
             return RepairResult(success=False, actions=["file too small for DEX header"])
+
+        if is_cdex(bytes(data)):
+            data, _ = self._convert_cdex(data, actions)
 
         if bytes(data[:8]) not in VALID_MAGICS:
             fixed = self._try_fix_magic(data)
@@ -65,6 +68,14 @@ class DexRepairPipeline:
             output_path=out_path,
             nop_method_count=nop_count,
         )
+
+    @staticmethod
+    def _convert_cdex(data: bytearray, actions: list[str]) -> tuple[bytearray, bool]:
+        version = bytes(data[4:7])
+        actions.append(f"detected CompactDex (version {version.decode('ascii', errors='replace')})")
+        data[0:8] = b"dex\n035\x00"
+        actions.append("converted CDEX -> standard DEX (magic replacement)")
+        return data, True
 
     @staticmethod
     def _try_fix_magic(data: bytearray) -> bool:

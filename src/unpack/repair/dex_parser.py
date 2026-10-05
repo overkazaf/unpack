@@ -12,10 +12,20 @@ DEX_MAGIC_039 = b"dex\n039\x00"
 DEX_MAGIC_041 = b"dex\n041\x00"
 VALID_MAGICS = {DEX_MAGIC_035, DEX_MAGIC_037, DEX_MAGIC_038, DEX_MAGIC_039, DEX_MAGIC_041}
 
+CDEX_MAGIC = b"cdex001\x00"
+CDEX_MAGICS = {CDEX_MAGIC}
+
 ENDIAN_CONSTANT = 0x12345678
 REVERSE_ENDIAN_CONSTANT = 0x78563412
 
 HEADER_SIZE = 0x70
+
+
+def is_cdex(data: bytes) -> bool:
+    """Return True if data starts with the CompactDex (CDEX) magic."""
+    if len(data) < 8:
+        return False
+    return data[:4] == b"cdex"
 
 
 def _uleb128(data: bytes, off: int) -> tuple[int, int]:
