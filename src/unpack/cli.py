@@ -59,6 +59,7 @@ def _print_main_help():
     t.add_row("dump", "Full unpack: scan → dump → repair → verify")
     t.add_row("repair", "Fix dumped DEX files (header, checksum, signature)")
     t.add_row("verify", "Check DEX integrity and quality metrics")
+    t.add_row("export", "Export dumped DEX in alternative formats (FART)")
     console.print(Panel(t, title="[bold]Commands[/]", border_style="dim", box=box.ROUNDED))
 
     examples = [
@@ -451,6 +452,34 @@ def verify(
         with _spinner(f"Checking {p.name}...", show_time=False):
             result = verifier.verify(p)
         _print_verify_result(p.name, result)
+
+
+@app.command()
+def export(
+    dex_dir: Annotated[Path, typer.Argument(help="Directory containing dumped DEX files")],
+    output: Annotated[Path, typer.Option("--output", "-o", help="Output directory")] = Path("./fart_export"),
+    format: Annotated[str, typer.Option("--format", "-f", help="Export format: fart")] = "fart",
+):
+    """Export dumped DEX files in alternative formats (e.g., FART bin/txt)."""
+    if format != "fart":
+        console.print(f"[{C_FAIL}]Unknown format: {format}[/]")
+        raise typer.Exit(1)
+
+    dex_files = sorted(dex_dir.glob("*.dex"))
+    if not dex_files:
+        console.print(f"[{C_FAIL}]No DEX files found in {dex_dir}[/]")
+        raise typer.Exit(1)
+
+    from unpack.export.fart import FartExporter
+    exporter = FartExporter()
+    total_methods = 0
+
+    for dex_path in dex_files:
+        result = exporter.export(dex_path, output)
+        total_methods += result.method_count
+        console.print(f"  [{C_OK}]+[/] {dex_path.name}: {result.method_count} methods -> {result.bin_path.name}")
+
+    console.print(f"  [{C_OK}]Exported {total_methods} methods in FART format to {output}[/]")
 
 
 # ── Output formatting ──
