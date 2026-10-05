@@ -1,0 +1,63 @@
+docs/screenshots/export-fart.svg
+  6d63699bdef2f7e6 1-66
+docs/screenshots/xref.svg
+  6d63699bdef2f7e6 1-154
+README.md
+  6d63699bdef2f7e6 78-81,103-114
+docs/screenshots/vmp.svg
+  6d63699bdef2f7e6 1-90
+docs/screenshots/scan-detect.svg
+  6d63699bdef2f7e6 2-21,23-28,30-34,43-45,48,50-51,53-54,56-57,59-60,62-63,65-66,68-69,71-72,74-75,77-78,80-81,83-84,86-87,89-90,92-93,95-96,98-99,101-102,104-105,107-108,110-111,113-114,116-117,119-120,122-123,125-126,128-129,131-132,134-135,137-138,140-141,143-144,146-147,149-150,152-153,155-156,158-159,161-162,164-165,167-168,170-171,173-174,176-177,179-180,182-183,185-186,188-189,191-192,194-195,197-198,200-201,203-204,206-207,209-210,212-213,215-216,218-219,221-222,224-225,227-228,230-231,233-234,236-237,239-240,242-243,245-246,248-249,251-252,254-255,257-258,260-261,263-264,266-267,269-270,272-273,275-276,278-279,281-282,284-285,287-288,290-291,293-296,298-303,305,390-393
+docs/screenshots/repack.svg
+  6d63699bdef2f7e6 1-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "76e44004136a1d2d5c664a46280f9ebb524a440b",
+  "prompts": {
+    "6d63699bdef2f7e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41b101db-4c3a-45d7-8237-ad6577bd3194",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 1968,
+      "total_deletions": 458,
+      "accepted_lines": 684,
+      "overriden_lines": 96,
+      "per_file_stats": {
+        "docs/screenshots/xref.svg": {
+          "additions": 550,
+          "deletions": 396,
+          "accepted_lines": 154
+        },
+        "docs/screenshots/vmp.svg": {
+          "additions": 134,
+          "deletions": 44,
+          "accepted_lines": 90
+        },
+        "README.md": {
+          "additions": 16,
+          "accepted_lines": 16
+        },
+        "docs/screenshots/scan-detect.svg": {
+          "additions": 1038,
+          "accepted_lines": 212,
+          "overriden_lines": 96
+        },
+        "docs/screenshots/repack.svg": {
+          "additions": 146,
+          "accepted_lines": 146
+        },
+        "docs/screenshots/export-fart.svg": {
+          "additions": 84,
+          "deletions": 18,
+          "accepted_lines": 66
+        }
+      }
+    }
+  }
+}
