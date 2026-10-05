@@ -1,0 +1,48 @@
+src/unpack/engines/active_invoke.py
+  6d63699bdef2f7e6 737-773
+tests/test_exerciser.py
+  6d63699bdef2f7e6 1-39
+src/unpack/cli.py
+  6d63699bdef2f7e6 316-317,367-388
+src/unpack/utils/exerciser.py
+  6d63699bdef2f7e6 1-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "cf88e7efd8aa723dfd9c922e8b55342fd3068384",
+  "prompts": {
+    "6d63699bdef2f7e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41b101db-4c3a-45d7-8237-ad6577bd3194",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 153,
+      "total_deletions": 2,
+      "accepted_lines": 152,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "tests/test_exerciser.py": {
+          "additions": 39,
+          "accepted_lines": 39
+        },
+        "src/unpack/cli.py": {
+          "additions": 25,
+          "deletions": 2,
+          "accepted_lines": 24
+        },
+        "src/unpack/utils/exerciser.py": {
+          "additions": 52,
+          "accepted_lines": 52
+        },
+        "src/unpack/engines/active_invoke.py": {
+          "additions": 37,
+          "accepted_lines": 37
+        }
+      }
+    }
+  }
+}
