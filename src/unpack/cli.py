@@ -62,6 +62,7 @@ def _print_main_help():
     t.add_row("verify", "Check DEX integrity and quality metrics")
     t.add_row("export", "Export dumped DEX in alternative formats (FART)")
     t.add_row("repack", "Combine original APK + dumped DEX into analyzable APK")
+    t.add_row("rescan", "Trigger components to decrypt remaining NOP methods")
     console.print(Panel(t, title="[bold]Commands[/]", border_style="dim", box=box.ROUNDED))
 
     examples = [
@@ -75,6 +76,7 @@ def _print_main_help():
         ("unpack repair classes.dex -i", "repair in place"),
         ("unpack verify ./unpacked/", "check integrity"),
         ("unpack repack app.apk ./unpacked/", "combine into analyzable APK"),
+        ("unpack rescan app.apk ./unpacked/ -r 5", "trigger components, re-scan memory"),
     ]
     et = Table(show_header=False, box=None, padding=(0, 1))
     et.add_column("$", style="bright_cyan", width=2)
@@ -481,6 +483,7 @@ def verify(
 
 
 @app.command()
+<<<<<<< HEAD
 def export(
     dex_dir: Annotated[Path, typer.Argument(help="Directory containing dumped DEX files")],
     output: Annotated[Path, typer.Option("--output", "-o", help="Output directory")] = Path("./fart_export"),
@@ -520,11 +523,29 @@ def repack(
     `dex_dir`, replacing the original (encrypted/packed) classes*.dex
     entries while preserving all other resources unchanged. No device
     required — this is a pure zip-level operation.
+=======
+def rescan(
+    apk: Annotated[Path, typer.Argument(help="Original APK file")],
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped DEX files (must have report.json)")],
+    device: Annotated[Optional[str], typer.Option("--device", "-d", help="ADB device serial (default: first USB device)")] = None,
+    rounds: Annotated[int, typer.Option("--rounds", "-r", help="Number of trigger rounds")] = 3,
+):
+    """Incremental re-scan: trigger app components to decrypt more methods.
+
+    Reads the quality report from a previous `unpack dump`, finds DEX
+    files that still have NOP-only (undecrypted) methods, parses the
+    APK's AndroidManifest for activities/services/receivers/providers,
+    and triggers each of them via `am start` / `am startservice` /
+    `am broadcast` to force the packer to load and decrypt more code.
+    The running process's memory is then re-scanned -- without
+    restarting the app -- for newly decrypted DEX.
+>>>>>>> worktree-agent-a3e59ff1ca9d54359
     """
     if not apk.exists():
         console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
         raise typer.Exit(1)
 
+<<<<<<< HEAD
     if not dex_dir.exists():
         console.print(f"[{C_FAIL}]DEX directory not found:[/] {dex_dir}")
         raise typer.Exit(1)
@@ -541,6 +562,82 @@ def repack(
     console.print(f"  [{C_OK}]+[/] Repacked [{C_OK}]{result.dex_count}[/] DEX file(s), "
                   f"preserved [{C_OK}]{result.resources_preserved}[/] resource(s)")
     console.print(f"  [{C_DIM}]Output:[/] {result.output_path}")
+=======
+    if not dex_dir.exists() or not dex_dir.is_dir():
+        console.print(f"[{C_FAIL}]Directory not found:[/] {dex_dir}")
+        raise typer.Exit(1)
+
+    report_path = dex_dir / "report.json"
+    if not report_path.exists():
+        console.print(
+            f"[{C_FAIL}]No report.json found in {dex_dir}.[/] "
+            f"Run [{C_DIM}]unpack dump[/] first to produce one."
+        )
+        raise typer.Exit(1)
+
+    from unpack.engines.rescan import ComponentExtractor, IncrementalRescanner, RescanPlanner
+    from unpack.utils.adb import get_device_serial
+    from unpack.utils.apk import get_package_name
+
+    _phase(1, 3, "Planning rescan")
+    planner = RescanPlanner()
+    plan = planner.plan(report_path)
+
+    if plan.nop_count == 0:
+        console.print(f"  [{C_OK}]No NOP-only methods found — nothing to rescan.[/]")
+        return
+
+    console.print(
+        f"  [{C_WARN}]{plan.nop_count}[/] NOP method(s) across "
+        f"[{C_INFO}]{len(plan.dex_targets)}[/] DEX file(s): "
+        f"[{C_DIM}]{', '.join(plan.dex_targets)}[/]"
+    )
+
+    pkg_name = get_package_name(apk)
+    if not pkg_name:
+        console.print(f"[{C_FAIL}]Could not determine package name from APK.[/]")
+        raise typer.Exit(1)
+
+    extractor = ComponentExtractor()
+    with _spinner("Parsing AndroidManifest for app components...", show_time=False):
+        manifest_strings = extractor.extract_manifest_strings(apk)
+        plan.components = extractor.classify_components(manifest_strings)
+
+    if not plan.components:
+        console.print(f"  [{C_FAIL}]No app components found in manifest — cannot trigger rescan.[/]")
+        raise typer.Exit(1)
+
+    by_type: dict[str, int] = {}
+    for c in plan.components:
+        by_type[c["type"]] = by_type.get(c["type"], 0) + 1
+    summary = ", ".join(f"{n} {t}" for t, n in sorted(by_type.items()))
+    console.print(f"  [{C_DIM}]Found {len(plan.components)} component(s): {summary}[/]")
+
+    serial = device or get_device_serial()
+    if not serial:
+        console.print(f"[{C_FAIL}]No ADB device connected.[/]")
+        raise typer.Exit(1)
+
+    _phase(2, 3, "Triggering components")
+    rescanner = IncrementalRescanner(rounds=rounds)
+    with _spinner(f"Running {rounds} round(s) against {len(plan.components)} component(s)..."):
+        result = rescanner.rescan(serial, pkg_name, plan, dex_dir)
+
+    _phase(3, 3, "Result")
+    if result.success:
+        console.print(
+            f"  [{C_OK}]+[/] Recovered [{C_OK}]{result.methods_recovered}[/] method(s) "
+            f"over {result.rounds} round(s)"
+        )
+    else:
+        console.print(f"  [{C_WARN}]No additional methods recovered[/] [{C_DIM}]({result.rounds} round(s))[/]")
+
+    if result.methods_still_nop:
+        console.print(f"  [{C_WARN}]{result.methods_still_nop}[/] method(s) still NOP")
+
+    if result.error:
+        console.print(f"  [{C_DIM}]{result.error}[/]")
+>>>>>>> worktree-agent-a3e59ff1ca9d54359
 
 
 # ── Output formatting ──
