@@ -521,7 +521,21 @@ class EbpfEngine(BaseEngine):
             result.error = f"failed to launch {package_name}"
             return result
 
-        time.sleep(self._wait_seconds)
+        try:
+            pid_out = _adb_shell(serial, f"pidof {package_name}", root=False, timeout=5)
+            target_pid = pid_out.strip().split()[0]
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError):
+            target_pid = None
+
+        if target_pid:
+            from unpack.utils.wait import SmartWaiter
+            waiter = SmartWaiter(
+                max_wait=max(float(self._wait_seconds), 20.0),
+                min_wait=5.0,
+            )
+            waiter.wait(serial, target_pid)
+        else:
+            time.sleep(self._wait_seconds)
 
         try:
             log = _adb_shell(
