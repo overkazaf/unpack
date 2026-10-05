@@ -358,6 +358,12 @@ class MemoryEngine(BaseEngine):
                     if header[voff : voff + 4] == b"dex\n":
                         first_dex_off = voff
                         break
+            elif header[:4] == b"oat\n":
+                # OAT container — scan for embedded DEX
+                for oat_off in range(28, min(len(header) - 4, 200)):
+                    if header[oat_off : oat_off + 4] == b"dex\n":
+                        first_dex_off = oat_off
+                        break
 
             if first_dex_off < 0:
                 continue
