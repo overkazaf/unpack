@@ -26,6 +26,7 @@ from unpack.core.dispatcher import Dispatcher
 from unpack.core.reporter import Reporter
 from unpack.engines.base import DumpResult
 from unpack.repair.dex_repair import DexRepairPipeline
+from unpack.repair.reassemble import ClassMapper, DexClassLister, ReassembleResult
 from unpack.repair.verifier import DexVerifier
 
 app = typer.Typer(
@@ -59,6 +60,7 @@ def _print_main_help():
     t.add_row("dump", "Full unpack: scan → dump → repair → verify")
     t.add_row("repair", "Fix dumped DEX files (header, checksum, signature)")
     t.add_row("verify", "Check DEX integrity and quality metrics")
+    t.add_row("reassemble", "Map dumped classes back to original DEX numbering")
     console.print(Panel(t, title="[bold]Commands[/]", border_style="dim", box=box.ROUNDED))
 
     examples = [
@@ -71,6 +73,7 @@ def _print_main_help():
         ("unpack repair ./unpacked/", "fix all DEX in directory"),
         ("unpack repair classes.dex -i", "repair in place"),
         ("unpack verify ./unpacked/", "check integrity"),
+        ("unpack reassemble app.apk ./unpacked/", "map classes to original DEX"),
     ]
     et = Table(show_header=False, box=None, padding=(0, 1))
     et.add_column("$", style="bright_cyan", width=2)
@@ -451,6 +454,98 @@ def verify(
         with _spinner(f"Checking {p.name}...", show_time=False):
             result = verifier.verify(p)
         _print_verify_result(p.name, result)
+
+
+@app.command()
+def reassemble(
+    apk: Annotated[Path, typer.Argument(help="Original APK file")],
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped DEX files")],
+):
+    """Map dumped DEX classes back to original APK DEX numbering.
+
+    Compares the class lists of dumped DEX file(s) (e.g. a single memory
+    dump containing classes merged from every original DEX) against the
+    original APK's classes*.dex files, and reports which original DEX
+    each dumped class came from. Classes absent from the original APK
+    (dynamically generated, newly loaded) are reported as unmapped.
+    """
+    from collections import Counter
+
+    if not apk.exists():
+        console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
+        raise typer.Exit(1)
+
+    if not dex_dir.exists():
+        console.print(f"[{C_FAIL}]Path not found:[/] {dex_dir}")
+        raise typer.Exit(1)
+
+    lister = DexClassLister()
+    mapper = ClassMapper()
+
+    with _spinner("Reading original APK classes..."):
+        try:
+            original = lister.list_from_apk(apk)
+        except Exception as e:
+            console.print(f"[{C_FAIL}]Failed to read APK:[/] {e}")
+            raise typer.Exit(1)
+
+    if not original:
+        console.print(f"[{C_FAIL}]No classes*.dex found in APK.[/]")
+        raise typer.Exit(1)
+
+    dex_paths = [
+        p for p in sorted(dex_dir.glob("*.dex"))
+        if "_repaired" not in p.stem and "_merged" not in p.stem
+    ]
+    if not dex_paths:
+        console.print(f"[{C_FAIL}]No DEX files found in:[/] {dex_dir}")
+        raise typer.Exit(1)
+
+    dumped: dict[str, list[str]] = {}
+    with _spinner(f"Reading {len(dex_paths)} dumped DEX file(s)..."):
+        for p in dex_paths:
+            try:
+                dumped[p.name] = lister.list_from_file(p)
+            except Exception:
+                dumped[p.name] = []
+
+    mapping = mapper.map_classes(original, dumped)
+
+    total_original = sum(len(v) for v in original.values())
+    total_dumped = sum(len(v) for v in dumped.values())
+    classes_mapped = sum(1 for v in mapping.values() if v is not None)
+    classes_unmapped = len(mapping) - classes_mapped
+
+    result = ReassembleResult(
+        success=True,
+        classes_mapped=classes_mapped,
+        classes_unmapped=classes_unmapped,
+        output_files=[p.name for p in dex_paths],
+    )
+
+    console.print(f"  [{C_DIM}]Original APK[/]  {len(original)} DEX, {total_original} classes")
+    console.print(f"  [{C_DIM}]Dumped dir[/]    {len(dex_paths)} DEX, {total_dumped} classes")
+
+    distribution = Counter(
+        dex_name if dex_name is not None else "(unmapped)"
+        for dex_name in mapping.values()
+    )
+
+    table = Table(show_header=True, box=box.ROUNDED)
+    table.add_column("Original DEX", style=C_LABEL)
+    table.add_column("Classes mapped", style=C_INFO, justify="right")
+    for dex_name in sorted(original.keys()):
+        table.add_row(dex_name, str(distribution.get(dex_name, 0)))
+    unmapped_count = distribution.get("(unmapped)", 0)
+    if unmapped_count:
+        table.add_row(f"[{C_WARN}](unmapped)[/]", f"[{C_WARN}]{unmapped_count}[/]")
+    console.print(table)
+
+    icon = f"[{C_OK}]+[/]" if result.classes_unmapped == 0 else f"[{C_WARN}]![/]"
+    console.print(
+        f"\n  {icon} [{C_OK}]{result.classes_mapped}[/] mapped, "
+        f"[{C_WARN}]{result.classes_unmapped}[/] unmapped"
+    )
 
 
 # ── Output formatting ──
