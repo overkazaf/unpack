@@ -1,0 +1,75 @@
+src/unpack/engines/memory_engine.py
+  6d63699bdef2f7e6 9,197,245,252,264,270,308-309,315,423
+tests/test_dispatcher.py
+  6d63699bdef2f7e6 1-34
+src/unpack/engines/ebpf_engine.py
+  6d63699bdef2f7e6 11,131-132,138,152,155,186,199,220,226,237,247,315,412,423,433,439,446,461,463,475,489,495,508,522,532,544,573,577
+src/unpack/core/reporter.py
+  6d63699bdef2f7e6 7-8
+src/unpack/core/dispatcher.py
+  6d63699bdef2f7e6 12,43
+tests/test_dedup.py
+  6d63699bdef2f7e6 1-26
+tests/test_codeitem_merger.py
+  6d63699bdef2f7e6 1-31
+src/unpack/utils/adb.py
+  6d63699bdef2f7e6 63-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "8cb7c3a048c9018c8767c19f6c3b216577acd75d",
+  "prompts": {
+    "6d63699bdef2f7e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41b101db-4c3a-45d7-8237-ad6577bd3194",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 165,
+      "total_deletions": 148,
+      "accepted_lines": 155,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "tests/test_codeitem_merger.py": {
+          "additions": 31,
+          "accepted_lines": 31
+        },
+        "src/unpack/utils/adb.py": {
+          "additions": 21,
+          "accepted_lines": 21
+        },
+        "src/unpack/core/reporter.py": {
+          "additions": 2,
+          "deletions": 13,
+          "accepted_lines": 2
+        },
+        "src/unpack/engines/ebpf_engine.py": {
+          "additions": 34,
+          "deletions": 53,
+          "accepted_lines": 29
+        },
+        "src/unpack/core/dispatcher.py": {
+          "additions": 2,
+          "deletions": 46,
+          "accepted_lines": 2
+        },
+        "src/unpack/engines/memory_engine.py": {
+          "additions": 15,
+          "deletions": 36,
+          "accepted_lines": 10
+        },
+        "tests/test_dedup.py": {
+          "additions": 26,
+          "accepted_lines": 26
+        },
+        "tests/test_dispatcher.py": {
+          "additions": 34,
+          "accepted_lines": 34
+        }
+      }
+    }
+  }
+}
