@@ -1,0 +1,30 @@
+docs/architecture.html
+  6d63699bdef2f7e6 63,67,73,97-102,104-105,107-108,110-111,161,163-165,167-169,171,173-174,176,178-179,182-183,221-222,224,226-228,230-232,234-236,238-240,242-244,247-249,262,265-266,269-270,273-274,277-278,280,283-292,297-343,345-348,351,353-355,357-359,361-362,364-365,367-368,370-371,373-374,377-379,381,383-384,386-387,389-390,392-393,395-396,398-399,423-424,426,431-432,435-438,443
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "4f0f461bf2fb75d25256c4e8a01bd05aa658a645",
+  "prompts": {
+    "6d63699bdef2f7e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41b101db-4c3a-45d7-8237-ad6577bd3194",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 173,
+      "total_deletions": 102,
+      "accepted_lines": 173,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "docs/architecture.html": {
+          "additions": 173,
+          "deletions": 102,
+          "accepted_lines": 173
+        }
+      }
+    }
+  }
+}
