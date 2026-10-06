@@ -10,25 +10,25 @@ from unpack.engines.memory_engine import _find_child_pids, _sliding_dex_scan
 
 class TestFindChildPids:
     def test_finds_children(self):
-        with patch("unpack.engines.memory_engine._adb_shell") as mock:
+        with patch("unpack.engines.memory_engine.adb_shell") as mock:
             mock.return_value = "1234\n5678\n"
             pids = _find_child_pids("serial", "1000")
         assert pids == ["1234", "5678"]
 
     def test_no_children(self):
-        with patch("unpack.engines.memory_engine._adb_shell") as mock:
+        with patch("unpack.engines.memory_engine.adb_shell") as mock:
             mock.return_value = ""
             pids = _find_child_pids("serial", "1000")
         assert pids == []
 
     def test_handles_error(self):
-        with patch("unpack.engines.memory_engine._adb_shell",
+        with patch("unpack.engines.memory_engine.adb_shell",
                    side_effect=subprocess.CalledProcessError(1, "")):
             pids = _find_child_pids("serial", "1000")
         assert pids == []
 
     def test_filters_non_numeric(self):
-        with patch("unpack.engines.memory_engine._adb_shell") as mock:
+        with patch("unpack.engines.memory_engine.adb_shell") as mock:
             mock.return_value = "1234\nnot_a_pid\n5678\n"
             pids = _find_child_pids("serial", "1000")
         assert pids == ["1234", "5678"]

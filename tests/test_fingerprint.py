@@ -157,7 +157,7 @@ class TestPackerFingerprintProbe:
                 return ""
             return ""
 
-        with patch("unpack.core.fingerprint._adb_shell", side_effect=fake_adb_shell):
+        with patch("unpack.core.fingerprint.adb_shell", side_effect=fake_adb_shell):
             with patch.object(fp, "_read_thread_comms", return_value=comms):
                 result = fp.probe("emulator-5554", "12345")
 
@@ -168,7 +168,7 @@ class TestPackerFingerprintProbe:
 
     def test_probe_handles_adb_errors_gracefully(self, fp):
         with patch(
-            "unpack.core.fingerprint._adb_shell",
+            "unpack.core.fingerprint.adb_shell",
             side_effect=OSError("adb not found"),
         ):
             with patch.object(fp, "_read_thread_comms", return_value=[]):
