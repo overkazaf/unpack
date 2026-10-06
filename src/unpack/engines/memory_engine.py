@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 from unpack.engines.base import BaseEngine, DumpResult, EngineType
-from unpack.utils.adb import get_device_serial
+from unpack.utils.adb import adb_cmd, adb_shell, check_root, get_device_serial
 
 DEVICE_DUMP_DIR = "/data/local/tmp/unpack_memscan"
 DEVICE_SCRIPT_PATH = "/data/local/tmp/unpack_memscan.sh"
@@ -179,27 +179,6 @@ echo "MEMSCAN_SO_DONE: dumped $SO_IDX SO file(s)"
 """
 
 
-def _adb(serial: str, *args: str, timeout: int = 15) -> str:
-    cmd = ["adb", "-s", serial, *args]
-    return subprocess.check_output(
-        cmd, text=True, timeout=timeout, stderr=subprocess.STDOUT
-    ).strip()
-
-
-def _adb_shell(serial: str, cmd: str, timeout: int = 30, root: bool = False) -> str:
-    if root:
-        cmd = f"su -c '{cmd}'"
-    return _adb(serial, "shell", cmd, timeout=timeout)
-
-
-def _check_root(serial: str) -> bool:
-    try:
-        out = _adb_shell(serial, "id", root=True)
-        return "uid=0" in out
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return False
-
-
 class MemoryEngine(BaseEngine):
     engine_type = EngineType.MEMORY
 
@@ -215,7 +194,7 @@ class MemoryEngine(BaseEngine):
             return False
         self._serial = serial
 
-        if not _check_root(serial):
+        if not check_root(serial):
             self._unavailable_reason = (
                 "device is not rooted -- memory engine requires root "
                 "for /proc/pid/mem access (adb shell su -c id must return uid=0)"
@@ -263,14 +242,14 @@ class MemoryEngine(BaseEngine):
         import struct
 
         try:
-            _adb_shell(serial, f"am force-stop {package_name}", root=False, timeout=5)
+            adb_shell(serial, f"am force-stop {package_name}", root=False, timeout=5)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass
 
         time.sleep(1)
 
         try:
-            _adb_shell(
+            adb_shell(
                 serial,
                 f"monkey -p {package_name} -c android.intent.category.LAUNCHER 1",
                 root=False, timeout=10,
@@ -282,13 +261,13 @@ class MemoryEngine(BaseEngine):
         time.sleep(self._wait_seconds)
 
         try:
-            pid_out = _adb_shell(serial, f"pidof {package_name}", root=False, timeout=5)
+            pid_out = adb_shell(serial, f"pidof {package_name}", root=False, timeout=5)
             pid = pid_out.strip().split()[0]
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError):
             result.error = f"process not found for {package_name}"
             return result
 
-        maps_text = _adb_shell(serial, f"cat /proc/{pid}/maps", root=True, timeout=10)
+        maps_text = adb_shell(serial, f"cat /proc/{pid}/maps", root=True, timeout=10)
 
         targets = []
         for line in maps_text.splitlines():
@@ -326,14 +305,14 @@ class MemoryEngine(BaseEngine):
             f.write(probe_script)
             probe_path = f.name
         try:
-            _adb(serial, "push", probe_path, "/data/local/tmp/_probe.sh", timeout=10)
-            probe_out = _adb_shell(serial, "sh /data/local/tmp/_probe.sh", root=True, timeout=60)
+            adb_cmd(serial, "push", probe_path, "/data/local/tmp/_probe.sh", timeout=10)
+            probe_out = adb_shell(serial, "sh /data/local/tmp/_probe.sh", root=True, timeout=60)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             probe_out = ""
         finally:
             Path(probe_path).unlink(missing_ok=True)
             try:
-                _adb_shell(serial, "rm -f /data/local/tmp/_probe.sh", root=True, timeout=5)
+                adb_shell(serial, "rm -f /data/local/tmp/_probe.sh", root=True, timeout=5)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass
 
@@ -441,6 +420,6 @@ class MemoryEngine(BaseEngine):
     def _cleanup(self, serial: str):
         for path in (DEVICE_SCRIPT_PATH, DEVICE_DUMP_DIR):
             try:
-                _adb_shell(serial, f"rm -rf {path}", root=True, timeout=5)
+                adb_shell(serial, f"rm -rf {path}", root=True, timeout=5)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass
