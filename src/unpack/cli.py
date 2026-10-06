@@ -92,7 +92,7 @@ def _print_main_help():
     engines = [
         ("frida", "bright_green", "Frida DBI injection — needs frida-server on device"),
         ("ebpf", "bright_cyan", "eBPF uprobe on libart.so — needs root + bpftrace, stealthier"),
-        ("memory", "dim", "Direct memory scan — stub, not yet implemented"),
+        ("memory", "bright_green", "Zero-injection /proc/pid/mem — multi-process + VDEX/OAT/CDEX (recommended)"),
     ]
     nt = Table(show_header=False, box=None, padding=(0, 1))
     nt.add_column("engine", min_width=10)

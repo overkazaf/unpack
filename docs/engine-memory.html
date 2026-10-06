@@ -172,7 +172,7 @@
         </ul>
       </div>
     </div>
-    <p class="footer">UNPACK Memory Engine &bull; /proc/pid/mem + VDEX parsing</p>
+    <p class="footer">UNPACK Memory Engine &bull; multi-process + VDEX/OAT/CDEX + sliding DEX scan</p>
   </div>
   <script>
     async function copyAsImage(b){const o=b.textContent;try{const e=document.getElementById('report-container'),r=e.getBoundingClientRect(),p=32,c=await html2canvas(document.body,{backgroundColor:'#020617',scale:2,useCORS:true,ignoreElements:e=>e.classList&&e.classList.contains('toolbar'),x:r.left+window.scrollX-p,y:r.top+window.scrollY-p,width:r.width+p*2,height:r.height+p*2}),bl=await new Promise(r=>c.toBlob(r,'image/png'));await navigator.clipboard.write([new ClipboardItem({'image/png':bl})]);b.textContent='✓ Copied!'}catch(e){b.textContent='✗ Failed'}setTimeout(()=>b.textContent=o,2000)}
