@@ -1,0 +1,51 @@
+docs/engine-ebpf.html
+  6d63699bdef2f7e6 136
+docs/engine-memory.html
+  6d63699bdef2f7e6 175
+docs/engine-frida.html
+  6d63699bdef2f7e6 53,210
+src/unpack/cli.py
+  6d63699bdef2f7e6 95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "e828eece8d4684f2215b737fef55a35b571fc802",
+  "prompts": {
+    "6d63699bdef2f7e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41b101db-4c3a-45d7-8237-ad6577bd3194",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 5,
+      "total_deletions": 5,
+      "accepted_lines": 5,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "docs/engine-frida.html": {
+          "additions": 2,
+          "deletions": 2,
+          "accepted_lines": 2
+        },
+        "docs/engine-memory.html": {
+          "additions": 1,
+          "deletions": 1,
+          "accepted_lines": 1
+        },
+        "src/unpack/cli.py": {
+          "additions": 1,
+          "deletions": 1,
+          "accepted_lines": 1
+        },
+        "docs/engine-ebpf.html": {
+          "additions": 1,
+          "deletions": 1,
+          "accepted_lines": 1
+        }
+      }
+    }
+  }
+}
