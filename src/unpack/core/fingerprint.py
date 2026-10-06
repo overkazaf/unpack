@@ -97,21 +97,7 @@ class FingerprintResult:
 
 
 # ---------------------------------------------------------------------------
-# ADB helpers
-# ---------------------------------------------------------------------------
-
-
-def _adb(serial: str, *args: str, timeout: int = 15) -> str:
-    cmd = ["adb", "-s", serial, *args]
-    return subprocess.check_output(
-        cmd, text=True, timeout=timeout, stderr=subprocess.STDOUT
-    ).strip()
-
-
-def _adb_shell(serial: str, cmd: str, timeout: int = 15, root: bool = False) -> str:
-    if root:
-        cmd = f"su -c '{cmd}'"
-    return _adb(serial, "shell", cmd, timeout=timeout)
+from unpack.utils.adb import adb_shell
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +128,7 @@ class PackerFingerprint:
 
     def _safe_shell(self, serial: str, cmd: str, root: bool = False) -> str:
         try:
-            return _adb_shell(serial, cmd, root=root)
+            return adb_shell(serial, cmd, root=root)
         except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return ""
 
