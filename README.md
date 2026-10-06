@@ -324,30 +324,30 @@ dump 出来的 DEX 常见问题和修复步骤（10 步）：
 
 Memory 引擎通过 VDEX 容器解析成功完成端到端 dump（零注入，anti-Frida 无感）。Frida 引擎在强 anti-Frida App 上被拦截，eBPF 受限于特定内核配置。
 
-## 竞品对比
+## 功能矩阵
+
+与社区主流开源脱壳工具的技术路线对比（各项目定位不同，各有擅长）：
 
 | 功能 | UNPACK | frida-dexdump | BlackDex | r0dump | clsdumper | BPFDex |
 |------|--------|---------------|----------|--------|-----------|--------|
 | 壳识别 | 24 厂商 + 版本 | - | - | - | - | 行为模式 |
 | 引擎数 | 3（自动调度） | 1 (Frida) | 1 (cookie) | 1 (ART 修改) | 1 (Frida 9策略) | 1 (eBPF) |
-| 函数抽取壳 | 检测 + 主动调用(免Frida) + CodeItem合并 | - | 深度模式(不稳定) | ✓ 主动调用 | 部分 | - |
+| 函数抽取壳 | 主动调用(免Frida) + CodeItem合并 | - | 深度模式 | 主动调用 | 部分 | - |
 | DEX 修复 | 10 步流水线 | - | 部分 | DEX 重建 | - | - |
 | 质量报告 | 覆盖率 + NOP | - | - | - | - | - |
 | 反检测 | 7 项绕过 | - | N/A | N/A(系统级) | 3 项 | N/A |
 | SO dump | ✓ | - | - | - | - | ✓ |
 | 零注入 | ✓ (Memory) | - | ✓ | ✓(ROM 级) | - | ✓ |
-| 免刷机 | ✓ | ✓ | ✓ | ✗ 需刷 ROM | ✓ | ✓ |
+| 免刷机 | ✓ | ✓ | ✓ | 需刷 ROM | ✓ | ✓ |
 | DEX 分析 | 反汇编 + 交叉引用 + VMP标注 | - | - | - | - | - |
 | APK 重打包 | ✓ | - | - | - | - | - |
 | 多进程壳 | ✓ 子进程枚举 | - | - | - | - | - |
-| GUI | CLI(极客风) + Web UI | CLI | Android App | GUI Manager | CLI | CLI |
 | AI 管道 | claude -p | - | - | - | - | - |
-| Android 版本 | 5+ (OAT) / 8+ (VDEX) | Frida 支持的 | 5~12(停更) | 16 | Frida 支持的 | 13~17 |
-| 维护状态 | 活跃 | 已归档 | 已停更 | 活跃 | 活跃 | 学术 |
+| Android 版本 | 5+ (OAT) / 8+ (VDEX) | Frida 支持的 | 5~12 | 16 | Frida 支持的 | 13~17 |
 
-**UNPACK vs r0dump 定位差异**：r0dump 是 FART 的精神继承者，走 ART 源码修改路线 — 需要刷定制 ROM，但能在 ART 层面做最精确的主动调用。UNPACK 走免刷机路线，通过 Memory/Frida/eBPF 三引擎覆盖更广的使用场景，并提供两种免 ROM 的主动调用方案：(1) Frida-based 主动调用（ClassLinker hook + 方法解析 + CodeItem 回填），(2) 免 Frida 的 App Exerciser + 组件触发式增量重扫（`--deep` 模式 / `unpack rescan`）。UNPACK 还提供 r0dump 不具备的脱壳后分析能力：DEX 反汇编交叉引用、VMP 方法标注、APK 重打包、DEX 重组。
+**技术路线说明**：r0dump 继承 FART 思路，走 ART 源码修改路线，在 ART 层面做最精确的主动调用，适合深度对抗函数抽取壳。UNPACK 走免刷机路线，通过 Memory/Frida/eBPF 三引擎覆盖更广的使用场景，提供两种免 ROM 的主动调用方案（Frida ClassLinker hook + 免 Frida 组件触发式增量重扫），以及脱壳后分析工具链（反汇编交叉引用、VMP 标注、APK 重打包、DEX 重组）。两种路线互补，适用于不同场景。
 
-> 数据来源：各项目 GitHub 仓库、IEEE TIFS 2025 (BPFDex)、NDSS 2025
+> 技术信息来源：各项目 GitHub 仓库、IEEE TIFS 2025 (BPFDex)、NDSS 2025
 
 ## 参考项目
 
