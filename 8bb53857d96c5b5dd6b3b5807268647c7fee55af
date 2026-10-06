@@ -1,0 +1,42 @@
+src/unpack/cli_format.py
+  6d63699bdef2f7e6 1-192
+tests/test_cli_commands.py
+  6d63699bdef2f7e6 1-82
+src/unpack/cli.py
+  6d63699bdef2f7e6 24-27,169,188,191,220,267-271,278,410,441,478,484
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "8bb53857d96c5b5dd6b3b5807268647c7fee55af",
+  "prompts": {
+    "6d63699bdef2f7e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41b101db-4c3a-45d7-8237-ad6577bd3194",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 292,
+      "total_deletions": 191,
+      "accepted_lines": 292,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "tests/test_cli_commands.py": {
+          "additions": 82,
+          "accepted_lines": 82
+        },
+        "src/unpack/cli_format.py": {
+          "additions": 192,
+          "accepted_lines": 192
+        },
+        "src/unpack/cli.py": {
+          "additions": 18,
+          "deletions": 191,
+          "accepted_lines": 18
+        }
+      }
+    }
+  }
+}
