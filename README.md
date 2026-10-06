@@ -136,7 +136,7 @@ unpack rescan app.apk ./unpacked/ -r 5
 
 > 打开 [docs/architecture.html](docs/architecture.html) 可查看带动画的交互式架构图（支持导出 PNG/PDF）
 
-![UNPACK Architecture](docs/architecture.png)
+![UNPACK Architecture](docs/architecture.svg)
 
 ## 脱壳引擎详解
 
