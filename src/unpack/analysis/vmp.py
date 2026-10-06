@@ -19,7 +19,6 @@ raw instruction bytes to classify methods as ``normal``, ``nop``
 
 from __future__ import annotations
 
-import struct
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -72,38 +71,6 @@ class VmpReport:
             "vmp_methods": self.vmp_methods,
             "call_graph": self.call_graph,
         }
-
-
-class _MethodNameResolver:
-    """Resolves a DEX method_idx to (class_name, method_name)."""
-
-    def __init__(self, dex: DexFile):
-        self._dex = dex
-        self._cache: dict[int, tuple[str, str]] = {}
-
-    def resolve(self, method_idx: int) -> tuple[str, str]:
-        if method_idx in self._cache:
-            return self._cache[method_idx]
-
-        h = self._dex.header
-        if method_idx < 0 or method_idx >= h.method_ids_size:
-            return ("", "")
-
-        # method_id_item: uint16 class_idx, uint16 proto_idx, uint32 name_idx
-        mid_off = h.method_ids_off + method_idx * 8
-        if mid_off + 8 > len(self._dex.data):
-            return ("", "")
-
-        vals = struct.unpack_from(f"{self._dex.fmt}HHI", self._dex.data, mid_off)
-        type_idx = vals[0]
-        name_idx = vals[2]
-
-        cls_name = self._dex.get_type_name(type_idx) or ""
-        meth_name = self._dex.get_string(name_idx) or ""
-
-        result = (cls_name, meth_name)
-        self._cache[method_idx] = result
-        return result
 
 
 class VmpDetector:
@@ -181,8 +148,6 @@ class VmpDetector:
         except Exception:
             return report
 
-        resolver = _MethodNameResolver(dex)
-
         for cdef in dex.class_defs:
             if not cdef.class_data:
                 continue
@@ -204,15 +169,15 @@ class VmpDetector:
                     continue
 
                 report.vmp_count += 1
-                _, method_name = resolver.resolve(method.method_idx)
+                method_name = dex.get_method_name(method.method_idx) or ""
                 caller = f"{class_name}->{method_name}"
 
                 target_idx = self._invoke_target(code_item.insns, code_item.insns_size)
                 target_name = ""
                 if target_idx is not None:
-                    target_cls, target_meth = resolver.resolve(target_idx)
+                    target_cls, target_meth = dex.get_method_full(target_idx)
                     if target_cls or target_meth:
-                        target_name = f"{target_cls}->{target_meth}"
+                        target_name = f"{target_cls or ''}->{target_meth or ''}"
 
                 report.vmp_methods.append({
                     "class_name": class_name,

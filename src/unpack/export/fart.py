@@ -61,7 +61,7 @@ class FartExporter:
                 )
                 entries.append(entry)
 
-                method_name = self._resolve_method_name(dex, method.method_idx) or f"method_{method.method_idx}"
+                method_name = dex.get_method_name(method.method_idx) or f"method_{method.method_idx}"
                 txt_lines.append(
                     f"{class_name}->{method_name} "
                     f"code_off=0x{method.code_off:x} "
@@ -77,14 +77,3 @@ class FartExporter:
             txt_path=txt_path,
             method_count=len(entries),
         )
-
-    @staticmethod
-    def _resolve_method_name(dex: DexFile, method_idx: int) -> str | None:
-        h = dex.header
-        if method_idx < 0 or method_idx >= h.method_ids_size:
-            return None
-        mid_off = h.method_ids_off + method_idx * 8
-        if mid_off + 8 > len(dex.data):
-            return None
-        vals = struct.unpack_from(f"{dex.fmt}HHI", dex.data, mid_off)
-        return dex.get_string(vals[2])

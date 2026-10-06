@@ -19,7 +19,6 @@ taint tracking between instructions does not belong here.
 
 from __future__ import annotations
 
-import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -91,55 +90,6 @@ class XrefReport:
         }
 
 
-class _NameResolver:
-    """Resolves DEX method_idx / field_idx to (declaring_type, member_name)."""
-
-    def __init__(self, dex: DexFile):
-        self._dex = dex
-        self._method_cache: dict[int, tuple[str, str]] = {}
-        self._field_cache: dict[int, tuple[str, str]] = {}
-
-    def resolve_method(self, method_idx: int) -> tuple[str, str]:
-        if method_idx in self._method_cache:
-            return self._method_cache[method_idx]
-
-        h = self._dex.header
-        result = ("", "")
-        if 0 <= method_idx < h.method_ids_size:
-            off = h.method_ids_off + method_idx * 8
-            if off + 8 <= len(self._dex.data):
-                # method_id_item: uint16 class_idx, uint16 proto_idx, uint32 name_idx
-                class_idx, _proto_idx, name_idx = struct.unpack_from(
-                    f"{self._dex.fmt}HHI", self._dex.data, off
-                )
-                cls_name = self._dex.get_type_name(class_idx) or ""
-                meth_name = self._dex.get_string(name_idx) or ""
-                result = (cls_name, meth_name)
-
-        self._method_cache[method_idx] = result
-        return result
-
-    def resolve_field(self, field_idx: int) -> tuple[str, str]:
-        if field_idx in self._field_cache:
-            return self._field_cache[field_idx]
-
-        h = self._dex.header
-        result = ("", "")
-        if 0 <= field_idx < h.field_ids_size:
-            off = h.field_ids_off + field_idx * 8
-            if off + 8 <= len(self._dex.data):
-                # field_id_item: uint16 class_idx, uint16 type_idx, uint32 name_idx
-                class_idx, _type_idx, name_idx = struct.unpack_from(
-                    f"{self._dex.fmt}HHI", self._dex.data, off
-                )
-                cls_name = self._dex.get_type_name(class_idx) or ""
-                field_name = self._dex.get_string(name_idx) or ""
-                result = (cls_name, field_name)
-
-        self._field_cache[field_idx] = result
-        return result
-
-
 class XrefBuilder:
     """Builds a cross-reference index across one or more DEX files."""
 
@@ -149,7 +99,6 @@ class XrefBuilder:
     def build_dex(self, dex: DexFile) -> XrefReport:
         """Build a cross-reference report for an already-parsed DexFile."""
         report = XrefReport()
-        resolver = _NameResolver(dex)
 
         for cdef in dex.class_defs:
             if not cdef.class_data:
@@ -161,11 +110,11 @@ class XrefBuilder:
                 if code_item is None:
                     continue
 
-                _, method_name = resolver.resolve_method(method.method_idx)
+                method_name = dex.get_method_name(method.method_idx) or ""
                 caller = CallerRef(class_name=class_name, method_name=method_name)
 
                 instructions = self._decoder.decode(code_item.insns, code_item.insns_size)
-                self._index_instructions(instructions, dex, resolver, caller, report)
+                self._index_instructions(instructions, dex, caller, report)
 
         return report
 
@@ -173,7 +122,6 @@ class XrefBuilder:
         self,
         instructions: list[Instruction],
         dex: DexFile,
-        resolver: _NameResolver,
         caller: CallerRef,
         report: XrefReport,
     ) -> None:
@@ -184,8 +132,8 @@ class XrefBuilder:
                     report.string_refs.setdefault(value, []).append(caller.to_dict())
 
             if insn.method_idx is not None:
-                target_cls, target_name = resolver.resolve_method(insn.method_idx)
-                target_full = f"{target_cls}->{target_name}"
+                target_cls, target_name = dex.get_method_full(insn.method_idx)
+                target_full = f"{target_cls or ''}->{target_name or ''}"
                 report.method_calls.setdefault(target_full, []).append(caller.to_dict())
 
                 if (target_cls, target_name) in REFLECTION_SIGNATURES:
@@ -194,8 +142,8 @@ class XrefBuilder:
                     )
 
             if insn.field_idx is not None:
-                field_cls, field_name = resolver.resolve_field(insn.field_idx)
-                field_full = f"{field_cls}->{field_name}"
+                field_cls, field_name = dex.get_field_full(insn.field_idx)
+                field_full = f"{field_cls or ''}->{field_name or ''}"
                 report.field_refs.setdefault(field_full, []).append(caller.to_dict())
 
     def build(self, dex_data: bytes) -> XrefReport:
