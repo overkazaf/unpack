@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shlex
@@ -38,6 +39,7 @@ class RescanResult:
     rounds: int = 0
     methods_recovered: int = 0
     methods_still_nop: int = 0
+    new_dex_files: list[Path] = field(default_factory=list)
     error: str | None = None
 
 
@@ -195,6 +197,11 @@ class IncrementalRescanner:
             baseline_nop = plan.nop_count
             result.methods_still_nop = baseline_nop
 
+            # Seed with hashes of whatever is already in output_dir (the
+            # original dump) so round 0 only reports genuinely new content,
+            # not the DEX we already have on disk.
+            seen_hashes = self._hash_existing_dex(output_dir)
+
             for round_num in range(self._rounds):
                 for component in plan.components:
                     self._trigger_component(serial, package_name, component)
@@ -203,7 +210,10 @@ class IncrementalRescanner:
                 result.rounds += 1
                 time.sleep(self._settle_delay)
 
-                self._rescan_pid_memory(serial, package_name, output_dir, round_num)
+                new_files = self._rescan_pid_memory(
+                    serial, package_name, output_dir, round_num, seen_hashes,
+                )
+                result.new_dex_files.extend(new_files)
 
                 report = reporter.evaluate(output_dir)
                 if report.nop_methods < result.methods_still_nop:
@@ -212,7 +222,7 @@ class IncrementalRescanner:
                     break
 
             result.methods_recovered = max(0, baseline_nop - result.methods_still_nop)
-            result.success = result.methods_recovered > 0
+            result.success = result.methods_recovered > 0 or bool(result.new_dex_files)
             if not result.success and not result.error:
                 result.error = (
                     f"no additional methods decrypted after triggering "
@@ -222,6 +232,20 @@ class IncrementalRescanner:
             result.error = str(exc)
 
         return result
+
+    def _hash_existing_dex(self, output_dir: Path) -> set[str]:
+        """SHA-1 of every *.dex already in output_dir (the prior dump),
+        used to tell genuinely new memory content apart from regions that
+        re-dump the same bytes we already captured."""
+        hashes: set[str] = set()
+        if not output_dir.exists():
+            return hashes
+        for p in output_dir.glob("*.dex"):
+            try:
+                hashes.add(hashlib.sha1(p.read_bytes()).hexdigest())
+            except OSError:
+                continue
+        return hashes
 
     def _trigger_component(self, serial: str, package_name: str, component: dict):
         comp_type = component.get("type")
@@ -257,8 +281,20 @@ class IncrementalRescanner:
             pass
 
     def _rescan_pid_memory(
-        self, serial: str, package_name: str, output_dir: Path, round_num: int,
-    ):
+        self,
+        serial: str,
+        package_name: str,
+        output_dir: Path,
+        round_num: int,
+        seen_hashes: set[str],
+    ) -> list[Path]:
+        """Re-read the still-running process's memory for DEX-shaped
+        regions and write out only the ones we haven't already captured
+        (by content hash, across this call and every prior round).
+        Returns the newly-written files -- this is the actual "what
+        changed" signal the caller reports to the user."""
+        new_files: list[Path] = []
+
         try:
             # `adb shell <args...>` joins its arguments into a single
             # command line executed by a shell on the DEVICE side, so this
@@ -270,7 +306,7 @@ class IncrementalRescanner:
             ).strip()
             pid = pid_out.split()[0]
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError, OSError):
-            return
+            return new_files
 
         try:
             maps_text = subprocess.check_output(
@@ -278,7 +314,7 @@ class IncrementalRescanner:
                 text=True, timeout=10,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
-            return
+            return new_files
 
         output_dir.mkdir(parents=True, exist_ok=True)
         idx = 0
@@ -310,9 +346,19 @@ class IncrementalRescanner:
             if len(data) < 112 or data[:4] not in (b"dex\n", b"cdex"):
                 continue
 
+            digest = hashlib.sha1(data).hexdigest()
+            if digest in seen_hashes:
+                # Same bytes we already have (either from the original
+                # dump or an earlier round) -- not newly decrypted.
+                continue
+            seen_hashes.add(digest)
+
             out_path = output_dir / f"rescan_r{round_num:02d}_{idx:03d}.dex"
             out_path.write_bytes(data)
+            new_files.append(out_path)
             idx += 1
+
+        return new_files
 
     def _read_region(self, serial: str, pid: str, addr: int, size: int) -> bytes:
         bs = 4096

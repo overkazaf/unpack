@@ -418,6 +418,7 @@ def dump(
 def repair(
     dex: Annotated[Path, typer.Argument(help="DEX file or directory of DEX files")],
     in_place: Annotated[bool, typer.Option("--in-place", "-i", help="Overwrite original instead of creating *_repaired.dex")] = False,
+    output_json: Annotated[Optional[Path], typer.Option("--json", "-j", help="Save results as JSON (use - for stdout)")] = None,
 ):
     """Repair dumped DEX files.
 
@@ -425,8 +426,13 @@ def repair(
     validation, CodeItem alignment. Detects NOP-only methods
     (still-encrypted extracted methods).
     """
+    pipe_mode = output_json and str(output_json) == "-"
+
     if not dex.exists():
-        console.print(f"[{C_FAIL}]Path not found:[/] {dex}")
+        if pipe_mode:
+            print(json.dumps({"error": f"Path not found: {dex}"}))
+        else:
+            console.print(f"[{C_FAIL}]Path not found:[/] {dex}")
         raise typer.Exit(1)
 
     if dex.is_dir():
@@ -435,11 +441,30 @@ def repair(
         paths = [dex]
 
     if not paths:
-        console.print(f"[{C_FAIL}]No DEX files found.[/]")
+        if pipe_mode:
+            print(json.dumps({"error": "No DEX files found."}))
+        else:
+            console.print(f"[{C_FAIL}]No DEX files found.[/]")
         raise typer.Exit(1)
 
     from unpack.repair.dex_repair import DexRepairPipeline
     pipeline = DexRepairPipeline()
+
+    def _as_dict(name: str, result) -> dict:
+        return {
+            "file": name,
+            "success": result.success,
+            "actions": result.actions,
+            "nop_methods": result.nop_method_count,
+            "output": str(result.output_path) if result.output_path else None,
+        }
+
+    if pipe_mode:
+        repair_results = [_as_dict(p.name, pipeline.repair(p, in_place=in_place)) for p in paths]
+        print(json.dumps(repair_results, indent=2, ensure_ascii=False))
+        return
+
+    repair_results = []
     ok = 0
     console.print(f"  [{C_DIM}]Processing {len(paths)} DEX file(s)...[/]")
     for p in paths:
@@ -449,21 +474,33 @@ def repair(
             ok += 1
         icon = f"[{C_OK}]+[/]" if result.success else f"[{C_FAIL}]x[/]"
         console.print(f"  {icon} {p.name} [{C_DIM}]{', '.join(result.actions)}[/]")
+        repair_results.append(_as_dict(p.name, result))
 
     console.print(f"\n  [{C_OK}]{ok}[/]/{len(paths)} repaired")
+
+    if output_json:
+        payload = json.dumps(repair_results, indent=2, ensure_ascii=False)
+        output_json.write_text(payload)
+        console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
 
 
 @app.command()
 def verify(
     path: Annotated[Path, typer.Argument(help="DEX file or directory of DEX files")],
+    output_json: Annotated[Optional[Path], typer.Option("--json", "-j", help="Save results as JSON (use - for stdout)")] = None,
 ):
     """Check DEX integrity and quality metrics.
 
     Validates magic, checksum, SHA-1, file size, section bounds.
     Reports NOP-only methods from function extraction packers.
     """
+    pipe_mode = output_json and str(output_json) == "-"
+
     if not path.exists():
-        console.print(f"[{C_FAIL}]Path not found:[/] {path}")
+        if pipe_mode:
+            print(json.dumps({"error": f"Path not found: {path}"}))
+        else:
+            console.print(f"[{C_FAIL}]Path not found:[/] {path}")
         raise typer.Exit(1)
 
     if path.is_dir():
@@ -472,16 +509,35 @@ def verify(
         paths = [path]
 
     if not paths:
-        console.print(f"[{C_FAIL}]No DEX files found.[/]")
+        if pipe_mode:
+            print(json.dumps({"error": "No DEX files found."}))
+        else:
+            console.print(f"[{C_FAIL}]No DEX files found.[/]")
         raise typer.Exit(1)
 
     from unpack.repair.verifier import DexVerifier
     verifier = DexVerifier()
+
+    def _as_dict(name: str, result) -> dict:
+        return {"file": name, "valid": result.valid, "issues": result.issues, "stats": result.stats}
+
+    if pipe_mode:
+        all_results = [_as_dict(p.name, verifier.verify(p)) for p in paths]
+        print(json.dumps(all_results, indent=2, ensure_ascii=False))
+        return
+
+    all_results = []
     console.print(f"  [{C_DIM}]Verifying {len(paths)} DEX file(s)...[/]")
     for p in paths:
         with _spinner(f"Checking {p.name}...", show_time=False):
             result = verifier.verify(p)
         print_verify_result(console, p.name, result)
+        all_results.append(_as_dict(p.name, result))
+
+    if output_json:
+        payload = json.dumps(all_results, indent=2, ensure_ascii=False)
+        output_json.write_text(payload)
+        console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
 
 
 @app.command()
@@ -517,27 +573,57 @@ def repack(
     apk: Annotated[Path, typer.Argument(help="Original APK file")],
     dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped/repaired DEX files")],
     output: Annotated[Path, typer.Option("--output", "-o", help="Output directory")] = Path("./repacked"),
+    output_json: Annotated[Optional[Path], typer.Option("--json", "-j", help="Save result as JSON (use - for stdout)")] = None,
 ):
     """Repack dumped DEX into an analyzable APK."""
+    pipe_mode = output_json and str(output_json) == "-"
+
     if not apk.exists():
-        console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
+        if pipe_mode:
+            print(json.dumps({"error": f"APK not found: {apk}"}))
+        else:
+            console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
         raise typer.Exit(1)
     if not dex_dir.exists():
-        console.print(f"[{C_FAIL}]DEX directory not found:[/] {dex_dir}")
+        if pipe_mode:
+            print(json.dumps({"error": f"DEX directory not found: {dex_dir}"}))
+        else:
+            console.print(f"[{C_FAIL}]DEX directory not found:[/] {dex_dir}")
         raise typer.Exit(1)
 
     from unpack.repack.repacker import Repacker
     repacker = Repacker()
-    with _spinner(f"Repacking {apk.name}..."):
+    if pipe_mode:
         result = repacker.repack(apk, dex_dir, output)
+    else:
+        with _spinner(f"Repacking {apk.name}..."):
+            result = repacker.repack(apk, dex_dir, output)
 
     if not result.success:
+        if pipe_mode:
+            print(json.dumps({"success": False, "error": result.error}, indent=2, ensure_ascii=False))
+            raise typer.Exit(1)
         console.print(f"  [{C_FAIL}]x[/] Repack failed: {result.error}")
         raise typer.Exit(1)
+
+    payload = {
+        "success": result.success,
+        "output": str(result.output_path),
+        "dex_count": result.dex_count,
+        "resources": result.resources_preserved,
+    }
+
+    if pipe_mode:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
 
     console.print(f"  [{C_OK}]+[/] Repacked [{C_OK}]{result.dex_count}[/] DEX file(s), "
                   f"preserved [{C_OK}]{result.resources_preserved}[/] resource(s)")
     console.print(f"  [{C_DIM}]Output:[/] {result.output_path}")
+
+    if output_json:
+        output_json.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+        console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
 
 
 @app.command()
@@ -592,8 +678,15 @@ def rescan(
     with _spinner(f"Running {rounds} round(s)..."):
         result = rescanner.rescan(serial, pkg_name, plan, dex_dir)
 
+    if result.new_dex_files:
+        console.print(f"  [{C_DIM}]Re-dumped {len(result.new_dex_files)} new DEX file(s):[/]")
+        for new_path in result.new_dex_files:
+            console.print(f"    [{C_OK}]+[/] {Path(new_path).name}")
+
     if result.success:
         console.print(f"  [{C_OK}]+[/] Recovered [{C_OK}]{result.methods_recovered}[/] method(s) over {result.rounds} round(s)")
+    elif result.error:
+        console.print(f"  [{C_FAIL}]{result.error}[/]")
     if result.methods_still_nop:
         console.print(f"  [{C_WARN}]{result.methods_still_nop}[/] method(s) still NOP")
 
