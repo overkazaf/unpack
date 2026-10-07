@@ -12,3 +12,4 @@ bpftrace-linux-arm64
 benchmark_results.json
 *.dex
 result.json
+.claude/worktrees/
