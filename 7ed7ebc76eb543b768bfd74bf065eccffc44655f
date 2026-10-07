@@ -1,0 +1,57 @@
+tests/test_scan_batch.py
+  6d63699bdef2f7e6 1-91
+src/unpack/cli.py
+  6d63699bdef2f7e6 117-134,162,166,173,176-192,203,214,216,218,220-221,227-228,239-240,257,308,479,547,629,635,682,748,751,800,866
+tests/test_scan_confidence.py
+  6d63699bdef2f7e6 1-92
+tests/test_cli.py
+  6d63699bdef2f7e6 41
+src/unpack/cli_format.py
+  6d63699bdef2f7e6 66-73,76-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "7ed7ebc76eb543b768bfd74bf065eccffc44655f",
+  "prompts": {
+    "6d63699bdef2f7e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41b101db-4c3a-45d7-8237-ad6577bd3194",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 445,
+      "total_deletions": 28,
+      "accepted_lines": 257,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "tests/test_scan_confidence.py": {
+          "additions": 184,
+          "accepted_lines": 92
+        },
+        "tests/test_cli.py": {
+          "additions": 6,
+          "deletions": 6,
+          "accepted_lines": 3
+        },
+        "src/unpack/cli_format.py": {
+          "additions": 11,
+          "deletions": 3,
+          "accepted_lines": 11
+        },
+        "tests/test_scan_batch.py": {
+          "additions": 184,
+          "deletions": 2,
+          "accepted_lines": 91
+        },
+        "src/unpack/cli.py": {
+          "additions": 60,
+          "deletions": 17,
+          "accepted_lines": 60
+        }
+      }
+    }
+  }
+}
