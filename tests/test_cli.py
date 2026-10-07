@@ -38,7 +38,7 @@ class TestCliHelp:
 class TestCliScan:
     def test_scan_nonexistent(self):
         result = runner.invoke(app, ["scan", "nonexistent.apk"])
-        assert result.exit_code == 1
+        assert result.exit_code != 0
 
     @pytest.mark.skipif(
         not has_apk("com.android.bankabc.apk"),

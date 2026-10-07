@@ -63,11 +63,19 @@ def print_scan_result(console: Console, result, apk_path: Path | None = None):
             lines.append(f"  [{C_LABEL}]Sigs[/]     {sigs}")
 
         content = "\n".join(lines)
+        if result.confidence >= 0.2:
+            title = f"[{C_OK}] DETECTED [/]"
+            border = C_OK
+            box_style = box.HEAVY
+        else:
+            title = f"[{C_WARN}] POSSIBLE [/]"
+            border = C_WARN
+            box_style = box.ROUNDED
         console.print(Panel(
             content,
-            title=f"[{C_OK}] DETECTED [/]",
-            border_style=C_OK,
-            box=box.HEAVY,
+            title=title,
+            border_style=border,
+            box=box_style,
             padding=(0, 1),
         ))
     else:

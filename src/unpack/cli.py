@@ -114,6 +114,24 @@ def main(ctx: typer.Context):
         raise typer.Exit()
 console = Console()
 
+EXIT_OK = 0
+EXIT_ERROR = 1
+EXIT_NO_DEVICE = 2
+EXIT_NO_PACKER = 3
+EXIT_DUMP_FAILED = 4
+EXIT_NOT_FOUND = 5
+
+CONFIDENCE_HIDE_THRESHOLD = 0.1
+CONFIDENCE_POSSIBLE_THRESHOLD = 0.2
+
+
+def _gate_low_confidence(result, verbose: bool):
+    """Suppress sub-10% confidence detections unless --verbose."""
+    from unpack.core.scanner import ScanResult
+    if result.packer_name and result.confidence < CONFIDENCE_HIDE_THRESHOLD and not verbose:
+        return ScanResult(details="No high-confidence packer detected (use -v for low-confidence matches)")
+    return result
+
 
 def _phase(n: int, total: int, label: str):
     console.print(f"\n [{C_INFO}]>[/] [{C_HEADER}]Phase {n}/{total}[/] {label}")
@@ -141,19 +159,37 @@ def _spinner(msg: str, show_time: bool = True):
 
 @app.command()
 def scan(
-    apk: Annotated[Path, typer.Argument(help="Path to APK file")],
+    apk: Annotated[Path, typer.Argument(help="Path to APK file or directory (with --batch)")],
     output_json: Annotated[Optional[Path], typer.Option("--json", "-j", help="Save result as JSON (use - for stdout)")] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Detailed output with SO list, DEX info, analysis hints")] = False,
     report: Annotated[bool, typer.Option("--report", "-r", help="Output plain-text report (ideal for piping to claude -p)")] = False,
+    batch: Annotated[bool, typer.Option("--batch", "-b", help="Scan all APKs in directory, output JSONL")] = False,
 ):
     """Identify packer type and protection level.
 
     Analyzes APK static features — SO files, manifest, assets, DEX structure —
     to detect packer vendor, version, and protection level.
     Covers 24 vendors (360, Tencent, Bangbang, iJiami, NetEase, Ali, etc).
-    No device required.
+    No device required. Exit code 0 if packer found, 3 if not.
     """
     import sys
+
+    if batch:
+        if not apk.is_dir():
+            console.print(f"[{C_FAIL}]--batch requires a directory[/]")
+            raise typer.Exit(EXIT_ERROR)
+        from unpack.core.scanner import PackerScanner
+        scanner = PackerScanner()
+        for apk_file in sorted(apk.glob("*.apk")):
+            try:
+                result = scanner.scan(apk_file, verbose=False)
+                d = result.to_dict()
+                d["file"] = apk_file.name
+                print(json.dumps(d, ensure_ascii=False), flush=True)
+            except Exception as e:
+                print(json.dumps({"file": apk_file.name, "error": str(e)}, ensure_ascii=False), flush=True)
+        return
+
     pipe_mode = report or (output_json and str(output_json) == "-")
 
     if not apk.exists():
@@ -164,7 +200,7 @@ def scan(
                 print(f"Error: APK not found: {apk}", file=sys.stderr)
         else:
             console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
 
     from unpack.core.scanner import PackerScanner
     from unpack.utils.apk import find_sibling_splits
@@ -175,17 +211,21 @@ def scan(
 
     if pipe_mode:
         result = scanner.scan(apk, verbose=True, extra_apks=extra_apks or None)
+        result_gated = _gate_low_confidence(result, verbose)
         if report:
-            print(result.to_report())
+            print(result_gated.to_report())
         else:
-            d = result.to_verbose_dict() if verbose else result.to_dict()
+            d = result_gated.to_verbose_dict() if verbose else result_gated.to_dict()
             print(json.dumps(d, indent=2, ensure_ascii=False))
+        if not result_gated.packer_name:
+            raise typer.Exit(EXIT_NO_PACKER)
         return
 
     with _spinner("Scanning APK..."):
         result = scanner.scan(apk, verbose=verbose, extra_apks=extra_apks or None)
 
-    print_scan_result(console, result, apk)
+    result_to_show = _gate_low_confidence(result, verbose)
+    print_scan_result(console, result_to_show, apk)
 
     if verbose:
         print_verbose(console, result)
@@ -195,6 +235,9 @@ def scan(
         data = json.dumps(d, indent=2, ensure_ascii=False)
         output_json.write_text(data)
         console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
+
+    if not result_to_show.packer_name:
+        raise typer.Exit(EXIT_NO_PACKER)
 
 
 @app.command()
@@ -211,7 +254,7 @@ def analyze(
     if not apk.exists():
         import sys
         print(f"APK not found: {apk}", file=sys.stderr)
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
 
     import sys
     print("# UNPACK Analysis Report", flush=True)
@@ -262,7 +305,7 @@ def dump(
     """
     if not apk.exists():
         console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
 
     from unpack.core.dispatcher import Dispatcher
     from unpack.core.reporter import Reporter
@@ -433,7 +476,7 @@ def repair(
             print(json.dumps({"error": f"Path not found: {dex}"}))
         else:
             console.print(f"[{C_FAIL}]Path not found:[/] {dex}")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
 
     if dex.is_dir():
         paths = [p for p in sorted(dex.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
@@ -501,7 +544,7 @@ def verify(
             print(json.dumps({"error": f"Path not found: {path}"}))
         else:
             console.print(f"[{C_FAIL}]Path not found:[/] {path}")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
 
     if path.is_dir():
         paths = [p for p in sorted(path.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
@@ -583,13 +626,13 @@ def repack(
             print(json.dumps({"error": f"APK not found: {apk}"}))
         else:
             console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
     if not dex_dir.exists():
         if pipe_mode:
             print(json.dumps({"error": f"DEX directory not found: {dex_dir}"}))
         else:
             console.print(f"[{C_FAIL}]DEX directory not found:[/] {dex_dir}")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
 
     from unpack.repack.repacker import Repacker
     repacker = Repacker()
@@ -636,7 +679,7 @@ def rescan(
     """Incremental re-scan: trigger app components to decrypt more methods."""
     if not apk.exists():
         console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
     if not dex_dir.exists() or not dex_dir.is_dir():
         console.print(f"[{C_FAIL}]Directory not found:[/] {dex_dir}")
         raise typer.Exit(1)
@@ -702,10 +745,10 @@ def reassemble(
 
     if not apk.exists():
         console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
     if not dex_dir.exists():
         console.print(f"[{C_FAIL}]Path not found:[/] {dex_dir}")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
 
     lister = DexClassLister()
     mapper = ClassMapper()
@@ -754,7 +797,7 @@ def vmp(
     """Classify methods as normal/NOP/VMP-stub."""
     if not dex_dir.exists():
         console.print(f"[{C_FAIL}]Path not found:[/] {dex_dir}")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
 
     if dex_dir.is_dir():
         paths = [p for p in sorted(dex_dir.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
@@ -820,7 +863,7 @@ def xref(
 
     if not dex_dir.exists():
         console.print(f"[{C_FAIL}]Path not found:[/] {dex_dir}")
-        raise typer.Exit(1)
+        raise typer.Exit(EXIT_NOT_FOUND)
 
     if dex_dir.is_dir():
         paths = [p for p in sorted(dex_dir.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
