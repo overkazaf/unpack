@@ -5,6 +5,29 @@ import struct
 import zipfile
 from pathlib import Path
 
+_PACKAGE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$")
+_MAX_PACKAGE_NAME_LEN = 255
+
+
+def validate_package_name(name: str) -> str:
+    """Validate and return a safe Android package name, or raise ValueError.
+
+    Package names are extracted from untrusted APKs (AndroidManifest.xml) and
+    are later interpolated into ADB shell commands (`am force-stop <pkg>`,
+    `monkey -p <pkg> ...`, etc.) and Frida `spawn([<pkg>])` calls. A malicious
+    APK could set a package name like `com.evil;rm -rf /` or `com.evil$(reboot)`
+    to achieve command injection on the connected device. This validator
+    enforces the strict subset of characters a real Android package name is
+    allowed to contain (letters, digits, underscores, dot-separated segments,
+    each segment starting with a letter), which structurally excludes every
+    shell metacharacter.
+    """
+    if not name or not _PACKAGE_RE.match(name):
+        raise ValueError(f"Invalid package name: {name!r}")
+    if len(name) > _MAX_PACKAGE_NAME_LEN:
+        raise ValueError(f"Package name too long: {len(name)}")
+    return name
+
 
 def get_package_name(apk_path: Path) -> str | None:
     try:
@@ -131,6 +154,12 @@ def pull_all_splits(
     output_dir: Path,
 ) -> list[Path]:
     import subprocess
+
+    # `adb shell <args...>` concatenates its arguments into a single command
+    # line that is executed by a shell on the DEVICE side, so passing an
+    # unvalidated package_name here is just as exploitable as an f-string
+    # built shell command, even though this call uses list-form subprocess.
+    validate_package_name(package_name)
 
     cmd_base = ["adb"]
     if device_serial:

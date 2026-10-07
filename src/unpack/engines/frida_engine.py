@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 from unpack.engines.base import BaseEngine, DumpResult, EngineType
+from unpack.utils.apk import validate_package_name
 
 _FRIDA_SCRIPT = r"""
 'use strict';
@@ -572,6 +573,13 @@ class FridaEngine(BaseEngine):
         t0 = time.monotonic_ns()
 
         try:
+            # package_name originates from untrusted APK metadata. frida's
+            # device.spawn() takes argv as a list (not shell-interpreted) so
+            # this isn't a shell-injection vector today, but we validate
+            # anyway for defense-in-depth and to fail fast with a clear error
+            # instead of an opaque Frida spawn failure on a malformed name.
+            validate_package_name(package_name)
+
             frida = self._frida
             if frida is None:
                 import frida as _frida

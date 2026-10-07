@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 import time
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from unpack.utils.apk import validate_package_name
 
 # Suffix -> component type. Order doesn't matter since suffixes are
 # mutually exclusive in practice (a class name ends with at most one
@@ -180,6 +183,12 @@ class IncrementalRescanner:
             return result
 
         try:
+            # package_name originates from untrusted APK metadata and is
+            # interpolated into `am start/startservice/broadcast -n ...`
+            # and `pidof ...` shell commands below -- validate up front so
+            # neither helper ever builds a command from an unsafe value.
+            validate_package_name(package_name)
+
             from unpack.core.reporter import Reporter
 
             reporter = Reporter()
@@ -220,7 +229,7 @@ class IncrementalRescanner:
         if not name:
             return
 
-        target = f"{package_name}/{name}"
+        target = f"{shlex.quote(package_name)}/{name}"
 
         try:
             if comp_type == "activity":
@@ -251,8 +260,12 @@ class IncrementalRescanner:
         self, serial: str, package_name: str, output_dir: Path, round_num: int,
     ):
         try:
+            # `adb shell <args...>` joins its arguments into a single
+            # command line executed by a shell on the DEVICE side, so this
+            # list-form subprocess call is just as exploitable as an
+            # f-string built shell command -- quote defensively.
             pid_out = subprocess.check_output(
-                ["adb", "-s", serial, "shell", "pidof", package_name],
+                ["adb", "-s", serial, "shell", "pidof", shlex.quote(package_name)],
                 text=True, timeout=5,
             ).strip()
             pid = pid_out.split()[0]

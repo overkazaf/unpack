@@ -34,6 +34,6 @@ class TestAppExerciser:
     def test_exercise_single_round(self):
         exerciser = AppExerciser(rounds=1, delay=0.0)
         with patch.object(exerciser, '_run_action') as mock:
-            result = exerciser.exercise("s", "p")
+            result = exerciser.exercise("fake-serial", "com.test.app")
         # 1 round * 7 actions = 7
         assert result.actions_performed == 7

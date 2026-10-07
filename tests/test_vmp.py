@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import struct
 
 import pytest
 from typer.testing import CliRunner
@@ -47,24 +48,79 @@ class TestVmpDetector:
         assert detector.classify_insns(insns, insns_size=3) == MethodClassification.VMP_STUB
 
     def test_classify_vmp_stub_with_return(self, detector):
-        # invoke-static followed only by return-void -> still a stub
+        # A bare invoke (format 35c) is already 3 code units by itself, so
+        # a trailing return-void pushes this to 4 units -- over the
+        # tightened MAX_VMP_STUB_UNITS (3). Only a bare dispatcher invoke
+        # with nothing else in the body qualifies now (see
+        # test_classify_vmp_stub_short); this used to be a stub when the
+        # cap was 5, which is exactly the headroom that let ordinary short
+        # constructors (invoke-direct <init> + return-void, also 4 units)
+        # false-positive as VMP stubs.
         insns = b"\x71\x10\x02\x00\x00\x00" + b"\x0e\x00"
-        assert detector.classify_insns(insns, insns_size=4) == MethodClassification.VMP_STUB
+        assert detector.classify_insns(insns, insns_size=4) == MethodClassification.NORMAL
 
     def test_classify_too_many_non_trivial_ops_is_normal(self, detector):
-        # insns_size is within the VMP stub size limit (<=5) and an invoke
-        # is present, but there are too many other non-trivial opcodes for
-        # this to be considered a pure dispatcher stub.
+        # insns_size is within the VMP stub size limit (<=3) and an invoke
+        # is present, but every code unit's opcode byte happens to be
+        # non-trivial (none are nop/return), so there are too many
+        # non-trivial opcodes for this to be considered a pure dispatcher
+        # stub.
         insns = bytes(
             [
                 0x71, 0x10,  # invoke-static
-                0x02, 0x00,  # non-trivial op
-                0x13, 0x00,  # non-trivial op (const/16-shaped)
-                0x90, 0x00,  # non-trivial op (add-int-shaped)
-                0x0e, 0x00,  # return-void
+                0x02, 0x00,  # non-trivial op (method_idx low byte)
+                0x05, 0x00,  # non-trivial op (args low byte)
             ]
         )
-        assert detector.classify_insns(insns, insns_size=5) == MethodClassification.NORMAL
+        assert detector.classify_insns(insns, insns_size=3) == MethodClassification.NORMAL
+
+    def test_short_constructor_is_not_vmp(self, detector):
+        """super.<init>() + return-void should be NORMAL, not a VMP stub.
+
+        This is the false-positive case from real unprotected apps: every
+        trivial constructor that just chains to its superclass compiles to
+        exactly this shape (invoke-direct, 3 units + return-void, 1 unit =
+        4 units total, 1 invoke, 1 non-trivial extra byte at most) -- which
+        satisfied the old heuristic. method_name="<init>" must short-circuit
+        before the byte-level heuristic ever runs.
+        """
+        insns = struct.pack("<HHH", 0x1070, 0x0000, 0x0000) + struct.pack("<H", 0x000e)
+        classification = detector.classify_insns(insns, insns_size=4, method_name="<init>")
+        assert classification == MethodClassification.NORMAL
+
+    def test_short_static_initializer_is_not_vmp(self, detector):
+        """<clinit> is excluded the same way <init> is."""
+        insns = b"\x71\x20\x05\x00\x10\x00"  # same bytes as the VMP_STUB case
+        classification = detector.classify_insns(insns, insns_size=3, method_name="<clinit>")
+        assert classification == MethodClassification.NORMAL
+
+    def test_framework_invoke_is_not_vmp(self, detector):
+        """A short invoke into java.lang.Object is NORMAL, not a VMP stub.
+
+        Real VMP stubs call into the packer's own native dispatcher class,
+        never straight into a java./android./kotlin./androidx./dalvik.
+        framework class.
+        """
+        insns = struct.pack("<HHH", 0x2071, 0x0003, 0x0010)
+        classification = detector.classify_insns(
+            insns,
+            insns_size=3,
+            method_name="doSomething",
+            invoke_target_class="Ljava/lang/Object;",
+        )
+        assert classification == MethodClassification.NORMAL
+
+    def test_non_framework_invoke_is_still_vmp(self, detector):
+        """Sanity check: the same short invoke into an app-private/packer
+        class (not a framework prefix) is still classified as a VMP stub."""
+        insns = struct.pack("<HHH", 0x2071, 0x0003, 0x0010)
+        classification = detector.classify_insns(
+            insns,
+            insns_size=3,
+            method_name="doSomething",
+            invoke_target_class="Lcom/example/packer/VmpDispatcher;",
+        )
+        assert classification == MethodClassification.VMP_STUB
 
     def test_classify_no_invoke_short_is_normal(self, detector):
         # Short body but no invoke opcode at all -> NORMAL, not VMP_STUB.

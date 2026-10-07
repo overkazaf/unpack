@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import shlex
 import struct
 import subprocess
 import tempfile
@@ -9,6 +10,7 @@ from pathlib import Path
 
 from unpack.engines.base import BaseEngine, DumpResult, EngineType
 from unpack.utils.adb import adb_cmd, adb_shell, check_root, get_device_serial
+from unpack.utils.apk import validate_package_name
 
 DEVICE_DUMP_DIR = "/data/local/tmp/unpack_memscan"
 DEVICE_SCRIPT_PATH = "/data/local/tmp/unpack_memscan.sh"
@@ -278,8 +280,14 @@ class MemoryEngine(BaseEngine):
         output_dir: Path,
         result: DumpResult,
     ) -> DumpResult:
+        # package_name originates from untrusted APK metadata (see
+        # dispatcher.dispatch) and is interpolated into shell commands below
+        # -- validate before it ever touches a command string.
+        validate_package_name(package_name)
+        safe_pkg = shlex.quote(package_name)
+
         try:
-            adb_shell(serial, f"am force-stop {package_name}", root=False, timeout=5)
+            adb_shell(serial, f"am force-stop {safe_pkg}", root=False, timeout=5)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass
 
@@ -288,7 +296,7 @@ class MemoryEngine(BaseEngine):
         try:
             adb_shell(
                 serial,
-                f"monkey -p {package_name} -c android.intent.category.LAUNCHER 1",
+                f"monkey -p {safe_pkg} -c android.intent.category.LAUNCHER 1",
                 root=False, timeout=10,
             )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -298,7 +306,7 @@ class MemoryEngine(BaseEngine):
         time.sleep(2)  # brief grace period for process to spawn
 
         try:
-            pid_out = adb_shell(serial, f"pidof {package_name}", root=False, timeout=5)
+            pid_out = adb_shell(serial, f"pidof {safe_pkg}", root=False, timeout=5)
             pid = pid_out.strip().split()[0]
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError):
             result.error = f"process not found for {package_name}"
