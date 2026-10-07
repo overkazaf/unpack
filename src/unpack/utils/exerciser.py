@@ -4,6 +4,8 @@ import subprocess
 import time
 from dataclasses import dataclass
 
+from unpack.utils.apk import validate_package_name
+
 
 @dataclass
 class ExerciseResult:
@@ -28,6 +30,13 @@ class AppExerciser:
         self._delay = delay
 
     def exercise(self, serial: str, package_name: str) -> ExerciseResult:
+        # package_name is not currently interpolated into any command in
+        # this class, but it originates from untrusted APK metadata and is
+        # part of this engine's public contract -- validate defensively so
+        # future uses of it here can't reintroduce command injection
+        # without that change being the one that has to add this check.
+        validate_package_name(package_name)
+
         t0 = time.monotonic()
         actions = 0
 
