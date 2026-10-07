@@ -1,16 +1,16 @@
-tests/test_scan_confidence.py
-  6d63699bdef2f7e6 1-92
 src/unpack/cli.py
   6d63699bdef2f7e6 30,119-137,163-177,180,184,192-199,202-217,228,238,240,242,244,249,251,254,257,262,279,329-333,361,470,479,506,515,554-565,568-570,721
 tests/test_scan_batch.py
   6d63699bdef2f7e6 1-91
 tests/test_cli.py
   6d63699bdef2f7e6 9,41,50
+tests/test_scan_confidence.py
+  6d63699bdef2f7e6 1-92
 ---
 {
   "schema_version": "authorship/3.0.0",
   "git_ai_version": "1.2.8-ntes.9",
-  "base_commit_sha": "6baa9fbbf6f0b5f369f4760bbec6d79fdfef2554",
+  "base_commit_sha": "ddbe901e3bf053c0015678dcb28da04a4c570deb",
   "prompts": {
     "6d63699bdef2f7e6": {
       "agent_id": {
@@ -25,15 +25,6 @@ tests/test_cli.py
       "accepted_lines": 286,
       "overriden_lines": 0,
       "per_file_stats": {
-        "tests/test_scan_confidence.py": {
-          "additions": 92,
-          "accepted_lines": 92
-        },
-        "tests/test_cli.py": {
-          "additions": 3,
-          "deletions": 3,
-          "accepted_lines": 3
-        },
         "tests/test_scan_batch.py": {
           "additions": 91,
           "accepted_lines": 91
@@ -42,6 +33,38 @@ tests/test_cli.py
           "additions": 100,
           "deletions": 19,
           "accepted_lines": 100
+        },
+        "tests/test_cli.py": {
+          "additions": 3,
+          "deletions": 3,
+          "accepted_lines": 3
+        },
+        "tests/test_scan_confidence.py": {
+          "additions": 92,
+          "accepted_lines": 92
+        }
+      }
+    },
+    "cddddbaf40c704a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d4894bd-331b-4fdc-9d1e-9e291a9fdfb9",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 18,
+      "total_deletions": 2,
+      "accepted_lines": 27,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "result.json": {
+          "accepted_lines": 9
+        },
+        "src/unpack/cli.py": {
+          "additions": 18,
+          "deletions": 2,
+          "accepted_lines": 18
         }
       }
     }
