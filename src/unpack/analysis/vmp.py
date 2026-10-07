@@ -76,27 +76,72 @@ class VmpReport:
 class VmpDetector:
     """Classifies DEX method bodies as normal / NOP / VMP dispatcher stub."""
 
-    # VMP stubs are tiny: at most this many 16-bit code units.
-    MAX_VMP_STUB_UNITS = 5
+    # VMP stubs are tiny: at most this many 16-bit code units. A bare
+    # invoke (format 35c) is already 3 code units by itself, so this cap
+    # effectively means "a dispatcher call with nothing else in the body".
+    # This used to be 5, which also matched the extremely common
+    # "invoke-direct <init> + return-void" shape (3 + 1 = 4 units) emitted
+    # for every trivial constructor that just chains to its superclass --
+    # causing false positives on completely unprotected apps. Real VMP
+    # stubs don't need the extra headroom, so this is deliberately tight.
+    MAX_VMP_STUB_UNITS = 3
     # At most this many opcodes that are neither invoke/nop/return.
     MAX_NON_TRIVIAL_OPS = 2
+    # Invoke targets in these packages are always ordinary framework/
+    # runtime calls, never a VMP packer's own (app-private) native
+    # dispatcher -- so a short invoke-only body that calls into one of
+    # these is not a VMP stub, no matter how short it is.
+    FRAMEWORK_PREFIXES = ("java.", "android.", "kotlin.", "androidx.", "dalvik.")
 
-    def classify_insns(self, insns: bytes, insns_size: int) -> MethodClassification:
+    def classify_insns(
+        self,
+        insns: bytes,
+        insns_size: int,
+        method_name: str | None = None,
+        invoke_target_class: str | None = None,
+    ) -> MethodClassification:
         """Classify a raw instruction stream.
 
         ``insns_size`` is the number of 16-bit code units, as stored in the
         DEX ``code_item`` header (``insns`` may be padded/truncated, so the
         scan is bounded by both the buffer length and this count).
+
+        ``method_name`` and ``invoke_target_class`` are optional extra
+        context (see ``analyze_dex``, which resolves both before calling
+        this) used to rule out two shapes that are short and invoke-only
+        but are *not* VMP dispatcher stubs:
+
+        - Constructors (``<init>``/``<clinit>``): chaining to a
+          superclass/this constructor via a short ``invoke-direct`` is
+          completely ordinary codegen, not virtualization.
+        - A short invoke whose target is a standard framework class: real
+          VMP stubs call into the packer's own native dispatcher, not into
+          the platform.
         """
+        if method_name in ("<init>", "<clinit>"):
+            return MethodClassification.NORMAL
+
         if insns_size > 1 and len(insns) > 0 and all(b == 0 for b in insns):
             return MethodClassification.NOP
 
         if 0 < insns_size <= self.MAX_VMP_STUB_UNITS:
             has_invoke, non_trivial_ops, _ = self._scan(insns, insns_size)
             if has_invoke and non_trivial_ops <= self.MAX_NON_TRIVIAL_OPS:
+                is_framework = (
+                    invoke_target_class is not None
+                    and self._is_framework_class(invoke_target_class)
+                )
+                if is_framework:
+                    return MethodClassification.NORMAL
                 return MethodClassification.VMP_STUB
 
         return MethodClassification.NORMAL
+
+    def _is_framework_class(self, type_descriptor: str) -> bool:
+        """True if a DEX type descriptor (e.g. ``Ljava/lang/Object;``) names
+        a standard framework class rather than app/packer code."""
+        clean = type_descriptor.strip("L;").replace("/", ".")
+        return any(clean.startswith(prefix) for prefix in self.FRAMEWORK_PREFIXES)
 
     def _scan(self, insns: bytes, insns_size: int) -> tuple[bool, int, int | None]:
         """Scan code-unit-aligned opcode bytes.
@@ -159,7 +204,27 @@ class VmpDetector:
                     continue
 
                 report.total_methods += 1
-                classification = self.classify_insns(code_item.insns, code_item.insns_size)
+                method_name = dex.get_method_name(method.method_idx) or ""
+
+                # Resolve the first invoke's target class up front so the
+                # classifier can rule out calls into standard framework
+                # classes. Only bother for methods short enough to even be
+                # a VMP-stub candidate -- classify_insns ignores this
+                # context for anything past the size gate, so resolving it
+                # for ordinary (long) methods would just be wasted work.
+                target_cls: str | None = None
+                target_meth: str | None = None
+                if 0 < code_item.insns_size <= self.MAX_VMP_STUB_UNITS:
+                    target_idx = self._invoke_target(code_item.insns, code_item.insns_size)
+                    if target_idx is not None:
+                        target_cls, target_meth = dex.get_method_full(target_idx)
+
+                classification = self.classify_insns(
+                    code_item.insns,
+                    code_item.insns_size,
+                    method_name=method_name,
+                    invoke_target_class=target_cls,
+                )
 
                 if classification == MethodClassification.NORMAL:
                     report.normal_count += 1
@@ -169,15 +234,11 @@ class VmpDetector:
                     continue
 
                 report.vmp_count += 1
-                method_name = dex.get_method_name(method.method_idx) or ""
                 caller = f"{class_name}->{method_name}"
 
-                target_idx = self._invoke_target(code_item.insns, code_item.insns_size)
                 target_name = ""
-                if target_idx is not None:
-                    target_cls, target_meth = dex.get_method_full(target_idx)
-                    if target_cls or target_meth:
-                        target_name = f"{target_cls or ''}->{target_meth or ''}"
+                if target_cls or target_meth:
+                    target_name = f"{target_cls or ''}->{target_meth or ''}"
 
                 report.vmp_methods.append({
                     "class_name": class_name,
