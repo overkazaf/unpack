@@ -12,10 +12,20 @@ DEX_MAGIC_039 = b"dex\n039\x00"
 DEX_MAGIC_041 = b"dex\n041\x00"
 VALID_MAGICS = {DEX_MAGIC_035, DEX_MAGIC_037, DEX_MAGIC_038, DEX_MAGIC_039, DEX_MAGIC_041}
 
+CDEX_MAGIC = b"cdex001\x00"
+CDEX_MAGICS = {CDEX_MAGIC}
+
 ENDIAN_CONSTANT = 0x12345678
 REVERSE_ENDIAN_CONSTANT = 0x78563412
 
 HEADER_SIZE = 0x70
+
+
+def is_cdex(data: bytes) -> bool:
+    """Return True if data starts with the CompactDex (CDEX) magic."""
+    if len(data) < 8:
+        return False
+    return data[:4] == b"cdex"
 
 
 def _uleb128(data: bytes, off: int) -> tuple[int, int]:
@@ -320,6 +330,39 @@ class DexFile:
             return None
         string_idx = struct.unpack_from(f"{self.fmt}I", self.data, type_id_off)[0]
         return self.get_string(string_idx)
+
+    def get_method_name(self, idx: int) -> str | None:
+        """Resolve method_idx to the method's simple name."""
+        h = self.header
+        if idx < 0 or idx >= h.method_ids_size:
+            return None
+        mid_off = h.method_ids_off + idx * 8
+        if mid_off + 8 > len(self.data):
+            return None
+        name_idx = struct.unpack_from(f"{self.fmt}HHI", self.data, mid_off)[2]
+        return self.get_string(name_idx)
+
+    def get_method_full(self, idx: int) -> tuple[str | None, str | None]:
+        """Resolve method_idx to (class_descriptor, method_name)."""
+        h = self.header
+        if idx < 0 or idx >= h.method_ids_size:
+            return None, None
+        mid_off = h.method_ids_off + idx * 8
+        if mid_off + 8 > len(self.data):
+            return None, None
+        vals = struct.unpack_from(f"{self.fmt}HHI", self.data, mid_off)
+        return self.get_type_name(vals[0]), self.get_string(vals[2])
+
+    def get_field_full(self, idx: int) -> tuple[str | None, str | None]:
+        """Resolve field_idx to (class_descriptor, field_name)."""
+        h = self.header
+        if idx < 0 or idx >= h.field_ids_size:
+            return None, None
+        fid_off = h.field_ids_off + idx * 8
+        if fid_off + 8 > len(self.data):
+            return None, None
+        vals = struct.unpack_from(f"{self.fmt}HHI", self.data, fid_off)
+        return self.get_type_name(vals[0]), self.get_string(vals[2])
 
     @property
     def all_methods(self) -> list[EncodedMethod]:

@@ -58,8 +58,6 @@ class CodeItemMerger:
         captures = [self._normalize(c) for c in code_items]
         by_code_off, by_method_idx, by_name = self._build_lookups(captures)
 
-        name_resolver = _MethodNameResolver(dex)
-
         for cdef in dex.class_defs:
             if not cdef.class_data:
                 continue
@@ -79,7 +77,7 @@ class CodeItemMerger:
                     continue
 
                 captured, strategy = self._find_match(
-                    method, cdef.class_idx, name_resolver,
+                    method, cdef.class_idx, dex,
                     by_code_off, by_method_idx, by_name,
                 )
 
@@ -171,7 +169,7 @@ class CodeItemMerger:
     def _find_match(
         method: EncodedMethod,
         class_idx: int,
-        resolver: _MethodNameResolver,
+        dex: DexFile,
         by_code_off: dict[int, CapturedCodeItem],
         by_method_idx: dict[int, CapturedCodeItem],
         by_name: dict[tuple[str, str], CapturedCodeItem],
@@ -183,7 +181,7 @@ class CodeItemMerger:
             return by_method_idx[method.method_idx], "method_idx"
 
         if by_name:
-            cls_name, meth_name = resolver.resolve(method.method_idx)
+            cls_name, meth_name = dex.get_method_full(method.method_idx)
             if cls_name and meth_name:
                 key = (cls_name, meth_name)
                 if key in by_name:
@@ -202,35 +200,3 @@ class CodeItemMerger:
         computed = zlib.adler32(bytes(data[12:])) & 0xFFFFFFFF
         struct.pack_into(f"{fmt}I", data, 8, computed)
         return data
-
-
-class _MethodNameResolver:
-    """Resolves method_idx to (class_name, method_name) from the DEX tables."""
-
-    def __init__(self, dex: DexFile):
-        self._dex = dex
-        self._cache: dict[int, tuple[str, str]] = {}
-
-    def resolve(self, method_idx: int) -> tuple[str, str]:
-        if method_idx in self._cache:
-            return self._cache[method_idx]
-
-        h = self._dex.header
-        if method_idx < 0 or method_idx >= h.method_ids_size:
-            return ("", "")
-
-        # method_id_item: uint16 class_idx, uint16 proto_idx, uint32 name_idx
-        mid_off = h.method_ids_off + method_idx * 8
-        if mid_off + 8 > len(self._dex.data):
-            return ("", "")
-
-        vals = struct.unpack_from(f"{self._dex.fmt}HHI", self._dex.data, mid_off)
-        type_idx = vals[0]
-        name_idx = vals[2]
-
-        cls_name = self._dex.get_type_name(type_idx) or ""
-        meth_name = self._dex.get_string(name_idx) or ""
-
-        result = (cls_name, meth_name)
-        self._cache[method_idx] = result
-        return result

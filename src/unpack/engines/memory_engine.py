@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import base64
+import struct
 import subprocess
 import tempfile
 import time
 from pathlib import Path
 
 from unpack.engines.base import BaseEngine, DumpResult, EngineType
-from unpack.utils.adb import get_device_serial
+from unpack.utils.adb import adb_cmd, adb_shell, check_root, get_device_serial
 
 DEVICE_DUMP_DIR = "/data/local/tmp/unpack_memscan"
 DEVICE_SCRIPT_PATH = "/data/local/tmp/unpack_memscan.sh"
@@ -179,25 +181,41 @@ echo "MEMSCAN_SO_DONE: dumped $SO_IDX SO file(s)"
 """
 
 
-def _adb(serial: str, *args: str, timeout: int = 15) -> str:
-    cmd = ["adb", "-s", serial, *args]
-    return subprocess.check_output(
-        cmd, text=True, timeout=timeout, stderr=subprocess.STDOUT
-    ).strip()
-
-
-def _adb_shell(serial: str, cmd: str, timeout: int = 30, root: bool = False) -> str:
-    if root:
-        cmd = f"su -c '{cmd}'"
-    return _adb(serial, "shell", cmd, timeout=timeout)
-
-
-def _check_root(serial: str) -> bool:
+def _find_child_pids(serial: str, parent_pid: str) -> list[str]:
+    """Find child PIDs of parent_pid via pgrep -P (for multi-process packers)."""
     try:
-        out = _adb_shell(serial, "id", root=True)
-        return "uid=0" in out
+        out = adb_shell(serial, f"pgrep -P {parent_pid}", root=True, timeout=5)
+        return [p.strip() for p in out.splitlines() if p.strip().isdigit()]
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return False
+        return []
+
+
+def _sliding_dex_scan(data: bytes, max_scan: int = 1024 * 1024) -> list[int]:
+    """Search for DEX magic ("dex\\n") at any offset within the first
+    max_scan bytes of data, validating the DEX header at each match.
+
+    Used to find DEX files embedded at arbitrary offsets within anonymous
+    memory regions (DEX-in-DEX), as done by some packers.
+    """
+    offsets = []
+    search_len = min(len(data), max_scan)
+    pos = 0
+    while pos < search_len - 44:
+        idx = data.find(b"dex\n", pos, search_len)
+        if idx < 0:
+            break
+        if idx + 44 <= len(data):
+            try:
+                fsize = struct.unpack_from("<I", data, idx + 32)[0]
+                hsize = struct.unpack_from("<I", data, idx + 36)[0]
+                endian = struct.unpack_from("<I", data, idx + 40)[0]
+                if (hsize == 0x70 and fsize >= 112 and fsize <= 100 * 1024 * 1024
+                    and endian in (0x12345678, 0x78563412)):
+                    offsets.append(idx)
+            except struct.error:
+                pass
+        pos = idx + 4
+    return offsets
 
 
 class MemoryEngine(BaseEngine):
@@ -215,7 +233,7 @@ class MemoryEngine(BaseEngine):
             return False
         self._serial = serial
 
-        if not _check_root(serial):
+        if not check_root(serial):
             self._unavailable_reason = (
                 "device is not rooted -- memory engine requires root "
                 "for /proc/pid/mem access (adb shell su -c id must return uid=0)"
@@ -260,17 +278,15 @@ class MemoryEngine(BaseEngine):
         output_dir: Path,
         result: DumpResult,
     ) -> DumpResult:
-        import struct
-
         try:
-            _adb_shell(serial, f"am force-stop {package_name}", root=False, timeout=5)
+            adb_shell(serial, f"am force-stop {package_name}", root=False, timeout=5)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass
 
         time.sleep(1)
 
         try:
-            _adb_shell(
+            adb_shell(
                 serial,
                 f"monkey -p {package_name} -c android.intent.category.LAUNCHER 1",
                 root=False, timeout=10,
@@ -279,131 +295,178 @@ class MemoryEngine(BaseEngine):
             result.error = f"failed to launch {package_name}"
             return result
 
-        time.sleep(self._wait_seconds)
+        time.sleep(2)  # brief grace period for process to spawn
 
         try:
-            pid_out = _adb_shell(serial, f"pidof {package_name}", root=False, timeout=5)
+            pid_out = adb_shell(serial, f"pidof {package_name}", root=False, timeout=5)
             pid = pid_out.strip().split()[0]
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError):
             result.error = f"process not found for {package_name}"
             return result
 
-        maps_text = _adb_shell(serial, f"cat /proc/{pid}/maps", root=True, timeout=10)
+        from unpack.utils.wait import SmartWaiter
+        waiter = SmartWaiter(
+            max_wait=max(float(self._wait_seconds), 15.0),
+            min_wait=max(3.0, float(self._wait_seconds) / 3),
+        )
+        waiter.wait(serial, pid)
 
-        targets = []
-        for line in maps_text.splitlines():
-            parts = line.split()
-            if len(parts) < 1:
-                continue
-            path = parts[-1] if len(parts) > 5 else ""
-            if not any(k in path for k in [".vdex", ".apk", ".dex"]):
-                if "[anon:dalvik-" not in line:
-                    continue
-            if any(k in path for k in ["/system/", "/apex/", "/vendor/", "/product/"]):
-                continue
-            addr_range = parts[0]
-            try:
-                start_hex, end_hex = addr_range.split("-")
-                start = int(start_hex, 16)
-                end = int(end_hex, 16)
-            except ValueError:
-                continue
-            size = end - start
-            if size < 256 or size > 256 * 1024 * 1024:
-                continue
-            targets.append((start, size, path))
+        all_pids = [pid]
+        child_pids = _find_child_pids(serial, pid)
+        all_pids.extend(child_pids)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         seen_hashes: set[str] = set()
-        dump_cmds: list[tuple[int, int, str]] = []
+        total_targets = 0
 
-        # Batch-read all region headers in one script
-        probe_script = "#!/system/bin/sh\n"
-        for region_start, region_size, _ in targets:
-            probe_script += f"dd if=/proc/{pid}/mem bs=1 skip={region_start} count=256 2>/dev/null | base64\necho '---PROBE_SEP---'\n"
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
-            f.write(probe_script)
-            probe_path = f.name
-        try:
-            _adb(serial, "push", probe_path, "/data/local/tmp/_probe.sh", timeout=10)
-            probe_out = _adb_shell(serial, "sh /data/local/tmp/_probe.sh", root=True, timeout=60)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            probe_out = ""
-        finally:
-            Path(probe_path).unlink(missing_ok=True)
+        for scan_pid in all_pids:
             try:
-                _adb_shell(serial, "rm -f /data/local/tmp/_probe.sh", root=True, timeout=5)
+                maps_text = adb_shell(
+                    serial, f"cat /proc/{scan_pid}/maps", root=True, timeout=10
+                )
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                pass
+                continue
 
-        import base64
-        probe_chunks = probe_out.split("---PROBE_SEP---")
+            targets = []
+            for line in maps_text.splitlines():
+                parts = line.split()
+                if len(parts) < 1:
+                    continue
+                path = parts[-1] if len(parts) > 5 else ""
+                if not any(k in path for k in [".vdex", ".apk", ".dex"]):
+                    if "[anon:dalvik-" not in line:
+                        continue
+                if any(k in path for k in ["/system/", "/apex/", "/vendor/", "/product/"]):
+                    continue
+                addr_range = parts[0]
+                try:
+                    start_hex, end_hex = addr_range.split("-")
+                    start = int(start_hex, 16)
+                    end = int(end_hex, 16)
+                except ValueError:
+                    continue
+                size = end - start
+                if size < 256 or size > 256 * 1024 * 1024:
+                    continue
+                perms = parts[1] if len(parts) > 1 else ""
+                targets.append((start, size, path, perms))
 
-        for i, (region_start, region_size, _) in enumerate(targets):
-            if i >= len(probe_chunks):
-                break
+            total_targets += len(targets)
+            if not targets:
+                continue
+
+            dump_cmds: list[tuple[int, int, str]] = []
+
+            # Batch-read all region headers in one script
+            probe_script = "#!/system/bin/sh\n"
+            for region_start, region_size, _, _ in targets:
+                probe_script += (
+                    f"dd if=/proc/{scan_pid}/mem bs=1 skip={region_start} count=256 "
+                    "2>/dev/null | base64\necho '---PROBE_SEP---'\n"
+                )
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
+                f.write(probe_script)
+                probe_path = f.name
             try:
-                header = base64.b64decode(probe_chunks[i].strip())
-            except Exception:
-                continue
-            if len(header) < 40:
-                continue
+                adb_cmd(serial, "push", probe_path, "/data/local/tmp/_probe.sh", timeout=10)
+                probe_out = adb_shell(
+                    serial, "sh /data/local/tmp/_probe.sh", root=True, timeout=60
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                probe_out = ""
+            finally:
+                Path(probe_path).unlink(missing_ok=True)
+                try:
+                    adb_shell(serial, "rm -f /data/local/tmp/_probe.sh", root=True, timeout=5)
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    pass
 
-            first_dex_off = -1
-            if header[:4] == b"dex\n":
-                first_dex_off = 0
-            elif header[:4] == b"vdex":
-                for voff in range(40, min(len(header) - 4, 200)):
-                    if header[voff : voff + 4] == b"dex\n":
-                        first_dex_off = voff
+            probe_chunks = probe_out.split("---PROBE_SEP---")
+
+            for i, (region_start, region_size, region_path, region_perms) in enumerate(targets):
+                if i >= len(probe_chunks):
+                    break
+                try:
+                    header = base64.b64decode(probe_chunks[i].strip())
+                except Exception:
+                    continue
+                if len(header) < 40:
+                    continue
+
+                first_dex_off = -1
+                if header[:4] == b"dex\n":
+                    first_dex_off = 0
+                elif header[:4] == b"cdex":
+                    first_dex_off = 0
+                elif header[:4] == b"vdex":
+                    for voff in range(40, min(len(header) - 4, 200)):
+                        if header[voff : voff + 4] == b"dex\n":
+                            first_dex_off = voff
+                            break
+                elif header[:4] == b"oat\n":
+                    for oat_off in range(28, min(len(header) - 4, 200)):
+                        if header[oat_off : oat_off + 4] == b"dex\n":
+                            first_dex_off = oat_off
+                            break
+
+                if first_dex_off < 0 and region_size >= 4096:
+                    is_anon_rw = "rw" in region_perms
+                    path_info = region_path
+                    if is_anon_rw and (not path_info or path_info.startswith("[anon:")):
+                        scan_size = min(region_size, 65536)
+                        if scan_size > len(header):
+                            extended = self._read_mem(serial, scan_pid, region_start, scan_size)
+                        else:
+                            extended = header
+                        dex_offsets = _sliding_dex_scan(extended, max_scan=scan_size)
+                        if dex_offsets:
+                            first_dex_off = dex_offsets[0]
+
+                if first_dex_off < 0:
+                    continue
+
+                pos = first_dex_off
+                while pos < region_size - 112:
+                    dex_addr = region_start + pos
+                    if pos < len(header) - 40:
+                        hdr = header[pos : pos + 40]
+                    else:
+                        hdr = self._read_mem(serial, scan_pid, dex_addr, 40)
+                    if len(hdr) < 40 or hdr[:4] != b"dex\n":
+                        break
+                    fsize = struct.unpack_from("<I", hdr, 32)[0]
+                    hsize = struct.unpack_from("<I", hdr, 36)[0]
+                    if hsize != 0x70 or fsize < 112 or fsize > 100 * 1024 * 1024:
                         break
 
-            if first_dex_off < 0:
-                continue
+                    dk = f"{fsize}_{hdr[:32].hex()}"
+                    if dk in seen_hashes:
+                        pos += fsize
+                        pos = (pos + 3) & ~3
+                        continue
+                    seen_hashes.add(dk)
 
-            # Walk consecutive DEX files using the initial header where possible
-            pos = first_dex_off
-            while pos < region_size - 112:
-                dex_addr = region_start + pos
-                if pos < len(header) - 40:
-                    hdr = header[pos : pos + 40]
-                else:
-                    hdr = self._read_mem(serial, pid, dex_addr, 40)
-                if len(hdr) < 40 or hdr[:4] != b"dex\n":
-                    break
-                fsize = struct.unpack_from("<I", hdr, 32)[0]
-                hsize = struct.unpack_from("<I", hdr, 36)[0]
-                if hsize != 0x70 or fsize < 112 or fsize > 100 * 1024 * 1024:
-                    break
+                    dump_cmds.append((dex_addr, fsize, scan_pid))
 
-                dk = f"{fsize}_{hdr[:32].hex()}"
-                if dk in seen_hashes:
                     pos += fsize
                     pos = (pos + 3) & ~3
-                    continue
-                seen_hashes.add(dk)
 
-                device_path = f"{DEVICE_DUMP_DIR}/classes_{len(dump_cmds):03d}.dex"
-                dump_cmds.append((dex_addr, fsize, device_path))
-
-                pos += fsize
-                pos = (pos + 3) & ~3
-
-        for dex_addr, fsize, _ in dump_cmds:
-            local_path = output_dir / f"classes_{len(result.dex_files):03d}.dex"
-            self._dump_mem_to_file(serial, pid, dex_addr, fsize, local_path)
-            if local_path.exists() and local_path.stat().st_size > 112:
-                data = local_path.read_bytes()
-                if data[:4] == b"dex\n":
-                    result.dex_files.append(local_path)
-                else:
-                    local_path.unlink(missing_ok=True)
+            for dex_addr, fsize, dump_pid in dump_cmds:
+                local_path = output_dir / f"classes_{len(result.dex_files):03d}.dex"
+                self._dump_mem_to_file(serial, dump_pid, dex_addr, fsize, local_path)
+                if local_path.exists() and local_path.stat().st_size > 112:
+                    data = local_path.read_bytes()
+                    if data[:4] == b"dex\n" or data[:4] == b"cdex":
+                        result.dex_files.append(local_path)
+                    else:
+                        local_path.unlink(missing_ok=True)
 
         result.success = len(result.dex_files) > 0
         if not result.success and not result.error:
             result.error = (
-                f"no DEX files found in {len(targets)} memory regions -- "
+                f"no DEX files found in {total_targets} memory regions across "
+                f"{len(all_pids)} process(es) -- "
                 "app may not be packed, or packer clears DEX after loading"
             )
         return result
@@ -441,6 +504,6 @@ class MemoryEngine(BaseEngine):
     def _cleanup(self, serial: str):
         for path in (DEVICE_SCRIPT_PATH, DEVICE_DUMP_DIR):
             try:
-                _adb_shell(serial, f"rm -rf {path}", root=True, timeout=5)
+                adb_shell(serial, f"rm -rf {path}", root=True, timeout=5)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass

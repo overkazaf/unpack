@@ -75,3 +75,28 @@ class TestDexFileParse:
     def test_code_items_empty(self, synthetic_dex_bytes):
         dex = DexFile.parse(synthetic_dex_bytes)
         assert dex.code_items == []
+
+
+class TestDexFileNameResolution:
+    def test_get_method_name_empty_dex(self, synthetic_dex_bytes):
+        dex = DexFile.parse(synthetic_dex_bytes)
+        assert dex.get_method_name(0) is None
+        assert dex.get_method_name(-1) is None
+
+    def test_get_method_full_empty_dex(self, synthetic_dex_bytes):
+        dex = DexFile.parse(synthetic_dex_bytes)
+        cls, name = dex.get_method_full(0)
+        assert cls is None and name is None
+
+    def test_get_field_full_empty_dex(self, synthetic_dex_bytes):
+        dex = DexFile.parse(synthetic_dex_bytes)
+        cls, name = dex.get_field_full(0)
+        assert cls is None and name is None
+
+    def test_get_method_name_out_of_bounds(self, synthetic_dex_bytes):
+        dex = DexFile.parse(synthetic_dex_bytes)
+        assert dex.get_method_name(99999) is None
+
+    def test_get_field_full_out_of_bounds(self, synthetic_dex_bytes):
+        dex = DexFile.parse(synthetic_dex_bytes)
+        assert dex.get_field_full(99999) == (None, None)

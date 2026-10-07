@@ -4,6 +4,8 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from unpack.repair.dex_parser import _uleb128
+
 
 @dataclass
 class QualityReport:
@@ -136,16 +138,3 @@ class Reporter:
                     break
             if all_nop and insns_size > 1:
                 stats["nop_methods"] += 1
-
-
-def _uleb128(data: bytes, pos: int) -> tuple[int, int]:
-    result = 0
-    shift = 0
-    while pos < len(data):
-        b = data[pos]
-        pos += 1
-        result |= (b & 0x7F) << shift
-        if (b & 0x80) == 0:
-            break
-        shift += 7
-    return result, pos

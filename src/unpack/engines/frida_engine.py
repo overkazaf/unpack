@@ -351,6 +351,60 @@ function hookDexFileOpen() {
     return hooked;
 }
 
+// ── Strategy 5: ClassLinker::DefineClass hook (FART-style) ──
+
+function hookClassLinkerDefineClass() {
+    var libart = Process.findModuleByName('libart.so');
+    if (!libart) return 0;
+
+    var hooked = 0;
+    var symbols = libart.enumerateSymbols();
+    for (var i = 0; i < symbols.length; i++) {
+        var sym = symbols[i];
+        if (sym.name.indexOf('DefineClass') !== -1 &&
+            sym.name.indexOf('ClassLinker') !== -1 &&
+            sym.name.indexOf('__cfi_') === -1) {
+            try {
+                (function(symName) {
+                    Interceptor.attach(sym.address, {
+                        onEnter: function(args) {
+                            // ClassLinker::DefineClass has DexFile as one of its args.
+                            // The DexFile object's begin_ field points to the DEX data.
+                            // Try multiple arg positions to find it.
+                            for (var a = 0; a < 8; a++) {
+                                try {
+                                    var candidate = args[a];
+                                    if (candidate.isNull()) continue;
+                                    // Try direct: arg might be DEX base pointer
+                                    if (isDexMagic(candidate)) {
+                                        var fileSize = validateDexHeader(candidate);
+                                        if (fileSize > 0) {
+                                            saveDex(candidate, fileSize, 'define_class:' + symName);
+                                        }
+                                        break;
+                                    }
+                                    // Try indirect: arg might be DexFile*, with begin_ as first field
+                                    var beginPtr = candidate.readPointer();
+                                    if (!beginPtr.isNull() && isDexMagic(beginPtr)) {
+                                        var fileSize = validateDexHeader(beginPtr);
+                                        if (fileSize > 0) {
+                                            saveDex(beginPtr, fileSize, 'define_class:' + symName);
+                                        }
+                                        break;
+                                    }
+                                } catch (e) {}
+                            }
+                        }
+                    });
+                    hooked++;
+                })(sym.name);
+            } catch (e) {}
+            break;  // Only hook the first match to avoid duplicate captures
+        }
+    }
+    return hooked;
+}
+
 // ── Strategy 3: ClassLoader enumeration ──
 
 function dumpClassLoaders() {
@@ -461,8 +515,9 @@ var scanRound = 0;
 // Arm all hooks right now (process is still suspended)
 send({ type: 'status', message: 'Arming hooks (process still paused)...' });
 var hookedSymbols = hookDexFileOpen();
+var classLinkerHooks = hookClassLinkerDefineClass();
 hookDlopen();
-send({ type: 'status', message: 'Hooks armed: ' + hookedSymbols + ' DexFile symbols + dlopen' });
+send({ type: 'status', message: 'Hooks armed: ' + hookedSymbols + ' DexFile + ' + classLinkerHooks + ' ClassLinker + dlopen' });
 
 // Polling loop: runs after the process is resumed
 function pollScan() {
@@ -569,7 +624,18 @@ class FridaEngine(BaseEngine):
 
             # Resume AFTER hooks are armed
             device.resume(pid)
-            time.sleep(self._wait_seconds + 2)
+
+            from unpack.utils.wait import SmartWaiter
+            from unpack.utils.adb import get_device_serial as _get_serial
+            _serial = device_serial or _get_serial()
+            if _serial:
+                waiter = SmartWaiter(
+                    max_wait=max(float(self._wait_seconds), 15.0) + 2,
+                    min_wait=max(3.0, float(self._wait_seconds) / 3),
+                )
+                waiter.wait(_serial, str(pid))
+            else:
+                time.sleep(self._wait_seconds + 2)
 
             try:
                 script.unload()

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import re
-import struct
-import zipfile
 from pathlib import Path
 
 from rich.console import Console
@@ -12,6 +9,7 @@ from unpack.engines.base import BaseEngine, DumpResult, EngineType
 from unpack.engines.ebpf_engine import EbpfEngine
 from unpack.engines.frida_engine import FridaEngine
 from unpack.engines.memory_engine import MemoryEngine
+from unpack.utils.apk import get_package_name
 
 console = Console()
 
@@ -22,48 +20,6 @@ _ENGINE_PRIORITY: dict[ProtectionLevel, list[EngineType]] = {
     ProtectionLevel.VMP: [EngineType.EBPF, EngineType.FRIDA],
     ProtectionLevel.DEX2C: [EngineType.EBPF, EngineType.FRIDA],
 }
-
-
-def _extract_package_name(apk_path: Path) -> str | None:
-    """Extract the package name from an APK's binary AndroidManifest.xml."""
-    try:
-        from androguard.core.apk import APK
-
-        return APK(str(apk_path)).get_package()
-    except Exception:
-        pass
-
-    # Fallback: parse the binary XML for the 'package' attribute.
-    # In AXML the package string sits right after the manifest element tag and
-    # is preceded by a UTF-16LE length-prefixed string.  A practical heuristic
-    # is to search for the UTF-16LE encoded "package" attribute name and grab
-    # the string value that follows it.
-    try:
-        with zipfile.ZipFile(apk_path) as zf:
-            data = zf.read("AndroidManifest.xml")
-
-        # The AXML string pool stores UTF-16LE strings.  We scan for the raw
-        # bytes of typical package names (com.xxx.yyy) which appear as ASCII
-        # within the pool (each char followed by 0x00).
-        text = data.decode("latin-1")
-        # Look for patterns like "com.something.something"
-        matches = re.findall(
-            r"((?:com|cn|net|org|io)\.[a-z0-9_]+(?:\.[a-z0-9_]+)+)", text
-        )
-        if matches:
-            return matches[0]
-
-        # Even rougher: try stripping null bytes and matching
-        stripped = data.replace(b"\x00", b"").decode("latin-1", errors="replace")
-        matches = re.findall(
-            r"((?:com|cn|net|org|io)\.[a-z0-9_]+(?:\.[a-z0-9_]+)+)", stripped
-        )
-        if matches:
-            return matches[0]
-    except Exception:
-        pass
-
-    return None
 
 
 class Dispatcher:
@@ -84,7 +40,7 @@ class Dispatcher:
         timeout: int | None = None,
         anti_detect: bool = True,
     ) -> DumpResult:
-        package_name = _extract_package_name(apk)
+        package_name = get_package_name(apk)
         if not package_name:
             return DumpResult(
                 engine=EngineType.FRIDA,

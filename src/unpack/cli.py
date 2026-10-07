@@ -21,12 +21,10 @@ from rich.table import Table
 from rich.text import Text
 from rich import box
 
-from unpack.core.scanner import PackerScanner, ScanResult
-from unpack.core.dispatcher import Dispatcher
-from unpack.core.reporter import Reporter
-from unpack.engines.base import DumpResult
-from unpack.repair.dex_repair import DexRepairPipeline
-from unpack.repair.verifier import DexVerifier
+from unpack.cli_format import (
+    C_OK, C_FAIL, C_WARN, C_INFO, C_DIM, C_ACCENT, C_HEADER, C_LABEL,
+    print_scan_result, print_verbose, print_report, print_verify_result, confidence_bar,
+)
 
 app = typer.Typer(
     name="unpack",
@@ -59,6 +57,12 @@ def _print_main_help():
     t.add_row("dump", "Full unpack: scan → dump → repair → verify")
     t.add_row("repair", "Fix dumped DEX files (header, checksum, signature)")
     t.add_row("verify", "Check DEX integrity and quality metrics")
+    t.add_row("export", "Export dumped DEX in alternative formats (FART)")
+    t.add_row("repack", "Combine original APK + dumped DEX into analyzable APK")
+    t.add_row("rescan", "Trigger components to decrypt remaining NOP methods")
+    t.add_row("reassemble", "Map dumped classes back to original DEX numbering")
+    t.add_row("vmp", "Classify methods: normal / NOP / VMP-stub")
+    t.add_row("xref", "Cross-reference index: strings, calls, fields, reflection")
     console.print(Panel(t, title="[bold]Commands[/]", border_style="dim", box=box.ROUNDED))
 
     examples = [
@@ -71,6 +75,11 @@ def _print_main_help():
         ("unpack repair ./unpacked/", "fix all DEX in directory"),
         ("unpack repair classes.dex -i", "repair in place"),
         ("unpack verify ./unpacked/", "check integrity"),
+        ("unpack repack app.apk ./unpacked/", "combine into analyzable APK"),
+        ("unpack rescan app.apk ./unpacked/ -r 5", "trigger components, re-scan memory"),
+        ("unpack reassemble app.apk ./unpacked/", "map classes to original DEX"),
+        ("unpack vmp ./unpacked/", "classify methods (VMP stub detection)"),
+        ("unpack xref ./unpacked/", "cross-reference strings/calls/fields"),
     ]
     et = Table(show_header=False, box=None, padding=(0, 1))
     et.add_column("$", style="bright_cyan", width=2)
@@ -83,7 +92,7 @@ def _print_main_help():
     engines = [
         ("frida", "bright_green", "Frida DBI injection — needs frida-server on device"),
         ("ebpf", "bright_cyan", "eBPF uprobe on libart.so — needs root + bpftrace, stealthier"),
-        ("memory", "dim", "Direct memory scan — stub, not yet implemented"),
+        ("memory", "bright_green", "Zero-injection /proc/pid/mem — multi-process + VDEX/OAT/CDEX (recommended)"),
     ]
     nt = Table(show_header=False, box=None, padding=(0, 1))
     nt.add_column("engine", min_width=10)
@@ -104,16 +113,6 @@ def main(ctx: typer.Context):
         _print_main_help()
         raise typer.Exit()
 console = Console()
-
-# ── Color scheme ──
-C_OK = "bright_green"
-C_FAIL = "bright_red"
-C_WARN = "bright_yellow"
-C_INFO = "bright_cyan"
-C_DIM = "dim"
-C_ACCENT = "bright_magenta"
-C_HEADER = "bold bright_green"
-C_LABEL = "bright_white"
 
 
 def _phase(n: int, total: int, label: str):
@@ -167,6 +166,7 @@ def scan(
             console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
         raise typer.Exit(1)
 
+    from unpack.core.scanner import PackerScanner
     from unpack.utils.apk import find_sibling_splits
     extra_apks = find_sibling_splits(apk)
     if extra_apks and not pipe_mode:
@@ -185,10 +185,10 @@ def scan(
     with _spinner("Scanning APK..."):
         result = scanner.scan(apk, verbose=verbose, extra_apks=extra_apks or None)
 
-    _print_scan_result(result, apk)
+    print_scan_result(console, result, apk)
 
     if verbose:
-        _print_verbose(result)
+        print_verbose(console, result)
 
     if output_json:
         d = result.to_verbose_dict() if verbose else result.to_dict()
@@ -217,6 +217,7 @@ def analyze(
     print("# UNPACK Analysis Report", flush=True)
     print(f"# Scanning {apk.name}...", flush=True)
 
+    from unpack.core.scanner import PackerScanner
     scanner = PackerScanner()
     result = scanner.scan(apk, verbose=True)
 
@@ -263,13 +264,18 @@ def dump(
         console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
         raise typer.Exit(1)
 
+    from unpack.core.dispatcher import Dispatcher
+    from unpack.core.reporter import Reporter
+    from unpack.core.scanner import PackerScanner
+    from unpack.repair.dex_repair import DexRepairPipeline
+
     output.mkdir(parents=True, exist_ok=True)
 
     _phase(1, 4, "Scanning packer")
     scanner = PackerScanner()
     with _spinner("Analyzing APK structure..."):
         scan_result = scanner.scan(apk)
-    _print_scan_result(scan_result, apk)
+    print_scan_result(console, scan_result, apk)
 
     _phase(2, 4, "Dumping DEX")
     dispatcher = Dispatcher()
@@ -313,11 +319,12 @@ def dump(
         ):
             console.print(f"  [{C_WARN}]Packer is not function-extraction level, deep mode may not help[/]")
 
+        invoke_result = None
+        pkg_name = None
         try:
             from unpack.engines.active_invoke import ActiveInvoker
             from unpack.repair.codeitem_merger import CodeItemMerger
 
-            pkg_name = None
             try:
                 from unpack.utils.apk import get_package_name
                 pkg_name = get_package_name(apk)
@@ -363,6 +370,28 @@ def dump(
         except ImportError:
             console.print(f"  [{C_FAIL}]Active invocation requires frida: pip install -e '.[frida]'[/]")
 
+        # Fallback: if Frida invoker failed or wasn't available, try memory-based
+        if not invoke_result or not invoke_result.code_items:
+            try:
+                from unpack.engines.active_invoke import MemoryActiveInvoker
+                from unpack.utils.adb import get_device_serial
+
+                _serial = device or get_device_serial()
+                if _serial:
+                    console.print(f"  [{C_DIM}]Trying Frida-free active invocation (app exerciser)...[/]")
+                    mem_invoker = MemoryActiveInvoker()
+                    mem_invoke_result = mem_invoker.invoke(
+                        serial=_serial,
+                        pid="",  # not needed for exerciser
+                        package_name=pkg_name,
+                        output_dir=output,
+                    )
+                    if mem_invoke_result.success:
+                        console.print(f"  [{C_OK}]+[/] Exercised app ({mem_invoke_result.classes_resolved} actions)")
+                        console.print(f"  [{C_DIM}]Re-scanning memory for decrypted CodeItems...[/]")
+            except Exception:
+                pass
+
         phase_offset = 1
 
     if not skip_repair:
@@ -378,7 +407,7 @@ def dump(
     with _spinner("Analyzing DEX coverage..."):
         reporter = Reporter()
         report = reporter.evaluate(output, scan_result)
-    _print_report(report)
+    print_report(console, report)
 
     report_path = output / "report.json"
     report_path.write_text(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
@@ -409,6 +438,7 @@ def repair(
         console.print(f"[{C_FAIL}]No DEX files found.[/]")
         raise typer.Exit(1)
 
+    from unpack.repair.dex_repair import DexRepairPipeline
     pipeline = DexRepairPipeline()
     ok = 0
     console.print(f"  [{C_DIM}]Processing {len(paths)} DEX file(s)...[/]")
@@ -445,182 +475,311 @@ def verify(
         console.print(f"[{C_FAIL}]No DEX files found.[/]")
         raise typer.Exit(1)
 
+    from unpack.repair.verifier import DexVerifier
     verifier = DexVerifier()
     console.print(f"  [{C_DIM}]Verifying {len(paths)} DEX file(s)...[/]")
     for p in paths:
         with _spinner(f"Checking {p.name}...", show_time=False):
             result = verifier.verify(p)
-        _print_verify_result(p.name, result)
+        print_verify_result(console, p.name, result)
 
 
-# ── Output formatting ──
+@app.command()
+def export(
+    dex_dir: Annotated[Path, typer.Argument(help="Directory containing dumped DEX files")],
+    output: Annotated[Path, typer.Option("--output", "-o", help="Output directory")] = Path("./fart_export"),
+    format: Annotated[str, typer.Option("--format", "-f", help="Export format: fart")] = "fart",
+):
+    """Export dumped DEX files in alternative formats (e.g., FART bin/txt)."""
+    if format != "fart":
+        console.print(f"[{C_FAIL}]Unknown format: {format}[/]")
+        raise typer.Exit(1)
+
+    dex_files = sorted(dex_dir.glob("*.dex"))
+    if not dex_files:
+        console.print(f"[{C_FAIL}]No DEX files found in {dex_dir}[/]")
+        raise typer.Exit(1)
+
+    from unpack.export.fart import FartExporter
+    exporter = FartExporter()
+    total_methods = 0
+
+    for dex_path in dex_files:
+        result = exporter.export(dex_path, output)
+        total_methods += result.method_count
+        console.print(f"  [{C_OK}]+[/] {dex_path.name}: {result.method_count} methods -> {result.bin_path.name}")
+
+    console.print(f"  [{C_OK}]Exported {total_methods} methods in FART format to {output}[/]")
 
 
-def _print_scan_result(result: ScanResult, apk_path: Path | None = None):
-    if result.packer_name:
-        level_color = {
-            "none": C_OK, "dex_encryption": C_WARN,
-            "function_extraction": C_WARN, "vmp": C_FAIL,
-            "dex2c": C_FAIL, "unknown": C_DIM,
-        }.get(result.protection_level.value, C_DIM)
+@app.command()
+def repack(
+    apk: Annotated[Path, typer.Argument(help="Original APK file")],
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped/repaired DEX files")],
+    output: Annotated[Path, typer.Option("--output", "-o", help="Output directory")] = Path("./repacked"),
+):
+    """Repack dumped DEX into an analyzable APK."""
+    if not apk.exists():
+        console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
+        raise typer.Exit(1)
+    if not dex_dir.exists():
+        console.print(f"[{C_FAIL}]DEX directory not found:[/] {dex_dir}")
+        raise typer.Exit(1)
 
-        lines = []
-        if apk_path:
-            lines.append(f"  [{C_DIM}]Target[/]   {apk_path.name}")
-        lines.append(f"  [{C_LABEL}]Packer[/]   [{C_ACCENT}]{result.packer_name}[/]")
-        if hasattr(result, "packer_version") and result.packer_version:
-            lines.append(f"  [{C_LABEL}]Version[/]  [{C_INFO}]{result.packer_version}[/]")
-        lines.append(f"  [{C_LABEL}]Level[/]    [{level_color}]{result.protection_level.value}[/]")
+    from unpack.repack.repacker import Repacker
+    repacker = Repacker()
+    with _spinner(f"Repacking {apk.name}..."):
+        result = repacker.repack(apk, dex_dir, output)
 
-        conf_bar = _confidence_bar(result.confidence)
-        lines.append(f"  [{C_LABEL}]Conf[/]     {conf_bar} {result.confidence:.0%}")
+    if not result.success:
+        console.print(f"  [{C_FAIL}]x[/] Repack failed: {result.error}")
+        raise typer.Exit(1)
 
-        if result.matched_signatures:
-            sigs = f" [{C_DIM}]|[/] ".join(
-                f"[{C_INFO}]{s}[/]" for s in result.matched_signatures
-            )
-            lines.append(f"  [{C_LABEL}]Sigs[/]     {sigs}")
+    console.print(f"  [{C_OK}]+[/] Repacked [{C_OK}]{result.dex_count}[/] DEX file(s), "
+                  f"preserved [{C_OK}]{result.resources_preserved}[/] resource(s)")
+    console.print(f"  [{C_DIM}]Output:[/] {result.output_path}")
 
-        content = "\n".join(lines)
-        console.print(Panel(
-            content,
-            title=f"[{C_OK}] DETECTED [/]",
-            border_style=C_OK,
-            box=box.HEAVY,
-            padding=(0, 1),
-        ))
+
+@app.command()
+def rescan(
+    apk: Annotated[Path, typer.Argument(help="Original APK file")],
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped DEX files (must have report.json)")],
+    device: Annotated[Optional[str], typer.Option("--device", "-d", help="ADB device serial")] = None,
+    rounds: Annotated[int, typer.Option("--rounds", "-r", help="Number of trigger rounds")] = 3,
+):
+    """Incremental re-scan: trigger app components to decrypt more methods."""
+    if not apk.exists():
+        console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
+        raise typer.Exit(1)
+    if not dex_dir.exists() or not dex_dir.is_dir():
+        console.print(f"[{C_FAIL}]Directory not found:[/] {dex_dir}")
+        raise typer.Exit(1)
+
+    report_path = dex_dir / "report.json"
+    if not report_path.exists():
+        console.print(f"[{C_FAIL}]No report.json found in {dex_dir}.[/] Run unpack dump first.")
+        raise typer.Exit(1)
+
+    from unpack.engines.rescan import ComponentExtractor, IncrementalRescanner, RescanPlanner
+    from unpack.utils.adb import get_device_serial
+    from unpack.utils.apk import get_package_name
+
+    planner = RescanPlanner()
+    plan = planner.plan(report_path)
+
+    if plan.nop_count == 0:
+        console.print(f"  [{C_OK}]No NOP-only methods found — nothing to rescan.[/]")
+        return
+
+    console.print(f"  [{C_WARN}]{plan.nop_count}[/] NOP method(s) across [{C_INFO}]{len(plan.dex_targets)}[/] DEX file(s)")
+
+    pkg_name = get_package_name(apk)
+    if not pkg_name:
+        console.print(f"[{C_FAIL}]Could not determine package name from APK.[/]")
+        raise typer.Exit(1)
+
+    extractor = ComponentExtractor()
+    manifest_strings = extractor.extract_manifest_strings(apk)
+    plan.components = extractor.classify_components(manifest_strings)
+    console.print(f"  [{C_DIM}]Found {len(plan.components)} component(s) to trigger[/]")
+
+    serial = device or get_device_serial()
+    if not serial:
+        console.print(f"[{C_FAIL}]No ADB device connected.[/]")
+        raise typer.Exit(1)
+
+    rescanner = IncrementalRescanner(rounds=rounds)
+    with _spinner(f"Running {rounds} round(s)..."):
+        result = rescanner.rescan(serial, pkg_name, plan, dex_dir)
+
+    if result.success:
+        console.print(f"  [{C_OK}]+[/] Recovered [{C_OK}]{result.methods_recovered}[/] method(s) over {result.rounds} round(s)")
+    if result.methods_still_nop:
+        console.print(f"  [{C_WARN}]{result.methods_still_nop}[/] method(s) still NOP")
+
+
+@app.command()
+def reassemble(
+    apk: Annotated[Path, typer.Argument(help="Original APK file")],
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with dumped DEX files")],
+):
+    """Map dumped DEX classes back to original APK DEX numbering."""
+    from collections import Counter
+    from unpack.repair.reassemble import DexClassLister, ClassMapper, ReassembleResult
+
+    if not apk.exists():
+        console.print(f"[{C_FAIL}]APK not found:[/] {apk}")
+        raise typer.Exit(1)
+    if not dex_dir.exists():
+        console.print(f"[{C_FAIL}]Path not found:[/] {dex_dir}")
+        raise typer.Exit(1)
+
+    lister = DexClassLister()
+    mapper = ClassMapper()
+
+    with _spinner("Reading original APK classes..."):
+        original = lister.list_from_apk(apk)
+    if not original:
+        console.print(f"[{C_FAIL}]No classes*.dex found in APK.[/]")
+        raise typer.Exit(1)
+
+    dex_paths = [p for p in sorted(dex_dir.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
+    if not dex_paths:
+        console.print(f"[{C_FAIL}]No DEX files found in:[/] {dex_dir}")
+        raise typer.Exit(1)
+
+    dumped: dict[str, list[str]] = {}
+    with _spinner(f"Reading {len(dex_paths)} dumped DEX file(s)..."):
+        for p in dex_paths:
+            try:
+                dumped[p.name] = lister.list_from_file(p)
+            except Exception:
+                dumped[p.name] = []
+
+    mapping = mapper.map_classes(original, dumped)
+    classes_mapped = sum(1 for v in mapping.values() if v is not None)
+    classes_unmapped = len(mapping) - classes_mapped
+
+    distribution = Counter(v for v in mapping.values() if v is not None)
+    table = Table(show_header=True, box=box.ROUNDED)
+    table.add_column("Original DEX", style=C_LABEL)
+    table.add_column("Classes mapped", style=C_INFO, justify="right")
+    for dex_name in sorted(original.keys()):
+        table.add_row(dex_name, str(distribution.get(dex_name, 0)))
+    unmapped_count = distribution.get("(unmapped)", 0)
+    if unmapped_count:
+        table.add_row(f"[{C_WARN}](unmapped)[/]", f"[{C_WARN}]{unmapped_count}[/]")
+    console.print(table)
+    console.print(f"  [{C_OK}]{classes_mapped}[/] mapped, [{C_WARN}]{classes_unmapped}[/] unmapped")
+
+
+@app.command()
+def vmp(
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with DEX files or single DEX")],
+    output_json: Annotated[Optional[Path], typer.Option("--json", "-j", help="Save VMP report as JSON")] = None,
+):
+    """Classify methods as normal/NOP/VMP-stub."""
+    if not dex_dir.exists():
+        console.print(f"[{C_FAIL}]Path not found:[/] {dex_dir}")
+        raise typer.Exit(1)
+
+    if dex_dir.is_dir():
+        paths = [p for p in sorted(dex_dir.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
     else:
-        lines = []
-        if apk_path:
-            lines.append(f"  [{C_DIM}]Target[/]  {apk_path.name}")
-        lines.append(f"  [{C_DIM}]{result.details}[/]")
-        console.print(Panel(
-            "\n".join(lines),
-            title=f"[{C_DIM}] NO PACKER [/]",
-            border_style=C_DIM,
-            box=box.ROUNDED,
-            padding=(0, 1),
-        ))
+        paths = [dex_dir]
+
+    if not paths:
+        console.print(f"[{C_FAIL}]No DEX files found.[/]")
+        raise typer.Exit(1)
+
+    from unpack.analysis.vmp import VmpDetector
+
+    detector = VmpDetector()
+    all_vmp_methods: list[dict] = []
+    all_call_graph: list[dict] = []
+    total = normal = nop = vmp_total = 0
+
+    for p in paths:
+        report = detector.analyze_dex(p.read_bytes())
+        total += report.total_methods
+        normal += report.normal_count
+        nop += report.nop_count
+        vmp_total += report.vmp_count
+        all_vmp_methods.extend({**m, "dex_file": p.name} for m in report.vmp_methods)
+        all_call_graph.extend({**c, "dex_file": p.name} for c in report.call_graph)
+
+        vmp_color = C_FAIL if report.vmp_count else C_DIM
+        console.print(f"  {p.name}: [{C_OK}]{report.normal_count}[/] normal, [{C_WARN}]{report.nop_count}[/] NOP, [{vmp_color}]{report.vmp_count}[/] VMP-stub")
+
+    vmp_color = C_FAIL if vmp_total else C_DIM
+    lines = [
+        f"  [{C_LABEL}]Total[/]    [{C_INFO}]{total:,}[/]",
+        f"  [{C_LABEL}]Normal[/]   [{C_OK}]{normal:,}[/]",
+        f"  [{C_LABEL}]NOP[/]      [{C_WARN}]{nop:,}[/]",
+        f"  [{C_LABEL}]VMP stub[/] [{vmp_color}]{vmp_total:,}[/]",
+    ]
+    console.print(Panel("\n".join(lines), title=f"[{C_INFO}] VMP CLASSIFICATION [/]", border_style=C_INFO, box=box.HEAVY, padding=(0, 1)))
+
+    if output_json:
+        data = {"total_methods": total, "normal_count": normal, "nop_count": nop, "vmp_count": vmp_total, "vmp_methods": all_vmp_methods, "call_graph": all_call_graph}
+        payload = json.dumps(data, indent=2, ensure_ascii=False)
+        if str(output_json) == "-":
+            print(payload)
+        else:
+            output_json.write_text(payload)
+            console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
 
 
-def _confidence_bar(value: float, width: int = 20) -> str:
-    filled = int(value * width)
-    if value >= 0.6:
-        color = C_OK
-    elif value >= 0.3:
-        color = C_WARN
+@app.command()
+def xref(
+    dex_dir: Annotated[Path, typer.Argument(help="Directory with DEX files or single DEX")],
+    output_json: Annotated[Optional[Path], typer.Option("--json", "-j", help="Save xref report as JSON (use - for stdout)")] = None,
+):
+    """Build a cross-reference index: strings, method calls, fields, reflection.
+
+    Disassembles every method body and indexes which methods reference
+    which string literals, call which other methods, and touch which
+    fields. Flags call sites that use Java reflection or dynamic class
+    loading (Class.forName, Method.invoke, DexClassLoader, etc) as a
+    likely sign of hidden/obfuscated behavior.
+    """
+    from unpack.analysis.xref import XrefBuilder
+
+    if not dex_dir.exists():
+        console.print(f"[{C_FAIL}]Path not found:[/] {dex_dir}")
+        raise typer.Exit(1)
+
+    if dex_dir.is_dir():
+        paths = [p for p in sorted(dex_dir.glob("*.dex")) if "_repaired" not in p.stem and "_merged" not in p.stem]
     else:
-        color = C_FAIL
-    bar = f"[{color}]{'█' * filled}[/][{C_DIM}]{'░' * (width - filled)}[/]"
-    return bar
+        paths = [dex_dir]
 
+    if not paths:
+        console.print(f"[{C_FAIL}]No DEX files found.[/]")
+        raise typer.Exit(1)
 
-def _print_report(report):
-    coverage_color = C_OK if report.code_coverage > 0.8 else C_WARN if report.code_coverage > 0.5 else C_FAIL
-    score_color = C_OK if report.score > 0.8 else C_WARN if report.score > 0.5 else C_FAIL
+    pipe_mode = output_json and str(output_json) == "-"
+
+    builder = XrefBuilder()
+    reports = []
+    for p in paths:
+        reports.append(builder.build_file(p))
+    merged = XrefBuilder.merge(reports)
+
+    if pipe_mode:
+        print(json.dumps(merged.to_dict(), indent=2, ensure_ascii=False))
+        return
+
+    console.print(f"  [{C_DIM}]Analyzed {len(paths)} DEX file(s)[/]")
 
     lines = [
-        f"  [{C_LABEL}]DEX files[/]       [{C_INFO}]{report.dex_count}[/]",
-        f"  [{C_LABEL}]Classes[/]         [{C_INFO}]{report.total_classes:,}[/]",
-        f"  [{C_LABEL}]Methods[/]         [{C_INFO}]{report.total_methods:,}[/]",
-        f"  [{C_LABEL}]With code[/]       [{C_OK}]{report.methods_with_code:,}[/]",
+        f"  [{C_LABEL}]Strings referenced[/]  [{C_INFO}]{len(merged.string_refs):,}[/]",
+        f"  [{C_LABEL}]Methods called[/]      [{C_INFO}]{len(merged.method_calls):,}[/]",
+        f"  [{C_LABEL}]Fields referenced[/]   [{C_INFO}]{len(merged.field_refs):,}[/]",
+        f"  [{C_LABEL}]Reflection calls[/]    [{C_WARN if merged.reflection_calls else C_DIM}]{len(merged.reflection_calls):,}[/]",
     ]
-    if report.nop_methods > 0:
-        lines.append(f"  [{C_LABEL}]NOP-only[/]        [{C_FAIL}]{report.nop_methods:,}[/] [{C_DIM}](still encrypted)[/]")
-    lines.append(f"  [{C_LABEL}]Coverage[/]        {_confidence_bar(report.code_coverage)} [{coverage_color}]{report.code_coverage:.1%}[/]")
-    lines.append(f"  [{C_LABEL}]Score[/]           {_confidence_bar(report.score)} [{score_color}]{report.score:.1%}[/]")
+    console.print(Panel("\n".join(lines), title=f"[{C_INFO}] XREF SUMMARY [/]", border_style=C_INFO, box=box.HEAVY, padding=(0, 1)))
 
-    console.print(Panel(
-        "\n".join(lines),
-        title=f"[{C_INFO}] QUALITY REPORT [/]",
-        border_style=C_INFO,
-        box=box.HEAVY,
-        padding=(0, 1),
-    ))
-
-
-def _print_verbose(result: ScanResult):
-    if result.score_breakdown:
-        bd_lines = []
-        for b in result.score_breakdown:
-            bar = _confidence_bar(b["score"] / b["max"] if b["max"] > 0 else 0, width=8)
-            hit = f"[{C_OK}]HIT[/]" if b["matched"] else f"[{C_DIM}] - [/]"
-            bd_lines.append(
-                f"  {hit}  {b['dimension']:<22s}  {bar}  "
-                f"[{C_INFO}]{b['score']:.1f}[/][{C_DIM}]/{b['max']:.1f}[/]"
+    if merged.reflection_calls:
+        refl_lines = []
+        for call in merged.reflection_calls[:30]:
+            caller = call["caller"]
+            refl_lines.append(
+                f"  [{C_WARN}]{caller['class']}->{caller['method']}[/] "
+                f"[{C_DIM}]calls[/] [{C_ACCENT}]{call['target']}[/]"
             )
-        total = sum(b["score"] for b in result.score_breakdown)
-        total_max = sum(b["max"] for b in result.score_breakdown)
-        bd_lines.append(f"  {'':5s} {'':22s}  {'':22s}  [{C_LABEL}]{total:.1f}[/][{C_DIM}]/{total_max:.1f}[/]")
+        if len(merged.reflection_calls) > 30:
+            refl_lines.append(f"  [{C_DIM}]... and {len(merged.reflection_calls) - 30} more[/]")
         console.print(Panel(
-            "\n".join(bd_lines),
-            title=f"[{C_LABEL}] Confidence Breakdown [/]",
-            border_style=C_INFO, box=box.ROUNDED, padding=(0, 1),
-        ))
-
-    if result.all_so_files:
-        so_lines = []
-        for so in result.all_so_files[:30]:
-            name = so.rsplit("/", 1)[-1]
-            is_suspicious = any(k in name.lower() for k in [
-                "secure", "protect", "shield", "safe", "guard", "crypt",
-                "hook", "jiagu", "shell", "sec", "vmp", "dex",
-            ])
-            style = C_WARN if is_suspicious else C_DIM
-            so_lines.append(f"  [{style}]{so}[/]")
-        if len(result.all_so_files) > 30:
-            so_lines.append(f"  [{C_DIM}]... and {len(result.all_so_files) - 30} more[/]")
-        console.print(Panel(
-            "\n".join(so_lines),
-            title=f"[{C_LABEL}] Native Libraries ({len(result.all_so_files)}) [/]",
-            border_style=C_DIM, box=box.ROUNDED, padding=(0, 1),
-        ))
-
-    if result.all_dex_info:
-        dex_lines = []
-        for d in result.all_dex_info:
-            size_str = f"{d['size_kb']:.0f}KB"
-            cls_str = f"{d['classes']} classes"
-            tiny = d['size_kb'] < 50 and d['classes'] < 10
-            style = C_WARN if tiny else C_DIM
-            dex_lines.append(f"  [{style}]{d['name']:20s} {size_str:>10s}  {cls_str}[/]")
-        console.print(Panel(
-            "\n".join(dex_lines),
-            title=f"[{C_LABEL}] DEX Files ({len(result.all_dex_info)}) [/]",
-            border_style=C_DIM, box=box.ROUNDED, padding=(0, 1),
-        ))
-
-    if result.suspicious_assets:
-        asset_lines = [f"  [{C_WARN}]{a}[/]" for a in result.suspicious_assets]
-        console.print(Panel(
-            "\n".join(asset_lines),
-            title=f"[{C_WARN}] Suspicious Assets [/]",
+            "\n".join(refl_lines),
+            title=f"[{C_WARN}] Reflection / Dynamic Loading [/]",
             border_style=C_WARN, box=box.ROUNDED, padding=(0, 1),
         ))
 
-    if result.app_class:
-        console.print(f"  [{C_LABEL}]Application class:[/] [{C_INFO}]{result.app_class}[/]")
-
-    if result.all_candidates and len(result.all_candidates) > 1:
-        cand_lines = []
-        for c in result.all_candidates:
-            cand_lines.append(
-                f"  [{C_DIM}]{c['name']:<16s} score={c['score']:.1f}  {c['signatures']}[/]"
-            )
-        console.print(Panel(
-            "\n".join(cand_lines),
-            title=f"[{C_LABEL}] All Candidates [/]",
-            border_style=C_DIM, box=box.ROUNDED, padding=(0, 1),
-        ))
-
-
-def _print_verify_result(name: str, result):
-    if result.valid:
-        console.print(f"  [{C_OK}]✓[/] {name} [{C_OK}]PASS[/]")
-    else:
-        console.print(f"  [{C_FAIL}]✗[/] {name} [{C_FAIL}]FAIL[/]")
-        for issue in result.issues:
-            console.print(f"    [{C_WARN}]▸[/] {issue}")
+    if output_json:
+        payload = json.dumps(merged.to_dict(), indent=2, ensure_ascii=False)
+        output_json.write_text(payload)
+        console.print(f"  [{C_DIM}]Saved to {output_json}[/]")
 
 
 @app.command()
