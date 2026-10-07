@@ -1,7 +1,7 @@
 from unpack.utils.adb import list_devices, get_device_serial, shell
-from unpack.utils.apk import get_package_name, list_apk_files
+from unpack.utils.apk import get_package_name, list_apk_files, validate_package_name
 
 __all__ = [
     "list_devices", "get_device_serial", "shell",
-    "get_package_name", "list_apk_files",
+    "get_package_name", "list_apk_files", "validate_package_name",
 ]

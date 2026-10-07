@@ -12,6 +12,7 @@ from unpack.engines.base import BaseEngine, DumpResult, EngineType
 from unpack.engines.ebpf_engine import EbpfEngine
 from unpack.engines.frida_engine import FridaEngine
 from unpack.engines.memory_engine import MemoryEngine
+from unpack.utils.apk import validate_package_name
 
 console = Console()
 
@@ -89,6 +90,18 @@ class Dispatcher:
             return DumpResult(
                 engine=EngineType.FRIDA,
                 error="Could not extract package name from APK",
+            )
+
+        # package_name comes straight from an untrusted APK's manifest. This
+        # is the single chokepoint every engine.dump() call flows through, so
+        # validating here protects all engines even if a malicious APK's
+        # package name contains shell metacharacters (e.g. "com.evil;reboot").
+        try:
+            validate_package_name(package_name)
+        except ValueError as exc:
+            return DumpResult(
+                engine=EngineType.FRIDA,
+                error=f"Refusing to dispatch: {exc}",
             )
 
         console.print(f"  Package: [cyan]{package_name}[/]")

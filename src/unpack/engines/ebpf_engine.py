@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 import tempfile
 import time
@@ -9,6 +10,7 @@ from pathlib import Path
 
 from unpack.engines.base import BaseEngine, DumpResult, EngineType
 from unpack.utils.adb import get_device_serial
+from unpack.utils.apk import validate_package_name
 
 DEVICE_DUMP_DIR = "/data/local/tmp/unpack_ebpf"
 DEVICE_SCRIPT_PATH = "/data/local/tmp/unpack_ebpf.bt"
@@ -390,6 +392,10 @@ class EbpfEngine(BaseEngine):
         output_dir: Path,
         result: DumpResult,
     ) -> DumpResult:
+        # package_name originates from untrusted APK metadata and is
+        # interpolated into shell commands below -- validate before first use.
+        validate_package_name(package_name)
+
         libart = _find_libart_path(serial)
         if not libart:
             result.error = "libart.so not found on device"
@@ -504,8 +510,10 @@ class EbpfEngine(BaseEngine):
             )
             return result
 
+        safe_pkg = shlex.quote(package_name)
+
         try:
-            _adb_shell(serial, f"am force-stop {package_name}", root=False, timeout=5)
+            _adb_shell(serial, f"am force-stop {safe_pkg}", root=False, timeout=5)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass
         time.sleep(0.5)
@@ -513,7 +521,7 @@ class EbpfEngine(BaseEngine):
         try:
             _adb_shell(
                 serial,
-                f"monkey -p {package_name} -c android.intent.category.LAUNCHER 1",
+                f"monkey -p {safe_pkg} -c android.intent.category.LAUNCHER 1",
                 root=False,
                 timeout=10,
             )

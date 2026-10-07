@@ -5,6 +5,8 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from unpack.utils.apk import validate_package_name
+
 
 @dataclass
 class ActiveInvokeResult:
@@ -619,6 +621,11 @@ class ActiveInvoker:
         device_serial: str | None,
         result: ActiveInvokeResult,
     ) -> ActiveInvokeResult:
+        # package_name originates from untrusted APK metadata -- validate
+        # before it reaches device.spawn() (defense-in-depth; Frida's spawn
+        # takes argv as a list rather than a shell string).
+        validate_package_name(package_name)
+
         try:
             import frida
         except ImportError:
