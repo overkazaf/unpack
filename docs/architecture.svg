@@ -1,301 +1,342 @@
-<svg xmlns="http://www.w3.org/2000/svg"
-     viewBox="0 0 1200 1020" width="1200" height="1020"
-     font-family="'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', Helvetica, Arial, sans-serif">
-  <defs>
-    <linearGradient id="canvasBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0F172A"/>
-      <stop offset="100%" style="stop-color:#1E293B"/>
-    </linearGradient>
-    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="3" result="blur"/>
-      <feOffset dx="0" dy="3" result="offset"/>
-      <feComponentTransfer><feFuncA type="linear" slope="0.45"/></feComponentTransfer>
-      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <marker id="arrow-cyan" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="8" markerHeight="8" orient="auto">
-      <path d="M0,0 L10,5 L0,10 z" fill="#38BDF8"/>
-    </marker>
-    <marker id="arrow-violet" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="8" markerHeight="8" orient="auto">
-      <path d="M0,0 L10,5 L0,10 z" fill="#A78BFA"/>
-    </marker>
-    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="8" markerHeight="8" orient="auto">
-      <path d="M0,0 L10,5 L0,10 z" fill="#34D399"/>
-    </marker>
-    <marker id="arrow-down" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M0,0 L10,5 L0,10 z" fill="#64748B"/>
-    </marker>
-  </defs>
-  <style>
-    .title-main { font-size: 26px; fill: #F1F5F9; text-anchor: middle; dominant-baseline: central; font-weight: 700; }
-    .title-accent { fill: #38BDF8; }
-    .subtitle { font-size: 14px; fill: #CBD5E1; text-anchor: middle; dominant-baseline: central; }
-    .step-num { font-family: 'SF Mono', 'Menlo', monospace; font-size: 20px; font-weight: 800; fill: #0F172A; text-anchor: middle; dominant-baseline: central; }
-    .step-title { font-size: 20px; fill: #F8FAFC; font-weight: 700; dominant-baseline: central; }
-    .step-tag { font-size: 13px; fill: #CBD5E1; dominant-baseline: central; }
-    .code { font-family: 'SF Mono', 'Menlo', monospace; font-size: 13px; fill: #E2E8F0; dominant-baseline: central; }
-    .code-key { fill: #F472B6; }
-    .code-str { fill: #FCD34D; }
-    .code-type { fill: #A5F3FC; }
-    .code-out { fill: #86EFAC; }
-    .core-name { font-family: 'SF Mono', 'Menlo', monospace; font-size: 14px; dominant-baseline: central; font-weight: 700; }
-    .core-desc { font-size: 13px; fill: #E2E8F0; dominant-baseline: central; }
-    .section-label { font-size: 12px; fill: #94A3B8; dominant-baseline: central; font-weight: 600; letter-spacing: 0.5px; }
-    .pill-label { font-size: 12px; font-weight: 700; text-anchor: middle; dominant-baseline: central; }
-    .footer-text { font-size: 13px; fill: #CBD5E1; text-anchor: middle; dominant-baseline: central; }
-    .footer-em { fill: #38BDF8; font-weight: 600; }
-    .dim-pill { font-size: 12px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
-  </style>
-  <rect width="1200" height="1020" fill="url(#canvasBg)"/>
-
-  <!-- Title -->
-  <text x="600" y="42" class="title-main">UNPACK<tspan class="title-accent"> · </tspan>Android Unpacker Architecture</text>
-  <text x="600" y="72" class="subtitle">scan (APK) -> dispatch (engine) -> dump (DEX) -> repair (fix) -> verify (report)</text>
-
-  <!-- ============ Layer 1: Scanner (Cyan) ============ -->
-  <g transform="translate(36, 100)">
-    <rect x="0" y="0" width="1128" height="155" rx="12" fill="#0F1E2E" stroke="#334155" stroke-width="1" filter="url(#softShadow)"/>
-    <rect x="0" y="0" width="1128" height="5" rx="12" fill="#38BDF8"/>
-    <rect x="0" y="3" width="1128" height="4" fill="#38BDF8"/>
-
-    <circle cx="40" cy="36" r="20" fill="#38BDF8" filter="url(#softShadow)"/>
-    <text x="40" y="36" class="step-num">1</text>
-
-    <text x="80" y="26" class="step-title">Scanner</text>
-    <text x="178" y="28" class="step-tag">- APK static analysis - packer identification</text>
-
-    <rect x="990" y="16" width="120" height="24" rx="12" fill="#0C4A6E" stroke="#38BDF8" stroke-width="1"/>
-    <text x="1050" y="28" class="pill-label" style="fill:#7DD3FC">24 vendors</text>
-
-    <!-- 6 detection dimensions -->
-    <text x="20" y="72" class="section-label">DETECTION DIMENSIONS</text>
-
-    <rect x="20" y="86" width="148" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="94" y="100" class="dim-pill" fill="#7DD3FC">SO files (w=3.0)</text>
-
-    <rect x="178" y="86" width="160" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="258" y="100" class="dim-pill" fill="#7DD3FC">Manifest (w=4.0)</text>
-
-    <rect x="348" y="86" width="148" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="422" y="100" class="dim-pill" fill="#7DD3FC">Assets (w=2.0)</text>
-
-    <rect x="506" y="86" width="172" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="592" y="100" class="dim-pill" fill="#7DD3FC">DEX classes (w=2.0)</text>
-
-    <rect x="688" y="86" width="136" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="756" y="100" class="dim-pill" fill="#7DD3FC">Certs (w=1.0)</text>
-
-    <rect x="834" y="86" width="160" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="914" y="100" class="dim-pill" fill="#7DD3FC">DEX size (w=1.5)</text>
-
-    <!-- Output -->
-    <text x="20" y="140" class="code">
-      <tspan class="code-key">Output:</tspan> packer_name + packer_version + protection_level + confidence
-      <tspan class="code-type">[none | dex_encryption | function_extraction | vmp | dex2c]</tspan>
-    </text>
-  </g>
-
-  <!-- Arrow 1 -> 2 -->
-  <line x1="600" y1="259" x2="600" y2="283" stroke="#38BDF8" stroke-width="2" marker-end="url(#arrow-cyan)"/>
-
-  <!-- ============ Layer 2: Dispatcher (Violet) ============ -->
-  <g transform="translate(36, 287)">
-    <rect x="0" y="0" width="1128" height="100" rx="12" fill="#2D1B3D" stroke="#334155" stroke-width="1" filter="url(#softShadow)"/>
-    <rect x="0" y="0" width="1128" height="5" rx="12" fill="#A78BFA"/>
-    <rect x="0" y="3" width="1128" height="4" fill="#A78BFA"/>
-
-    <circle cx="40" cy="50" r="20" fill="#A78BFA" filter="url(#softShadow)"/>
-    <text x="40" y="50" class="step-num">2</text>
-
-    <text x="80" y="40" class="step-title">Dispatcher</text>
-    <text x="210" y="42" class="step-tag">- strategy routing based on scan result + device capabilities</text>
-
-    <rect x="948" y="28" width="162" height="24" rx="12" fill="#3B1D7A" stroke="#A78BFA" stroke-width="1"/>
-    <text x="1029" y="40" class="pill-label" style="fill:#C4B5FD">auto engine select</text>
-
-    <text x="80" y="74" class="code">
-      <tspan class="code-type">Priority:</tspan>
-      <tspan class="code-out">eBPF</tspan> (stealth) >
-      <tspan class="code-str">Frida</tspan> (universal) >
-      <tspan fill="#94A3B8">Memory</tspan> (stub)
-      <tspan fill="#64748B">  |  VMP/DEX2C -> warn + partial dump</tspan>
-    </text>
-  </g>
-
-  <!-- Arrow 2 -> 3 (fork to 3 engines) -->
-  <g stroke="#64748B" stroke-width="1.5" fill="none">
-    <line x1="600" y1="391" x2="600" y2="416"/>
-    <line x1="210" y1="416" x2="990" y2="416"/>
-    <line x1="210" y1="416" x2="210" y2="448" marker-end="url(#arrow-down)"/>
-    <line x1="600" y1="416" x2="600" y2="448" marker-end="url(#arrow-down)"/>
-    <line x1="990" y1="416" x2="990" y2="448" marker-end="url(#arrow-down)"/>
-  </g>
-  <circle cx="600" cy="391" r="3" fill="#64748B"/>
-
-  <!-- ============ Layer 3: Three Engines in parallel ============ -->
-
-  <!-- Engine 1: eBPF (Emerald) -->
-  <g transform="translate(36, 452)">
-    <rect x="0" y="0" width="348" height="260" rx="12" fill="#0F2A1F" stroke="#334155" stroke-width="1" filter="url(#softShadow)"/>
-    <rect x="0" y="0" width="348" height="5" rx="12" fill="#34D399"/>
-    <rect x="0" y="3" width="348" height="4" fill="#34D399"/>
-
-    <text x="20" y="36" class="step-title" style="font-size:18px; fill:#6EE7B7">eBPF Engine</text>
-
-    <rect x="240" y="18" width="92" height="24" rx="12" fill="#052E1A" stroke="#34D399" stroke-width="1"/>
-    <text x="286" y="30" class="pill-label" style="fill:#6EE7B7">stealth</text>
-
-    <line x1="20" y1="56" x2="328" y2="56" stroke="#052E1A" stroke-width="1"/>
-
-    <text x="20" y="80" class="section-label">MECHANISM</text>
-    <text x="20" y="102" class="core-name" fill="#34D399">uprobe</text>
-    <text x="100" y="102" class="core-desc">on libart.so by symbol name</text>
-    <text x="20" y="126" class="core-name" fill="#34D399">bpftrace</text>
-    <text x="110" y="126" class="core-desc">script generation</text>
-    <text x="20" y="150" class="core-name" fill="#34D399">/proc/mem</text>
-    <text x="120" y="150" class="core-desc">DEX data readout</text>
-
-    <line x1="20" y1="170" x2="328" y2="170" stroke="#052E1A" stroke-width="1" stroke-dasharray="3,3"/>
-
-    <text x="20" y="192" class="section-label">HOOK POINTS</text>
-    <text x="20" y="212" class="code" style="font-size:12px"><tspan class="code-type">DexFile::DexFile</tspan> ctor</text>
-    <text x="20" y="232" class="code" style="font-size:12px"><tspan class="code-type">DexFileLoader::Open</tspan></text>
-    <text x="20" y="252" class="code" style="font-size:12px"><tspan class="code-type">ClassLinker::RegisterDexFile</tspan></text>
-  </g>
-
-  <!-- Engine 2: Frida (Amber) -->
-  <g transform="translate(420, 452)">
-    <rect x="0" y="0" width="348" height="260" rx="12" fill="#2A1F08" stroke="#334155" stroke-width="1" filter="url(#softShadow)"/>
-    <rect x="0" y="0" width="348" height="5" rx="12" fill="#FBBF24"/>
-    <rect x="0" y="3" width="348" height="4" fill="#FBBF24"/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1100">
+        <defs>
+          <marker id="ah" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#64748b"/></marker>
+          <marker id="ah-c" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee"/></marker>
+          <marker id="ah-v" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa"/></marker>
+          <marker id="ah-g" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/></marker>
+          <marker id="ah-r" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fb7185"/></marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+        <style>
+    @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700");
+    text { font-family: "JetBrains Mono", monospace; }
+    @keyframes flowDown { 0% { stroke-dashoffset: 20; } 100% { stroke-dashoffset: 0; } }
+    .flow-line { stroke-dasharray: 10, 5; animation: flowDown 1.5s linear infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    </style></defs>
 
-    <text x="20" y="36" class="step-title" style="font-size:18px; fill:#FDE68A">Frida Engine</text>
+        <rect width="100%" height="100%" fill="url(#grid)"/>
 
-    <rect x="230" y="18" width="100" height="24" rx="12" fill="#713F12" stroke="#FBBF24" stroke-width="1"/>
-    <text x="280" y="30" class="pill-label" style="fill:#FDE68A">universal</text>
+        <!-- ═══ Connections (behind everything) ═══ -->
 
-    <line x1="20" y1="56" x2="328" y2="56" stroke="#3D2E0A" stroke-width="1"/>
+        <!-- APK -> Scanner -->
+        <line x1="75" y1="56" x2="75" y2="75" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#ah)"/>
 
-    <text x="20" y="80" class="section-label">3 DUMP STRATEGIES</text>
-    <text x="20" y="102" class="core-name" fill="#FBBF24">S1</text>
-    <text x="50" y="102" class="core-desc">Memory scan (DEX magic)</text>
-    <text x="20" y="126" class="core-name" fill="#FBBF24">S2</text>
-    <text x="50" y="126" class="core-desc">Hook DexFile::Open*</text>
-    <text x="20" y="150" class="core-name" fill="#FBBF24">S3</text>
-    <text x="50" y="150" class="core-desc">ClassLoader enumeration</text>
+        <!-- Scanner -> Dispatcher -->
+        <line x1="500" y1="150" x2="500" y2="178" stroke="#22d3ee" stroke-width="1.5" class="flow-line" marker-end="url(#ah-c)"/>
 
-    <line x1="20" y1="170" x2="328" y2="170" stroke="#3D2E0A" stroke-width="1" stroke-dasharray="3,3"/>
+        <!-- Dispatcher -> Engines fan-out -->
+        <line x1="500" y1="258" x2="500" y2="275" stroke="#a78bfa" stroke-width="1.5"/>
+        <line x1="175" y1="275" x2="825" y2="275" stroke="#a78bfa" stroke-width="1.5"/>
+        <line x1="175" y1="275" x2="175" y2="302" stroke="#a78bfa" stroke-width="1.5" class="flow-line" marker-end="url(#ah-v)"/>
+        <line x1="500" y1="275" x2="500" y2="302" stroke="#a78bfa" stroke-width="1.5" class="flow-line" marker-end="url(#ah-v)"/>
+        <line x1="825" y1="275" x2="825" y2="302" stroke="#a78bfa" stroke-width="1.5" class="flow-line" marker-end="url(#ah-v)"/>
+        <circle cx="500" cy="258" r="3" fill="#a78bfa"/>
 
-    <text x="20" y="192" class="section-label">ANTI-DETECTION</text>
-    <text x="20" y="212" class="code" style="font-size:12px">Filter <tspan class="code-str">/proc/self/maps</tspan></text>
-    <text x="20" y="232" class="code" style="font-size:12px">Block <tspan class="code-key">SIGTERM</tspan> watchdog</text>
-    <text x="20" y="252" class="code" style="font-size:12px">Rename <tspan class="code-type">frida-agent</tspan> thread</text>
-  </g>
+        <!-- Engines -> Active Invoke convergence -->
+        <line x1="175" y1="522" x2="175" y2="548" stroke="#34d399" stroke-width="1" stroke-dasharray="4,3"/>
+        <line x1="500" y1="522" x2="500" y2="548" stroke="#fbbf24" stroke-width="1" stroke-dasharray="4,3"/>
+        <line x1="825" y1="522" x2="825" y2="548" stroke="#22d3ee" stroke-width="1" stroke-dasharray="4,3"/>
+        <line x1="175" y1="548" x2="825" y2="548" stroke="#475569" stroke-width="1"/>
+        <line x1="500" y1="548" x2="500" y2="562" stroke="#fb7185" stroke-width="1.5" class="flow-line" marker-end="url(#ah-r)"/>
 
-  <!-- Engine 3: Memory (Rose, dashed stub) -->
-  <g transform="translate(804, 452)">
-    <rect x="0" y="0" width="348" height="260" rx="12"
-          fill="#2E1421" stroke="#FB7185" stroke-width="1"
-          stroke-dasharray="8,4" filter="url(#softShadow)"/>
+        <!-- Active Invoke -> Repair -->
+        <line x1="500" y1="630" x2="500" y2="658" stroke="#34d399" stroke-width="1.5" class="flow-line" marker-end="url(#ah-g)"/>
 
-    <text x="20" y="36" class="step-title" style="font-size:18px; fill:#FECDD3">Memory Engine</text>
+        <!-- Repair -> Quality Report -->
+        <line x1="500" y1="756" x2="500" y2="778" stroke="#34d399" stroke-width="1.5" class="flow-line" marker-end="url(#ah-g)"/>
 
-    <rect x="240" y="18" width="92" height="24" rx="12" fill="#450A0A" stroke="#FB7185" stroke-width="1"/>
-    <text x="286" y="30" class="pill-label" style="fill:#F87171">stub</text>
+        <!-- Quality Report -> Post-Unpack Analysis -->
+        <line x1="500" y1="828" x2="500" y2="848" stroke="#fb7185" stroke-width="1.5" class="flow-line" marker-end="url(#ah-r)"/>
 
-    <line x1="20" y1="56" x2="328" y2="56" stroke="#450A0A" stroke-width="1"/>
 
-    <text x="20" y="80" class="section-label">MECHANISM</text>
-    <text x="20" y="102" class="core-name" fill="#FB7185">ptrace</text>
-    <text x="88" y="102" class="core-desc">attach + memory scan</text>
+        <!-- ═══ Layer 1: APK Input + Scanner ═══ -->
 
-    <line x1="20" y1="130" x2="328" y2="130" stroke="#450A0A" stroke-width="1" stroke-dasharray="3,3"/>
+        <!-- APK pill -->
+        <rect x="30" y="20" width="90" height="34" rx="6" fill="#0f172a"/>
+        <rect x="30" y="20" width="90" height="34" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="75" y="33" fill="white" font-size="11" font-weight="600" text-anchor="middle">APK File</text>
+        <text x="75" y="47" fill="#94a3b8" font-size="7" text-anchor="middle">input</text>
 
-    <text x="20" y="156" class="core-desc" style="fill:#94A3B8; font-style:italic">Not yet implemented.</text>
-    <text x="20" y="180" class="core-desc" style="fill:#94A3B8; font-style:italic">Requires a device-side</text>
-    <text x="20" y="204" class="core-desc" style="fill:#94A3B8; font-style:italic">native binary for direct</text>
-    <text x="20" y="228" class="core-desc" style="fill:#94A3B8; font-style:italic">memory access via ptrace.</text>
-  </g>
+        <!-- Scanner bar -->
+        <rect x="20" y="78" width="960" height="70" rx="8" fill="#0f172a"/>
+        <rect x="20" y="78" width="960" height="70" rx="8" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="55" y="100" fill="white" font-size="12" font-weight="700" dominant-baseline="central">Scanner</text>
+        <text x="55" y="118" fill="#94a3b8" font-size="9" dominant-baseline="central">Packer identification - 24 vendors</text>
 
-  <!-- Convergence: 3 engines -> repair -->
-  <g>
-    <path d="M 210 712 C 210 736, 400 752, 530 752"
-          stroke="#34D399" stroke-width="1.6" fill="none" opacity="0.7"/>
-    <path d="M 600 712 C 600 726, 600 740, 600 752"
-          stroke="#FBBF24" stroke-width="1.6" fill="none" opacity="0.7"/>
-    <path d="M 990 712 C 990 736, 800 752, 670 752"
-          stroke="#FB7185" stroke-width="1.2" fill="none" opacity="0.45" stroke-dasharray="4,3"/>
+        <!-- Detection dimension pills -->
+        <rect x="250" y="90" width="68" height="18" rx="9" fill="rgba(8,51,68,0.6)" stroke="#22d3ee" stroke-width="0.8"/>
+        <text x="284" y="99" fill="#7dd3fc" font-size="8" text-anchor="middle">SO files</text>
 
-    <rect x="530" y="740" width="140" height="24" rx="12" fill="#0C4A6E" stroke="#38BDF8" stroke-width="1.5"/>
-    <text x="600" y="752" class="pill-label" style="fill:#7DD3FC; font-size:13px; font-family:'SF Mono','Menlo',monospace">DEX files</text>
+        <rect x="326" y="90" width="72" height="18" rx="9" fill="rgba(8,51,68,0.6)" stroke="#22d3ee" stroke-width="0.8"/>
+        <text x="362" y="99" fill="#7dd3fc" font-size="8" text-anchor="middle">Manifest</text>
 
-    <line x1="600" y1="764" x2="600" y2="794" stroke="#38BDF8" stroke-width="2.4" marker-end="url(#arrow-cyan)"/>
-  </g>
+        <rect x="406" y="90" width="60" height="18" rx="9" fill="rgba(8,51,68,0.6)" stroke="#22d3ee" stroke-width="0.8"/>
+        <text x="436" y="99" fill="#7dd3fc" font-size="8" text-anchor="middle">Assets</text>
 
-  <!-- ============ Layer 4: Repair + Verify (Cyan) ============ -->
-  <g transform="translate(36, 798)">
-    <rect x="0" y="0" width="1128" height="160" rx="12" fill="#0F1E2E" stroke="#334155" stroke-width="1" filter="url(#softShadow)"/>
-    <rect x="0" y="0" width="1128" height="5" rx="12" fill="#38BDF8"/>
-    <rect x="0" y="3" width="1128" height="4" fill="#38BDF8"/>
+        <rect x="474" y="90" width="82" height="18" rx="9" fill="rgba(8,51,68,0.6)" stroke="#22d3ee" stroke-width="0.8"/>
+        <text x="515" y="99" fill="#7dd3fc" font-size="8" text-anchor="middle">DEX classes</text>
 
-    <circle cx="40" cy="36" r="20" fill="#38BDF8" filter="url(#softShadow)"/>
-    <text x="40" y="36" class="step-num">4</text>
+        <rect x="564" y="90" width="54" height="18" rx="9" fill="rgba(8,51,68,0.6)" stroke="#22d3ee" stroke-width="0.8"/>
+        <text x="591" y="99" fill="#7dd3fc" font-size="8" text-anchor="middle">Certs</text>
 
-    <text x="80" y="26" class="step-title">Repair + Verify</text>
-    <text x="262" y="28" class="step-tag">- 7-step DEX repair pipeline + quality assessment</text>
+        <rect x="626" y="90" width="70" height="18" rx="9" fill="rgba(8,51,68,0.6)" stroke="#22d3ee" stroke-width="0.8"/>
+        <text x="661" y="99" fill="#7dd3fc" font-size="8" text-anchor="middle">DEX size</text>
 
-    <rect x="980" y="16" width="130" height="24" rx="12" fill="#0C4A6E" stroke="#38BDF8" stroke-width="1"/>
-    <text x="1045" y="28" class="pill-label" style="fill:#7DD3FC">quality report</text>
+        <!-- Output pill -->
+        <rect x="780" y="90" width="180" height="18" rx="9" fill="rgba(34,211,238,0.1)" stroke="#22d3ee" stroke-width="0.8"/>
+        <text x="870" y="99" fill="#22d3ee" font-size="8" text-anchor="middle" font-weight="600">packer + version + level</text>
 
-    <!-- Repair pipeline -->
-    <text x="20" y="66" class="section-label">REPAIR PIPELINE</text>
+        <text x="250" y="138" fill="#475569" font-size="7">360 | Tencent | Bangbang | iJiami | NetEase | Baidu | Ali | DexProtector | LIAPP | +15 more</text>
 
-    <rect x="20" y="80" width="100" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="70" y="94" class="dim-pill" fill="#7DD3FC">Magic fix</text>
 
-    <text x="128" y="94" style="fill:#64748B; font-size:16px; dominant-baseline:central">-></text>
+        <!-- ═══ Layer 2: Dispatcher ═══ -->
 
-    <rect x="148" y="80" width="110" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="203" y="94" class="dim-pill" fill="#7DD3FC">file_size</text>
+        <rect x="100" y="180" width="800" height="76" rx="8" fill="#0f172a"/>
+        <rect x="100" y="180" width="800" height="76" rx="8" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="140" y="204" fill="white" font-size="12" font-weight="700" dominant-baseline="central">Dispatcher</text>
+        <text x="245" y="204" fill="#94a3b8" font-size="9" dominant-baseline="central">strategy router</text>
 
-    <text x="266" y="94" style="fill:#64748B; font-size:16px; dominant-baseline:central">-></text>
+        <text x="140" y="228" fill="#c4b5fd" font-size="9" dominant-baseline="central">protection_level + fingerprint</text>
 
-    <rect x="286" y="80" width="100" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="336" y="94" class="dim-pill" fill="#7DD3FC">map_list</text>
+        <!-- Fingerprint pill -->
+        <rect x="340" y="222" width="100" height="18" rx="9" fill="rgba(136,19,55,0.2)" stroke="#fb7185" stroke-width="0.8"/>
+        <text x="390" y="231" fill="#fb7185" font-size="7" text-anchor="middle">runtime fingerprint</text>
 
-    <text x="394" y="94" style="fill:#64748B; font-size:16px; dominant-baseline:central">-></text>
+        <!-- Priority chain: Memory > Frida > eBPF -->
+        <rect x="500" y="194" width="70" height="22" rx="4" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="535" y="205" fill="#22d3ee" font-size="9" text-anchor="middle" font-weight="600">Memory</text>
 
-    <rect x="414" y="80" width="120" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="474" y="94" class="dim-pill" fill="#7DD3FC">NOP detect</text>
+        <text x="580" y="205" fill="#475569" font-size="11" text-anchor="middle">&gt;</text>
 
-    <text x="542" y="94" style="fill:#64748B; font-size:16px; dominant-baseline:central">-></text>
+        <rect x="594" y="194" width="60" height="22" rx="4" fill="rgba(251,191,36,0.15)" stroke="#fbbf24" stroke-width="1"/>
+        <text x="624" y="205" fill="#fbbf24" font-size="9" text-anchor="middle" font-weight="600">Frida</text>
 
-    <rect x="562" y="80" width="110" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="617" y="94" class="dim-pill" fill="#7DD3FC">alignment</text>
+        <text x="664" y="205" fill="#475569" font-size="11" text-anchor="middle">&gt;</text>
 
-    <text x="680" y="94" style="fill:#64748B; font-size:16px; dominant-baseline:central">-></text>
+        <rect x="678" y="194" width="60" height="22" rx="4" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1"/>
+        <text x="708" y="205" fill="#34d399" font-size="9" text-anchor="middle" font-weight="600">eBPF</text>
 
-    <rect x="700" y="80" width="100" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="750" y="94" class="dim-pill" fill="#7DD3FC">SHA-1</text>
+        <!-- VMP warning -->
+        <rect x="760" y="222" width="120" height="18" rx="4" fill="rgba(136,19,55,0.3)" stroke="#fb7185" stroke-width="0.8"/>
+        <text x="820" y="231" fill="#fb7185" font-size="7" text-anchor="middle">VMP / DEX2C warning</text>
 
-    <text x="808" y="94" style="fill:#64748B; font-size:16px; dominant-baseline:central">-></text>
 
-    <rect x="828" y="80" width="110" height="28" rx="6" fill="#020617" stroke="#1E3A5F" stroke-width="1"/>
-    <text x="883" y="94" class="dim-pill" fill="#7DD3FC">Adler32</text>
+        <!-- ═══ Layer 3: Three Engine Cards ═══ -->
 
-    <rect x="960" y="80" width="148" height="28" rx="6" fill="#052E1A" stroke="#34D399" stroke-width="1"/>
-    <text x="1034" y="94" class="dim-pill" fill="#6EE7B7">baksmali OK</text>
+        <!-- eBPF Engine -->
+        <rect x="20" y="306" width="310" height="214" rx="8" fill="#0f172a"/>
+        <rect x="20" y="306" width="310" height="214" rx="8" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
 
-    <!-- Output -->
-    <text x="20" y="138" class="code">
-      <tspan class="code-key">Output:</tspan> repaired DEX files + <tspan class="code-out">report.json</tspan>
-      (classes, methods, methods_with_code, nop_methods, <tspan class="code-type">code_coverage</tspan>, <tspan class="code-type">score</tspan>)
-    </text>
-  </g>
+        <text x="50" y="330" fill="white" font-size="12" font-weight="700" dominant-baseline="central">eBPF Engine</text>
+        <rect x="170" y="320" width="85" height="18" rx="9" fill="rgba(52,211,153,0.2)" stroke="#34d399" stroke-width="0.8"/>
+        <text x="212" y="329" fill="#6ee7b7" font-size="8" text-anchor="middle" font-weight="600">STEALTHIEST</text>
 
-  <!-- Footer -->
-  <text x="600" y="990" class="footer-text"><tspan class="footer-em">Design:</tspan> scan (no device) -> dispatch (auto engine) -> dump (eBPF/Frida) -> repair (7-step) -> verify (quality %)</text>
-</svg>
+        <text x="40" y="356" fill="#94a3b8" font-size="9" dominant-baseline="central">Kernel uprobe on libart.so</text>
+
+        <rect x="36" y="370" width="278" height="22" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="46" y="381" fill="#34d399" font-size="9" font-weight="500">DexFile::DexFile</text>
+        <text x="178" y="381" fill="#475569" font-size="8">ctor - base + size</text>
+
+        <rect x="36" y="398" width="278" height="22" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="46" y="409" fill="#34d399" font-size="9" font-weight="500">DexFileLoader::Open</text>
+        <text x="198" y="409" fill="#475569" font-size="8">load event</text>
+
+        <rect x="36" y="426" width="278" height="22" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="46" y="437" fill="#34d399" font-size="9" font-weight="500">ClassLinker::RegisterDexFile</text>
+
+        <rect x="36" y="454" width="278" height="22" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="46" y="465" fill="#34d399" font-size="9" font-weight="500">/proc/pid/mem</text>
+        <text x="152" y="465" fill="#475569" font-size="8">dump via helper</text>
+
+        <text x="40" y="500" fill="#475569" font-size="8" dominant-baseline="central">root + kernel 5.4+ + bpftrace</text>
+
+
+        <!-- Frida Engine -->
+        <rect x="345" y="306" width="310" height="214" rx="8" fill="#0f172a"/>
+        <rect x="345" y="306" width="310" height="214" rx="8" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+
+        <text x="375" y="330" fill="white" font-size="12" font-weight="700" dominant-baseline="central">Frida Engine</text>
+        <rect x="494" y="320" width="90" height="18" rx="9" fill="rgba(251,191,36,0.15)" stroke="#fbbf24" stroke-width="0.8"/>
+        <text x="539" y="329" fill="#fde68a" font-size="8" text-anchor="middle" font-weight="600">5 STRATEGIES</text>
+
+        <text x="365" y="356" fill="#94a3b8" font-size="9" dominant-baseline="central">5 strategies + 7 anti-detect bypasses</text>
+
+        <rect x="361" y="370" width="278" height="18" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="371" y="379" fill="#fbbf24" font-size="8" font-weight="600">S1</text>
+        <text x="389" y="379" fill="#e2e8f0" font-size="8">Memory scan (DEX magic)</text>
+
+        <rect x="361" y="392" width="278" height="18" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="371" y="401" fill="#fbbf24" font-size="8" font-weight="600">S2</text>
+        <text x="389" y="401" fill="#e2e8f0" font-size="8">DexFile::Open hook</text>
+
+        <rect x="361" y="414" width="278" height="18" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="371" y="423" fill="#fbbf24" font-size="8" font-weight="600">S3</text>
+        <text x="389" y="423" fill="#e2e8f0" font-size="8">ClassLoader enum (mCookie)</text>
+
+        <rect x="361" y="436" width="278" height="18" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="371" y="445" fill="#fbbf24" font-size="8" font-weight="600">S4</text>
+        <text x="389" y="445" fill="#e2e8f0" font-size="8">SO dump (dlopen hook)</text>
+
+        <rect x="361" y="458" width="278" height="18" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="371" y="467" fill="#fbbf24" font-size="8" font-weight="600">S5</text>
+        <text x="389" y="467" fill="#e2e8f0" font-size="8">ClassLinker::DefineClass (FART)</text>
+
+        <!-- Anti-detection sub-box -->
+        <rect x="361" y="480" width="278" height="26" rx="4" fill="rgba(136,19,55,0.15)" stroke="#fb7185" stroke-width="0.8" stroke-dasharray="4,4"/>
+        <text x="375" y="493" fill="#fb7185" font-size="7" font-weight="600">ANTI-DETECT</text>
+        <text x="445" y="493" fill="#94a3b8" font-size="7">maps | port | TracerPid | signal | thread | class | timing</text>
+
+        <text x="365" y="510" fill="#475569" font-size="8" dominant-baseline="central">frida-server on device</text>
+
+
+        <!-- Memory Engine (VERIFIED) -->
+        <rect x="670" y="306" width="310" height="214" rx="8" fill="#0f172a"/>
+        <rect x="670" y="306" width="310" height="214" rx="8" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+
+        <text x="700" y="330" fill="white" font-size="12" font-weight="700" dominant-baseline="central">Memory Engine</text>
+        <rect x="845" y="320" width="80" height="18" rx="9" fill="rgba(52,211,153,0.2)" stroke="#34d399" stroke-width="0.8"/>
+        <text x="885" y="329" fill="#6ee7b7" font-size="8" text-anchor="middle" font-weight="600">VERIFIED</text>
+
+        <text x="690" y="356" fill="#94a3b8" font-size="9" dominant-baseline="central">Multi-process + VDEX/OAT/CDEX + sliding scan</text>
+
+        <rect x="686" y="370" width="278" height="22" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="696" y="381" fill="#22d3ee" font-size="9" font-weight="500">Multi-PID maps scan</text>
+        <text x="850" y="381" fill="#475569" font-size="8">child enum</text>
+
+        <rect x="686" y="398" width="278" height="22" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="696" y="409" fill="#22d3ee" font-size="9" font-weight="500">VDEX / OAT / CDEX</text>
+        <text x="850" y="409" fill="#475569" font-size="8">containers</text>
+
+        <rect x="686" y="426" width="278" height="22" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="696" y="437" fill="#22d3ee" font-size="9" font-weight="500">Sliding DEX-in-DEX</text>
+        <text x="850" y="437" fill="#475569" font-size="8">anon rw-p</text>
+
+        <rect x="686" y="454" width="278" height="22" rx="4" fill="rgba(2,6,23,0.6)" stroke="#1e293b" stroke-width="0.8"/>
+        <text x="696" y="465" fill="#22d3ee" font-size="9" font-weight="500">Smart wait</text>
+        <text x="790" y="465" fill="#475569" font-size="8">thread stabilization + logcat</text>
+
+        <text x="690" y="500" fill="#475569" font-size="8" dominant-baseline="central">root required | multi-process | 18 DEX in 19.6s</text>
+
+
+        <!-- ═══ Layer 3.5: Active Invocation ═══ -->
+
+        <rect x="60" y="564" width="880" height="64" rx="8" fill="#0f172a"/>
+        <rect x="60" y="564" width="880" height="64" rx="8" fill="rgba(136,19,55,0.2)" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="6,3"/>
+        <text x="100" y="584" fill="white" font-size="11" font-weight="700" dominant-baseline="central">Active Invocation</text>
+        <rect x="270" y="576" width="80" height="16" rx="8" fill="rgba(251,191,36,0.15)" stroke="#fbbf24" stroke-width="0.8"/>
+        <text x="310" y="584" fill="#fde68a" font-size="7" text-anchor="middle" font-weight="600">--deep mode</text>
+
+        <text x="100" y="610" fill="#fb7185" font-size="8" dominant-baseline="central">Frida: ClassLinker hook + method resolve + CodeItem harvest</text>
+        <text x="570" y="610" fill="#fb7185" font-size="8" dominant-baseline="central">Frida-free: App Exerciser + component trigger + rescan</text>
+
+
+        <!-- ═══ Layer 4: Repair Pipeline ═══ -->
+
+        <rect x="60" y="660" width="880" height="94" rx="8" fill="#0f172a"/>
+        <rect x="60" y="660" width="880" height="94" rx="8" fill="rgba(6,78,59,0.35)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="100" y="682" fill="white" font-size="12" font-weight="700" dominant-baseline="central">DEX Repair Pipeline</text>
+        <text x="100" y="700" fill="#94a3b8" font-size="8" dominant-baseline="central">10-step: CDEX, header, sections, truncation, map, debug_info, NOP, align, SHA-1, Adler32</text>
+
+        <!-- 10 pipeline stage pills -->
+        <rect x="80" y="716" width="56" height="18" rx="9" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="0.8"/>
+        <text x="108" y="725" fill="#6ee7b7" font-size="7" text-anchor="middle">CDEX</text>
+        <line x1="139" y1="725" x2="149" y2="725" stroke="#34d399" stroke-width="1" marker-end="url(#ah-g)"/>
+
+        <rect x="154" y="716" width="60" height="18" rx="9" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="0.8"/>
+        <text x="184" y="725" fill="#6ee7b7" font-size="7" text-anchor="middle">Header</text>
+        <line x1="217" y1="725" x2="227" y2="725" stroke="#34d399" stroke-width="1" marker-end="url(#ah-g)"/>
+
+        <rect x="232" y="716" width="66" height="18" rx="9" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="0.8"/>
+        <text x="265" y="725" fill="#6ee7b7" font-size="7" text-anchor="middle">Sections</text>
+        <line x1="301" y1="725" x2="311" y2="725" stroke="#34d399" stroke-width="1" marker-end="url(#ah-g)"/>
+
+        <rect x="316" y="716" width="55" height="18" rx="9" fill="rgba(251,191,36,0.15)" stroke="#fbbf24" stroke-width="0.8"/>
+        <text x="343" y="725" fill="#fde68a" font-size="7" text-anchor="middle">Trunc</text>
+        <line x1="374" y1="725" x2="384" y2="725" stroke="#34d399" stroke-width="1" marker-end="url(#ah-g)"/>
+
+        <rect x="389" y="716" width="48" height="18" rx="9" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="0.8"/>
+        <text x="413" y="725" fill="#6ee7b7" font-size="7" text-anchor="middle">Map</text>
+        <line x1="440" y1="725" x2="450" y2="725" stroke="#34d399" stroke-width="1" marker-end="url(#ah-g)"/>
+
+        <rect x="455" y="716" width="58" height="18" rx="9" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="0.8"/>
+        <text x="484" y="725" fill="#6ee7b7" font-size="7" text-anchor="middle">debug</text>
+        <line x1="516" y1="725" x2="526" y2="725" stroke="#34d399" stroke-width="1" marker-end="url(#ah-g)"/>
+
+        <rect x="531" y="716" width="50" height="18" rx="9" fill="rgba(251,191,36,0.15)" stroke="#fbbf24" stroke-width="0.8"/>
+        <text x="556" y="725" fill="#fde68a" font-size="7" text-anchor="middle">NOP</text>
+        <line x1="584" y1="725" x2="594" y2="725" stroke="#34d399" stroke-width="1" marker-end="url(#ah-g)"/>
+
+        <rect x="599" y="716" width="55" height="18" rx="9" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="0.8"/>
+        <text x="626" y="725" fill="#6ee7b7" font-size="7" text-anchor="middle">Align</text>
+        <line x1="657" y1="725" x2="667" y2="725" stroke="#34d399" stroke-width="1" marker-end="url(#ah-g)"/>
+
+        <rect x="672" y="716" width="58" height="18" rx="9" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="0.8"/>
+        <text x="701" y="725" fill="#6ee7b7" font-size="7" text-anchor="middle">SHA-1</text>
+        <line x1="733" y1="725" x2="743" y2="725" stroke="#34d399" stroke-width="1" marker-end="url(#ah-g)"/>
+
+        <rect x="748" y="716" width="72" height="18" rx="9" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="0.8"/>
+        <text x="784" y="725" fill="#6ee7b7" font-size="7" text-anchor="middle">Adler32</text>
+
+
+        <!-- ═══ Layer 5: Quality Report ═══ -->
+
+        <rect x="350" y="780" width="300" height="48" rx="8" fill="#0f172a"/>
+        <rect x="350" y="780" width="300" height="48" rx="8" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="500" y="798" fill="white" font-size="11" font-weight="600" text-anchor="middle">Quality Report</text>
+        <text x="500" y="817" fill="#94a3b8" font-size="8" text-anchor="middle">classes | methods | coverage% | NOP count | score</text>
+
+
+        <!-- ═══ Layer 6: Post-Unpack Analysis ═══ -->
+
+        <rect x="60" y="850" width="880" height="66" rx="8" fill="#0f172a"/>
+        <rect x="60" y="850" width="880" height="66" rx="8" fill="rgba(136,19,55,0.15)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="100" y="872" fill="white" font-size="11" font-weight="700" dominant-baseline="central">Post-Unpack Analysis</text>
+
+        <!-- Analysis tool pills -->
+        <rect x="100" y="890" width="110" height="18" rx="9" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="0.8"/>
+        <text x="155" y="899" fill="#7dd3fc" font-size="8" text-anchor="middle">Xref (strings/calls)</text>
+
+        <rect x="226" y="890" width="120" height="18" rx="9" fill="rgba(136,19,55,0.2)" stroke="#fb7185" stroke-width="0.8"/>
+        <text x="286" y="899" fill="#fda4af" font-size="8" text-anchor="middle">VMP (method classify)</text>
+
+        <rect x="362" y="890" width="110" height="18" rx="9" fill="rgba(6,78,59,0.3)" stroke="#34d399" stroke-width="0.8"/>
+        <text x="417" y="899" fill="#6ee7b7" font-size="8" text-anchor="middle">Repack (APK build)</text>
+
+        <rect x="488" y="890" width="130" height="18" rx="9" fill="rgba(76,29,149,0.3)" stroke="#a78bfa" stroke-width="0.8"/>
+        <text x="553" y="899" fill="#c4b5fd" font-size="8" text-anchor="middle">Reassemble (DEX map)</text>
+
+        <rect x="634" y="890" width="110" height="18" rx="9" fill="rgba(120,53,15,0.2)" stroke="#fbbf24" stroke-width="0.8"/>
+        <text x="689" y="899" fill="#fde68a" font-size="8" text-anchor="middle">Export (FART fmt)</text>
+
+        <rect x="760" y="890" width="120" height="18" rx="9" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="0.8"/>
+        <text x="820" y="899" fill="#7dd3fc" font-size="8" text-anchor="middle">Rescan (incremental)</text>
+
+
+        <!-- ═══ Legend ═══ -->
+        <g transform="translate(20, 950)">
+          <rect x="0" y="0" width="960" height="36" rx="6" fill="rgba(15,23,42,0.8)" stroke="#334155" stroke-width="1"/>
+
+          <text x="16" y="18" fill="white" font-size="8" font-weight="600">Legend</text>
+
+          <rect x="70" y="12" width="10" height="8" rx="2" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1"/>
+          <text x="84" y="16" fill="#94a3b8" font-size="7">Scanner / Memory / Report</text>
+
+          <rect x="230" y="12" width="10" height="8" rx="2" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1"/>
+          <text x="244" y="16" fill="#94a3b8" font-size="7">Dispatcher</text>
+
+          <rect x="310" y="12" width="10" height="8" rx="2" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1"/>
+          <text x="324" y="16" fill="#94a3b8" font-size="7">eBPF / Repair</text>
+
+          <rect x="410" y="12" width="10" height="8" rx="2" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1"/>
+          <text x="424" y="16" fill="#94a3b8" font-size="7">Frida Engine</text>
+
+          <rect x="510" y="12" width="10" height="8" rx="2" fill="rgba(136,19,55,0.2)" stroke="#fb7185" stroke-width="1"/>
+          <text x="524" y="16" fill="#94a3b8" font-size="7">Analysis / Active Invoke</text>
+
+          <line x1="665" y1="16" x2="677" y2="16" stroke="#a78bfa" stroke-width="1.5" class="flow-line"/>
+          <text x="682" y="16" fill="#94a3b8" font-size="7">Data flow</text>
+        </g>
+      </svg>

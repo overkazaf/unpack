@@ -59,6 +59,36 @@ def tmp_dex(synthetic_dex, tmp_path) -> Path:
     return p
 
 
+CDEX_MAGIC = b"cdex001\x00"
+
+
+def _build_minimal_cdex() -> bytearray:
+    data = _build_minimal_dex()
+    data[0:8] = CDEX_MAGIC
+    sig = hashlib.sha1(bytes(data[32:])).digest()
+    data[12:32] = sig
+    checksum = zlib.adler32(bytes(data[12:])) & 0xFFFFFFFF
+    struct.pack_into("<I", data, 8, checksum)
+    return data
+
+
+@pytest.fixture
+def synthetic_cdex() -> bytearray:
+    return _build_minimal_cdex()
+
+
+@pytest.fixture
+def synthetic_cdex_bytes() -> bytes:
+    return bytes(_build_minimal_cdex())
+
+
+@pytest.fixture
+def tmp_cdex(synthetic_cdex, tmp_path) -> Path:
+    p = tmp_path / "compact.cdex"
+    p.write_bytes(bytes(synthetic_cdex))
+    return p
+
+
 @pytest.fixture
 def tmp_dex_dir(synthetic_dex, tmp_path) -> Path:
     d = tmp_path / "dexdir"

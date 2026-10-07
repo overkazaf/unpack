@@ -76,6 +76,47 @@ class TestRepairCorrupt:
         assert any("too small" in a for a in result.actions)
 
 
+class TestRepairSectionBounds:
+    def test_section_off_past_eof(self, pipeline, synthetic_dex, tmp_path):
+        data = bytearray(synthetic_dex)
+        struct.pack_into("<I", data, 60, 0xFFFFF)  # string_ids_off way past EOF
+        struct.pack_into("<I", data, 56, 10)  # string_ids_size = 10
+        p = tmp_path / "bad_section.dex"
+        p.write_bytes(bytes(data))
+        result = pipeline.repair(p)
+        assert result.success
+        assert any("section" in a.lower() or "bounds" in a.lower() for a in result.actions)
+
+
+class TestRepairTruncation:
+    def test_class_data_off_past_eof(self, pipeline, synthetic_dex, tmp_path):
+        data = bytearray(synthetic_dex)
+        # Set class_defs to have 1 entry at offset 0x70
+        struct.pack_into("<I", data, 96, 1)   # class_defs_size=1
+        struct.pack_into("<I", data, 100, 0x70)  # class_defs_off=0x70
+        # Write class_def with class_data_off=0xFFFF (past EOF of 256-byte file)
+        struct.pack_into("<8I", data, 0x70, 0, 0, 0, 0, 0, 0, 0xFFFF, 0)
+        p = tmp_path / "truncated.dex"
+        p.write_bytes(bytes(data))
+        result = pipeline.repair(p)
+        assert result.success
+        assert any(
+            "class_def" in a.lower() or "eof" in a.lower() or "truncat" in a.lower() or "pointer" in a.lower()
+            for a in result.actions
+        )
+
+
+class TestRepairDebugInfo:
+    def test_debug_info_off_zeroed(self, pipeline):
+        data = bytearray(256)
+        # Put a fake code_item at offset 0x80 with debug_info_off=0xFFFF (at offset 0x80+8=0x88)
+        struct.pack_into("<I", data, 0x88, 0xFFFF)
+        actions = []
+        data = pipeline._fix_debug_info_offsets(data, [(0x80, 20)], 256, actions)
+        assert struct.unpack_from("<I", data, 0x88)[0] == 0
+        assert any("debug" in a.lower() for a in actions)
+
+
 class TestRepairOutputVerifiable:
     def test_repaired_checksum_valid(self, pipeline, synthetic_dex, tmp_path):
         data = bytearray(synthetic_dex)

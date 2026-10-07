@@ -60,3 +60,24 @@ def shell(serial: str, cmd: str, timeout: int = 30) -> str:
         ["adb", "-s", serial, "shell", cmd],
         text=True, timeout=timeout,
     ).strip()
+
+
+def adb_cmd(serial: str, *args: str, timeout: int = 15) -> str:
+    cmd = ["adb", "-s", serial, *args]
+    return subprocess.check_output(
+        cmd, text=True, timeout=timeout, stderr=subprocess.STDOUT
+    ).strip()
+
+
+def adb_shell(serial: str, cmd: str, timeout: int = 30, root: bool = False) -> str:
+    if root:
+        cmd = f"su -c '{cmd}'"
+    return adb_cmd(serial, "shell", cmd, timeout=timeout)
+
+
+def check_root(serial: str) -> bool:
+    try:
+        out = adb_shell(serial, "id", root=True)
+        return "uid=0" in out
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False

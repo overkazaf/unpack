@@ -50,7 +50,7 @@
           <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export" aria-label="Export">&#8943;</button>
         </div>
       </div>
-      <p class="subtitle">4 strategies + 7 anti-detection bypasses &mdash; process injection via Frida DBI</p>
+      <p class="subtitle">5 strategies + 7 anti-detection bypasses &mdash; process injection via Frida DBI</p>
     </div>
 
     <div class="diagram-container">
@@ -207,7 +207,7 @@
         </ul>
       </div>
     </div>
-    <p class="footer">UNPACK Frida Engine &bull; DBI injection + 4 strategies + 7 anti-detect</p>
+    <p class="footer">UNPACK Frida Engine &bull; DBI injection + 5 strategies + 7 anti-detect</p>
   </div>
   <script>
     async function copyAsImage(b){const o=b.textContent;try{const e=document.getElementById('report-container'),r=e.getBoundingClientRect(),p=32,c=await html2canvas(document.body,{backgroundColor:'#020617',scale:2,useCORS:true,ignoreElements:e=>e.classList&&e.classList.contains('toolbar'),x:r.left+window.scrollX-p,y:r.top+window.scrollY-p,width:r.width+p*2,height:r.height+p*2}),bl=await new Promise(r=>c.toBlob(r,'image/png'));await navigator.clipboard.write([new ClipboardItem({'image/png':bl})]);b.textContent='✓ Copied!'}catch(e){b.textContent='✗ Failed'}setTimeout(()=>b.textContent=o,2000)}

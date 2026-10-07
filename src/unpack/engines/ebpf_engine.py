@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from unpack.engines.base import BaseEngine, DumpResult, EngineType
-from unpack.utils.adb import get_device_serial
+from unpack.utils.adb import adb_cmd, adb_shell, check_root, get_device_serial
 from unpack.utils.apk import validate_package_name
 
 DEVICE_DUMP_DIR = "/data/local/tmp/unpack_ebpf"
@@ -130,25 +130,14 @@ fi
 
 def _push_file(serial: str, local_path: str, device_path: str):
     tmp_dest = f"/data/local/tmp/_unpack_push_{Path(device_path).name}"
-    _adb(serial, "push", local_path, tmp_dest, timeout=30)
-    _adb_shell(serial, f"mv {tmp_dest} {device_path}", root=True)
-
-
-def _adb(serial: str, *args: str, timeout: int = 15) -> str:
-    cmd = ["adb", "-s", serial, *args]
-    return subprocess.check_output(cmd, text=True, timeout=timeout, stderr=subprocess.STDOUT).strip()
-
-
-def _adb_shell(serial: str, cmd: str, timeout: int = 15, root: bool = False) -> str:
-    if root:
-        cmd = f"su -c '{cmd}'"
-    return _adb(serial, "shell", cmd, timeout=timeout)
+    adb_cmd(serial, "push", local_path, tmp_dest, timeout=30)
+    adb_shell(serial, f"mv {tmp_dest} {device_path}", root=True)
 
 
 def _find_libart_path(serial: str) -> str | None:
     for path in _LIBART_PATHS:
         try:
-            out = _adb_shell(serial, f"test -f {path} && echo exists", root=True)
+            out = adb_shell(serial, f"test -f {path} && echo exists", root=True)
             if "exists" in out:
                 return path
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -162,10 +151,10 @@ def _find_libart_symbols(serial: str) -> dict[str, _SymbolInfo]:
         return {}
 
     try:
-        out = _adb_shell(serial, f"readelf -sW {libart}", timeout=30, root=True)
+        out = adb_shell(serial, f"readelf -sW {libart}", timeout=30, root=True)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         try:
-            out = _adb_shell(serial, f"toybox readelf -sW {libart}", timeout=30, root=True)
+            out = adb_shell(serial, f"toybox readelf -sW {libart}", timeout=30, root=True)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             return {}
 
@@ -196,7 +185,7 @@ def _verify_symbols_probeable(
 ) -> dict[str, _SymbolInfo]:
     for logical_name, info in symbols.items():
         try:
-            out = _adb_shell(
+            out = adb_shell(
                 serial,
                 f"{bpftrace_bin} -l 'uprobe:{libart}:{info.name}' 2>&1",
                 root=True,
@@ -209,7 +198,7 @@ def _verify_symbols_probeable(
 
         if not info.probeable and info.offset != "0x0":
             try:
-                out = _adb_shell(
+                out = adb_shell(
                     serial,
                     f"{bpftrace_bin} -l 'uprobe:{libart}:{info.offset}' 2>&1",
                     root=True,
@@ -223,14 +212,6 @@ def _verify_symbols_probeable(
     return symbols
 
 
-def _check_root(serial: str) -> bool:
-    try:
-        out = _adb_shell(serial, "id", root=True)
-        return "uid=0" in out
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return False
-
-
 def _check_bpftrace(serial: str) -> bool:
     return _find_bpftrace_path(serial) is not None
 
@@ -238,13 +219,13 @@ def _check_bpftrace(serial: str) -> bool:
 def _find_bpftrace_path(serial: str) -> str | None:
     for candidate in ["/data/local/tmp/bpftrace", "/system/bin/bpftrace", "/sbin/bpftrace"]:
         try:
-            out = _adb_shell(serial, f"test -x {candidate} && echo found", root=True)
+            out = adb_shell(serial, f"test -x {candidate} && echo found", root=True)
             if "found" in out:
                 return candidate
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             continue
     try:
-        out = _adb_shell(serial, "which bpftrace 2>/dev/null", root=True)
+        out = adb_shell(serial, "which bpftrace 2>/dev/null", root=True)
         path = out.strip().splitlines()[0] if out.strip() else ""
         if path and "/" in path:
             return path
@@ -255,7 +236,7 @@ def _find_bpftrace_path(serial: str) -> str | None:
 
 def _check_kernel_ebpf(serial: str) -> bool:
     try:
-        out = _adb_shell(serial, "uname -r", root=False)
+        out = adb_shell(serial, "uname -r", root=False)
         match = re.match(r"(\d+)\.(\d+)", out)
         if match:
             major, minor = int(match.group(1)), int(match.group(2))
@@ -265,7 +246,7 @@ def _check_kernel_ebpf(serial: str) -> bool:
         pass
 
     try:
-        out = _adb_shell(serial, "zcat /proc/config.gz 2>/dev/null | grep CONFIG_BPF=", root=True)
+        out = adb_shell(serial, "zcat /proc/config.gz 2>/dev/null | grep CONFIG_BPF=", root=True)
         return "CONFIG_BPF=y" in out
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         pass
@@ -333,7 +314,7 @@ class EbpfEngine(BaseEngine):
             return False
         self._serial = serial
 
-        if not _check_root(serial):
+        if not check_root(serial):
             self._unavailable_reason = (
                 "device is not rooted -- eBPF engine requires root "
                 "(adb shell su -c id must return uid=0)"
@@ -434,7 +415,7 @@ class EbpfEngine(BaseEngine):
 
         script_content = _generate_bpftrace_script(libart, symbols)
 
-        _adb_shell(serial, f"mkdir -p {DEVICE_DUMP_DIR} && chmod 777 {DEVICE_DUMP_DIR}", root=True)
+        adb_shell(serial, f"mkdir -p {DEVICE_DUMP_DIR} && chmod 777 {DEVICE_DUMP_DIR}", root=True)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".bt", delete=False) as f:
             f.write(script_content)
@@ -445,7 +426,7 @@ class EbpfEngine(BaseEngine):
         finally:
             Path(local_script).unlink(missing_ok=True)
 
-        _adb_shell(serial, f"chmod 755 {DEVICE_SCRIPT_PATH}", root=True)
+        adb_shell(serial, f"chmod 755 {DEVICE_SCRIPT_PATH}", root=True)
 
         device_helper = f"{DEVICE_DUMP_DIR}/dump_helper.sh"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
@@ -455,20 +436,20 @@ class EbpfEngine(BaseEngine):
             _push_file(serial, local_helper, device_helper)
         finally:
             Path(local_helper).unlink(missing_ok=True)
-        _adb_shell(serial, f"chmod 755 {device_helper}", root=True)
+        adb_shell(serial, f"chmod 755 {device_helper}", root=True)
 
         bpftrace_cmd = (
             f"nohup {bpftrace_bin} {DEVICE_SCRIPT_PATH} "
             f"> {DEVICE_DUMP_DIR}/bpftrace.log 2>&1 &"
         )
-        _adb_shell(serial, bpftrace_cmd, root=True)
+        adb_shell(serial, bpftrace_cmd, root=True)
 
         # Wait for bpftrace to compile BPF programs and attach probes
         attached = False
         for _ in range(8):
             time.sleep(1)
             try:
-                log = _adb_shell(
+                log = adb_shell(
                     serial,
                     f"cat {DEVICE_DUMP_DIR}/bpftrace.log 2>/dev/null || true",
                     root=True, timeout=5,
@@ -483,9 +464,9 @@ class EbpfEngine(BaseEngine):
                 pass
 
             try:
-                ps_out = _adb_shell(serial, f"pgrep -f {bpftrace_bin} || true", root=True)
+                ps_out = adb_shell(serial, f"pgrep -f {bpftrace_bin} || true", root=True)
                 if not ps_out.strip():
-                    log = _adb_shell(
+                    log = adb_shell(
                         serial,
                         f"cat {DEVICE_DUMP_DIR}/bpftrace.log 2>/dev/null || true",
                         root=True, timeout=5,
@@ -497,7 +478,7 @@ class EbpfEngine(BaseEngine):
 
         if not attached:
             try:
-                log = _adb_shell(
+                log = adb_shell(
                     serial,
                     f"cat {DEVICE_DUMP_DIR}/bpftrace.log 2>/dev/null || true",
                     root=True, timeout=5,
@@ -513,13 +494,13 @@ class EbpfEngine(BaseEngine):
         safe_pkg = shlex.quote(package_name)
 
         try:
-            _adb_shell(serial, f"am force-stop {safe_pkg}", root=False, timeout=5)
+            adb_shell(serial, f"am force-stop {safe_pkg}", root=False, timeout=5)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass
         time.sleep(0.5)
 
         try:
-            _adb_shell(
+            adb_shell(
                 serial,
                 f"monkey -p {safe_pkg} -c android.intent.category.LAUNCHER 1",
                 root=False,
@@ -529,10 +510,24 @@ class EbpfEngine(BaseEngine):
             result.error = f"failed to launch {package_name}"
             return result
 
-        time.sleep(self._wait_seconds)
+        try:
+            pid_out = adb_shell(serial, f"pidof {safe_pkg}", root=False, timeout=5)
+            target_pid = pid_out.strip().split()[0]
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError):
+            target_pid = None
+
+        if target_pid:
+            from unpack.utils.wait import SmartWaiter
+            waiter = SmartWaiter(
+                max_wait=max(float(self._wait_seconds), 20.0),
+                min_wait=5.0,
+            )
+            waiter.wait(serial, target_pid)
+        else:
+            time.sleep(self._wait_seconds)
 
         try:
-            log = _adb_shell(
+            log = adb_shell(
                 serial,
                 f"cat {DEVICE_DUMP_DIR}/bpftrace.log 2>/dev/null || true",
                 root=True,
@@ -546,7 +541,7 @@ class EbpfEngine(BaseEngine):
         for i, (pid, base_addr, size) in enumerate(dump_entries):
             dex_device_path = f"{DEVICE_DUMP_DIR}/dex_{i:03d}.dex"
             try:
-                _adb_shell(
+                adb_shell(
                     serial,
                     f"sh {device_helper} {pid} {base_addr} {size} {dex_device_path}",
                     root=True,
@@ -556,7 +551,7 @@ class EbpfEngine(BaseEngine):
                 continue
 
         try:
-            ls_out = _adb_shell(serial, f"ls {DEVICE_DUMP_DIR}/*.dex 2>/dev/null || true", root=True)
+            ls_out = adb_shell(serial, f"ls {DEVICE_DUMP_DIR}/*.dex 2>/dev/null || true", root=True)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             ls_out = ""
 
@@ -568,7 +563,7 @@ class EbpfEngine(BaseEngine):
             local_name = Path(device_path).name
             local_path = output_dir / f"ebpf_{local_name}"
             try:
-                _adb(serial, "pull", device_path, str(local_path), timeout=30)
+                adb_cmd(serial, "pull", device_path, str(local_path), timeout=30)
                 if local_path.stat().st_size > 112:
                     result.dex_files.append(local_path)
                 else:
@@ -597,11 +592,11 @@ class EbpfEngine(BaseEngine):
             kill_patterns.append(bpftrace_bin)
         for pat in kill_patterns:
             try:
-                _adb_shell(serial, f"pkill -f '{pat}' || true", root=True, timeout=5)
+                adb_shell(serial, f"pkill -f '{pat}' || true", root=True, timeout=5)
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass
         try:
-            _adb_shell(serial, f"rm -f {DEVICE_SCRIPT_PATH}", root=True, timeout=5)
+            adb_shell(serial, f"rm -f {DEVICE_SCRIPT_PATH}", root=True, timeout=5)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass
 

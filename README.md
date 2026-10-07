@@ -19,13 +19,13 @@ Android 脱壳工具 —— 一行命令完成壳识别、DEX dump、修复、�
 
 现状：Frida 系、ART 修改系、Xposed 系、eBPF 系各自为战，用户需要自己判断该用哪个。
 
-UNPACK 的做法：`core/dispatcher.py` 根据 `scanner` 的检测结果自动选择最优引擎。DEX 加密壳 → Memory 引擎（零注入）；需要 Frida 特性 → Frida 引擎（4 策略）；内核支持 → eBPF 引擎。用户只需 `unpack dump app.apk`，不需要知道底层用的是哪个。
+UNPACK 的做法：`core/dispatcher.py` 根据 `scanner` 的检测结果和运行时壳行为指纹自动选择最优引擎。DEX 加密壳 → Memory 引擎（零注入 + 多进程扫描）；需要 Frida 特性 → Frida 引擎（5 策略）；内核支持 → eBPF 引擎。用户只需 `unpack dump app.apk`，不需要知道底层用的是哪个。
 
-### 2. "dump 完就丢" → 7 步 DEX 修复流水线
+### 2. "dump 完就丢" → 10 步 DEX 修复流水线
 
-现状：frida-dexdump、drizzleDumper 等工具 dump 出 DEX 后直接丢给用户，checksum 错误、header 损坏是常态。
+现状：frida-dexdump、drizzleDumper 等工具 dump 出 DEX 后直接丢给用户，checksum 错误、header 损坏是常态。截断的 dump 产物和越界的 section 指针更是直接让 jadx/baksmali 崩溃。
 
-UNPACK 的做法：`repair/dex_repair.py` 对每个 dump 产物自动执行 magic 修复 → file_size 修正 → map_list 验证 → NOP 方法检测 → CodeItem 对齐 → SHA-1 重算 → Adler32 重算。修复后的 DEX 可直接被 baksmali / jadx / JEB 解析。
+UNPACK 的做法：`repair/dex_repair.py` 对每个 dump 产物自动执行 CDEX 转换 → magic 修复 → file_size 修正 → section 边界校验 → 截断恢复 → map_list 验证 → CodeItem 对齐 → debug_info 校验 → NOP 方法检测 → 签名重算。修复后的 DEX 可直接被 baksmali / jadx / JEB 解析。
 
 ### 3. 没有质量反馈 → 覆盖率 + NOP 检测报告
 
@@ -75,6 +75,10 @@ pip install -e ".[all]"        # 全部
 
 ## 使用
 
+### 壳识别
+
+![scan](docs/screenshots/scan-detect.svg)
+
 ```bash
 # 识别壳类型（无需设备）
 unpack scan app.apk
@@ -84,6 +88,7 @@ unpack scan app.apk --json result.json
 unpack dump app.apk
 unpack dump app.apk -o ./output -e frida
 unpack dump app.apk -e ebpf -d DEVICE_SERIAL
+unpack dump app.apk --deep              # 主动调用对抗函数抽取壳
 
 # 独立修复 DEX
 unpack repair ./unpacked/
@@ -93,11 +98,45 @@ unpack repair classes.dex --in-place
 unpack verify ./unpacked/
 ```
 
+## 脱壳后分析
+
+### 交叉引用索引
+
+![xref](docs/screenshots/xref.svg)
+
+### VMP 方法分类
+
+![vmp](docs/screenshots/vmp.svg)
+
+### FART 格式导出
+
+![export](docs/screenshots/export-fart.svg)
+
+```bash
+# APK 重打包（可直接用 jadx/JEB 打开）
+unpack repack app.apk ./unpacked/ -o ./repacked
+
+# 交叉引用索引（字符串、方法调用、反射、字段）
+unpack xref ./unpacked/ -j xref.json
+
+# VMP 方法分类
+unpack vmp ./unpacked/ -j vmp.json
+
+# DEX 重组（还原原始 multi-DEX 布局）
+unpack reassemble app.apk ./unpacked/
+
+# FART 格式导出（兼容 FART 生态工具）
+unpack export ./unpacked/ -f fart
+
+# 增量式重扫（触发更多组件解密 NOP 方法）
+unpack rescan app.apk ./unpacked/ -r 5
+```
+
 ## 架构
 
 > 打开 [docs/architecture.html](docs/architecture.html) 可查看带动画的交互式架构图（支持导出 PNG/PDF）
 
-![UNPACK Architecture](docs/architecture.png)
+![UNPACK Architecture](docs/architecture.svg)
 
 ## 脱壳引擎详解
 
@@ -108,16 +147,18 @@ unpack verify ./unpacked/
 **原理**：不注入目标进程，通过 root 权限直接从 host 侧解析 `/proc/pid/maps` 并读取 `/proc/pid/mem`，从 VDEX 容器中提取 DEX 数据。对 anti-Frida/anti-debug 完全免疫。
 
 **工作流程**：
-1. 启动目标 App（`am start`），等待壳解密完成
+1. 启动目标 App（`am start`），智能等待壳解密完成（线程稳定化 + logcat 关键词检测）
 2. 在 host 侧通过 ADB 读取 `/proc/pid/maps`，解析内存布局
-3. 过滤出感兴趣的区域：`.vdex` 映射、`.apk` 映射、`[anon:dalvik-*]` 匿名页
-4. 排除系统区域（`/system/`、`/apex/`、`/vendor/`）
-5. 批量探测所有区域的前 256 字节（一次 shell 脚本调用，base64 回传）
-6. 识别 VDEX magic (`vdex`) → 在 VDEX 内部搜索 DEX magic（Android 13 VDEX 027 格式中 DEX 位于偏移 0x84）
-7. 沿 VDEX 容器遍历所有连续 DEX 文件（每个 DEX 按 4 字节对齐排列）
-8. 对每个 DEX 验证 header：`file_size` > 112、`header_size` == 0x70、`endian_tag` == 0x12345678
-9. 通过 `dd bs=4096` 块对齐读取 + host 侧截断到精确大小
-10. 按 file_size + 前 32 字节 hash 去重
+3. 枚举子进程（`pgrep -P`），扫描所有相关 PID 的内存空间（对抗多进程壳）
+4. 过滤出感兴趣的区域：`.vdex` 映射、`.apk` 映射、`[anon:dalvik-*]` 匿名页
+5. 排除系统区域（`/system/`、`/apex/`、`/vendor/`）
+6. 批量探测所有区域的前 256 字节（一次 shell 脚本调用，base64 回传）
+7. 识别 DEX/CDEX/VDEX/OAT magic → 在容器内部搜索 DEX magic
+8. 对匿名 rw-p 区域做滑动窗口扫描（前 64KB），检测藏在任意偏移处的 DEX（DEX-in-DEX）
+9. 沿容器遍历所有连续 DEX 文件（每个 DEX 按 4 字节对齐排列）
+10. 对每个 DEX 验证 header：`file_size` > 112、`header_size` == 0x70、`endian_tag` == 0x12345678
+11. 通过 `dd bs=4096` 块对齐读取 + host 侧截断到精确大小
+12. 按 file_size + 前 32 字节 hash 跨进程去重
 
 **实测数据**：
 - 网易云音乐（网易易盾 v2）：18 个 DEX，150MB，19.6 秒，96.2% 覆盖率
@@ -125,12 +166,14 @@ unpack verify ./unpacked/
 **优势**：
 - 不注入目标进程 —— anti-Frida、anti-debug、完整性校验全部无感
 - Python 在 host 侧解析 —— 不受设备 shell 整数溢出（64 位地址）限制
-- VDEX 容器感知 —— 自动从 Android 8+ 的 VDEX 文件中提取嵌入的 DEX
+- VDEX/OAT/CDEX 容器感知 —— 自动从 Android 5+ 的各种容器格式中提取嵌入的 DEX
+- 多进程壳支持 —— 自动发现并扫描子进程内存
+- DEX-in-DEX 检测 —— 滑动窗口扫描匿名内存区域中任意偏移处的 DEX
 
 **局限**：
 - 需要 root 权限（读 `/proc/pid/mem`）
 - 只能 dump 已加载到内存的 DEX（壳解密后才可见）
-- 对函数抽取壳，dump 的 DEX 中被保护方法仍为 NOP（需要主动调用触发解密）
+- 对函数抽取壳，可配合 `--deep` 模式使用免 Frida 的 App Exerciser 触发更多方法解密
 
 **适用场景**：所有加壳 App 的推荐首选引擎。对 anti-Frida 严格的 App（如网易易盾、梆梆安全）尤其有效。
 
@@ -142,7 +185,7 @@ unpack dump app.apk -e memory
 
 ### Frida 引擎
 
-**原理**：通过 Frida 动态二进制插桩 (DBI) 框架，将 JavaScript agent 注入目标进程，使用四种策略组合 dump DEX 和 SO。
+**原理**：通过 Frida 动态二进制插桩 (DBI) 框架，将 JavaScript agent 注入目标进程，使用五种策略组合 dump DEX 和 SO。
 
 **策略 1 — 内存扫描**：扫描进程所有可读内存区域 (`Process.enumerateRanges`)，匹配 DEX magic bytes + 严格校验 DEX header（`file_size` 112B~100MB、`header_size` == 0x70、`endian_tag`、`string_ids_off` 在文件范围内）。轮询式扫描，每 2 秒一轮。
 
@@ -151,6 +194,8 @@ unpack dump app.apk -e memory
 **策略 3 — ClassLoader 遍历**：通过 `Java.enumerateClassLoaders()` 遍历 `DexPathList → dexElements → DexFile → mCookie`，从 cookie 提取 native pointer。
 
 **策略 4 — SO dump**：hook `dlopen` / `android_dlopen_ext`，壳解密 native SO 后立即 dump 到 `output_dir/so/`。
+
+**策略 5 — ClassLinker::DefineClass Hook（FART 风格）**：hook `art::ClassLinker::DefineClass`，在 ART 注册类的精确时刻捕获 DEX 数据。通过解引用 DexFile 对象的 `begin_` 指针获取 DEX 基址。这是 FART 使用的同一挂钩点，在壳完成解密后立即触发。
 
 **反检测模块**（7 项，默认开启，`--no-anti-detect` 关闭）：
 
@@ -240,19 +285,22 @@ Scanner 通过 APK 静态特征分析识别壳类型，无需设备。6 个维�
 
 ## DEX 修复流水线
 
-dump 出来的 DEX 常见问题和修复步骤：
+dump 出来的 DEX 常见问题和修复步骤（10 步）：
 
 | 步骤 | 操作 | 说明 |
 |------|------|------|
-| 1 | Magic 修复 | 修正损坏的 magic bytes 为 `dex\n035\0` |
-| 2 | file_size 修复 | 根据实际文件大小修正 header 中的 `file_size`、`data_size`、`data_off` |
-| 3 | map_list 验证 | 检查 `map_off` 指向的 map_list 是否有效，损坏则置零 |
-| 4 | NOP 方法检测 | 扫描 CodeItem，标记指令全为 `0x0000` 的方法（仍被加密的抽取方法） |
-| 5 | CodeItem 对齐 | 检查 CodeItem 是否 4 字节对齐 |
-| 6 | SHA-1 签名 | 重新计算 `bytes[32:]` 的 SHA-1 |
-| 7 | Adler32 校验 | 重新计算 `bytes[12:]` 的 Adler32 checksum |
+| 1 | CDEX 转换 | 检测 CompactDex magic (`cdex`)，转换为标准 DEX 格式 |
+| 2 | Magic 修复 | 修正损坏的 magic bytes 为 `dex\n035\0` |
+| 3 | file_size 修复 | 根据实际文件大小修正 header 中的 `file_size`、`data_size`、`data_off` |
+| 4 | Section 边界校验 | 检查所有 section（string/type/proto/field/method/class）指针是否越界，越界则清零 |
+| 5 | 截断恢复 | 检测 class_def 中指向 EOF 之后的 class_data_off/annotations_off/static_values_off，清零 |
+| 6 | map_list 验证 | 检查 `map_off` 指向的 map_list 是否有效，损坏则置零 |
+| 7 | CodeItem 对齐 | 检查 CodeItem 是否 4 字节对齐 |
+| 8 | debug_info 校验 | 检查每个 CodeItem 的 debug_info_off，越界则清零（防止 baksmali 崩溃） |
+| 9 | NOP 方法检测 | 扫描 CodeItem，标记指令全为 `0x0000` 的方法（仍被加密的抽取方法） |
+| 10 | 签名重算 | 重新计算 SHA-1 签名 + Adler32 校验和 |
 
-修复后的 DEX 可直接被 baksmali / jadx / JEB 等工具解析。
+修复后的 DEX 可直接被 baksmali / jadx / JEB 等工具解析。对截断的 dump 产物（`dd` 读取的 `file_size` 比实际内存区域大）也能正确处理。
 
 ## Benchmark
 
@@ -276,27 +324,30 @@ dump 出来的 DEX 常见问题和修复步骤：
 
 Memory 引擎通过 VDEX 容器解析成功完成端到端 dump（零注入，anti-Frida 无感）。Frida 引擎在强 anti-Frida App 上被拦截，eBPF 受限于特定内核配置。
 
-## 竞品对比
+## 功能矩阵
+
+与社区主流开源脱壳工具的技术路线对比（各项目定位不同，各有擅长）：
 
 | 功能 | UNPACK | frida-dexdump | BlackDex | r0dump | clsdumper | BPFDex |
 |------|--------|---------------|----------|--------|-----------|--------|
 | 壳识别 | 24 厂商 + 版本 | - | - | - | - | 行为模式 |
 | 引擎数 | 3（自动调度） | 1 (Frida) | 1 (cookie) | 1 (ART 修改) | 1 (Frida 9策略) | 1 (eBPF) |
-| 函数抽取壳 | 检测 + 标记 | - | 深度模式(不稳定) | ✓ 主动调用 | 部分 | - |
-| DEX 修复 | 7 步流水线 | - | 部分 | DEX 重建 | - | - |
+| 函数抽取壳 | 主动调用(免Frida) + CodeItem合并 | - | 深度模式 | 主动调用 | 部分 | - |
+| DEX 修复 | 10 步流水线 | - | 部分 | DEX 重建 | - | - |
 | 质量报告 | 覆盖率 + NOP | - | - | - | - | - |
 | 反检测 | 7 项绕过 | - | N/A | N/A(系统级) | 3 项 | N/A |
 | SO dump | ✓ | - | - | - | - | ✓ |
 | 零注入 | ✓ (Memory) | - | ✓ | ✓(ROM 级) | - | ✓ |
-| 免刷机 | ✓ | ✓ | ✓ | ✗ 需刷 ROM | ✓ | ✓ |
-| GUI | CLI(极客风) | CLI | Android App | GUI Manager | CLI | CLI |
+| 免刷机 | ✓ | ✓ | ✓ | 需刷 ROM | ✓ | ✓ |
+| DEX 分析 | 反汇编 + 交叉引用 + VMP标注 | - | - | - | - | - |
+| APK 重打包 | ✓ | - | - | - | - | - |
+| 多进程壳 | ✓ 子进程枚举 | - | - | - | - | - |
 | AI 管道 | claude -p | - | - | - | - | - |
-| Android 版本 | 8+ | Frida 支持的 | 5~12(停更) | 16 | Frida 支持的 | 13~17 |
-| 维护状态 | 活跃 | 已归档 | 已停更 | 活跃 | 活跃 | 学术 |
+| Android 版本 | 5+ (OAT) / 8+ (VDEX) | Frida 支持的 | 5~12 | 16 | Frida 支持的 | 13~17 |
 
-**UNPACK vs r0dump 定位差异**：r0dump 是 FART 的精神继承者，走 ART 源码修改路线 — 需要刷定制 ROM，但能做主动调用（触发函数抽取壳解密），是对抗二代壳的最强方案。UNPACK 走免刷机路线，通过 Memory/Frida/eBPF 三引擎覆盖更广的使用场景，但暂不支持主动调用。两者互补：UNPACK 做前期壳识别 + 一代壳脱壳 + DEX 修复质量评估，r0dump 处理需要主动调用的函数抽取壳。
+**技术路线说明**：r0dump 继承 FART 思路，走 ART 源码修改路线，在 ART 层面做最精确的主动调用，适合深度对抗函数抽取壳。UNPACK 走免刷机路线，通过 Memory/Frida/eBPF 三引擎覆盖更广的使用场景，提供两种免 ROM 的主动调用方案（Frida ClassLinker hook + 免 Frida 组件触发式增量重扫），以及脱壳后分析工具链（反汇编交叉引用、VMP 标注、APK 重打包、DEX 重组）。两种路线互补，适用于不同场景。
 
-> 数据来源：各项目 GitHub 仓库、IEEE TIFS 2025 (BPFDex)、NDSS 2025
+> 技术信息来源：各项目 GitHub 仓库、IEEE TIFS 2025 (BPFDex)、NDSS 2025
 
 ## 参考项目
 
@@ -319,37 +370,54 @@ Memory 引擎通过 VDEX 容器解析成功完成端到端 dump（零注入，an
 ## 加固技术演进
 
 ```
-Level 1: DEX 整体加密        ← 已被普遍攻克
-Level 2: 函数抽取（指令抽取）  ← FART/主动调用可应对
-Level 3: DEX-VMP（虚拟化保护） ← 开源工具无自动化方案
-Level 4: DEX2C / Java2C      ← 极难自动还原
+Level 1: DEX 整体加密        ← UNPACK 三引擎自动脱壳
+Level 2: 函数抽取（指令抽取）  ← UNPACK --deep 主动调用 + 增量重扫 + CodeItem 合并
+Level 3: DEX-VMP（虚拟化保护） ← UNPACK 方法级 VMP stub 分类 + 调用图导出（辅助分析）
+Level 4: DEX2C / Java2C      ← 极难自动还原（UNPACK 提供保护等级判定 + 交叉引用）
 ```
 
-UNPACK 当前覆盖 Level 1~2 的自动化脱壳，Level 3~4 提供辅助分析（识别被保护的方法列表、保护等级判定）。
+UNPACK 覆盖 Level 1~2 的自动化脱壳（含免 Frida 的主动调用），Level 3 提供方法级 VMP stub 检测和调用图导出帮助定位分析焦点，Level 4 提供交叉引用索引和保护等级判定。
 
 ## 项目结构
 
 ```
 src/unpack/
-├── cli.py                  # CLI 入口（scan/dump/repair/verify/analyze）
+├── cli.py                  # CLI 入口 — 12 个子命令
 ├── core/
 │   ├── scanner.py          # 壳识别引擎 — 24 家厂商 × 6 维评分 + 版本检测
 │   ├── dispatcher.py       # 策略路由 — 按保护等级 + 设备能力自动选引擎
 │   ├── reporter.py         # 质量评估 — CodeItem 覆盖率 + NOP 检测
-│   └── dedup.py            # DEX 去重 — SHA-256 哈希去重
+│   ├── dedup.py            # DEX 去重 — SHA-256 哈希去重
+│   └── fingerprint.py      # 运行时壳行为指纹 — /proc 探测 + 风险评分
 ├── engines/
 │   ├── base.py             # 引擎抽象接口 (BaseEngine / DumpResult)
-│   ├── memory_engine.py    # Memory 引擎 — /proc/pid/mem + VDEX 解析（推荐）
-│   ├── frida_engine.py     # Frida 引擎 — 4 策略 + 7 项反检测
-│   └── ebpf_engine.py      # eBPF 引擎 — bpftrace uprobe + offset fallback
+│   ├── memory_engine.py    # Memory 引擎 — /proc/pid/mem + 多进程 + 滑动扫描（推荐）
+│   ├── frida_engine.py     # Frida 引擎 — 5 策略 + 7 项反检测
+│   ├── ebpf_engine.py      # eBPF 引擎 — bpftrace uprobe + offset fallback
+│   ├── active_invoke.py    # 主动调用 — Frida 版 + 免 Frida 版 (App Exerciser)
+│   └── rescan.py           # 增量式重扫 — 组件触发 + 内存重读
+├── analysis/
+│   ├── disasm.py           # Dalvik 反汇编器 — 40+ opcode 解码
+│   ├── xref.py             # 交叉引用索引 — 字符串/方法/反射/字段
+│   └── vmp.py              # VMP 方法标注 — normal/NOP/VMP-stub 分类
 ├── repair/
 │   ├── dex_parser.py       # DEX 格式完整解析器（header/class/method/code）
-│   ├── dex_repair.py       # 7 步修复流水线
-│   └── verifier.py         # 完整性校验 + 质量指标
+│   ├── dex_repair.py       # 10 步修复流水线（含截断恢复 + section 校验）
+│   ├── verifier.py         # 完整性校验 + 质量指标
+│   ├── codeitem_merger.py  # CodeItem 回填合并（主动调用产物 → skeleton DEX）
+│   ├── reassemble.py       # DEX 重组 — 还原原始 multi-DEX 类分布
+│   └── oat_parser.py       # OAT 文件解析 — Android 5-7 容器提取
+├── export/
+│   └── fart.py             # FART 格式导出（fart.bin + fart.txt）
+├── repack/
+│   └── repacker.py         # APK 重打包 — 原始资源 + 脱壳 DEX → 可分析 APK
 ├── utils/
 │   ├── adb.py              # ADB 设备管理
-│   └── apk.py              # APK 包名提取 + Split APK 支持
-├── tests/                  # 59 个测试（parser/repair/verify/scanner/cli）
+│   ├── apk.py              # APK 包名提取 + Split APK 支持
+│   ├── wait.py             # 智能等待 — 线程稳定化 + logcat 关键词检测
+│   └── exerciser.py        # App 交互模拟 — 免 Frida 的方法触发
+├── web.py                  # Web UI — Flask 一把梭界面
+├── tests/                  # 220 个测试
 └── docs/
     ├── architecture.html   # 整体架构图（交互式 HTML）
     ├── engine-memory.html  # Memory 引擎流程图
