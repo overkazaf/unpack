@@ -1,0 +1,75 @@
+src/unpack/engines/frida_engine.py
+  6d63699bdef2f7e6 7,521-527
+tests/test_package_validation.py
+  6d63699bdef2f7e6 1-72
+src/unpack/engines/memory_engine.py
+  6d63699bdef2f7e6 3,11,267-272,274,283,293
+src/unpack/utils/__init__.py
+  6d63699bdef2f7e6 2,6
+src/unpack/utils/apk.py
+  6d63699bdef2f7e6 8-30,158-163
+src/unpack/core/dispatcher.py
+  6d63699bdef2f7e6 15,95-106
+src/unpack/engines/active_invoke.py
+  6d63699bdef2f7e6 8-9,624-628
+src/unpack/engines/ebpf_engine.py
+  6d63699bdef2f7e6 4,13,395-398,513-514,516,524
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.2.8-ntes.9",
+  "base_commit_sha": "a4dbf8e6ac88107c77f97b442b5b9900c6c02a65",
+  "prompts": {
+    "6d63699bdef2f7e6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "41b101db-4c3a-45d7-8237-ad6577bd3194",
+        "model": "claude-opus-4-6"
+      },
+      "human_author": "nongjiawu",
+      "messages": [],
+      "total_additions": 154,
+      "total_deletions": 9,
+      "accepted_lines": 152,
+      "overriden_lines": 0,
+      "per_file_stats": {
+        "src/unpack/utils/__init__.py": {
+          "additions": 2,
+          "deletions": 2,
+          "accepted_lines": 2
+        },
+        "src/unpack/engines/frida_engine.py": {
+          "additions": 8,
+          "accepted_lines": 8
+        },
+        "src/unpack/utils/apk.py": {
+          "additions": 29,
+          "accepted_lines": 29
+        },
+        "src/unpack/engines/ebpf_engine.py": {
+          "additions": 10,
+          "deletions": 2,
+          "accepted_lines": 10
+        },
+        "tests/test_package_validation.py": {
+          "additions": 74,
+          "deletions": 2,
+          "accepted_lines": 72
+        },
+        "src/unpack/engines/active_invoke.py": {
+          "additions": 7,
+          "accepted_lines": 7
+        },
+        "src/unpack/core/dispatcher.py": {
+          "additions": 13,
+          "accepted_lines": 13
+        },
+        "src/unpack/engines/memory_engine.py": {
+          "additions": 11,
+          "deletions": 3,
+          "accepted_lines": 11
+        }
+      }
+    }
+  }
+}
