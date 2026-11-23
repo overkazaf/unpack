@@ -576,7 +576,7 @@ def test_bilingual_report_export_zh_and_en(studio_client):
     assert r_md_zh.status_code == 200
     md_zh = r_md_zh.get_data(as_text=True)
     assert "UNPACK 安全审计报告" in md_zh
-    assert "核心安全发现" in md_zh
+    assert "安全与脱壳风险发现" in md_zh
 
     # English HTML & Markdown via /api/v1/samples/<id>/reports
     r_html_en = client.get(f"/api/v1/samples/{sid}/reports?format=html&lang=en")
