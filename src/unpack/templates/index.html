@@ -28,52 +28,70 @@
       <span class="brand-ver mono">v{{ version }}</span>
     </div>
 
+    <!-- Persistent Workspace Switcher -->
+    <div id="workspaceSidebarHost"></div>
+
     <nav class="nav-groups">
-      <div class="nav-group-label">Intake</div>
+      <div class="nav-group-label" data-i18n="nav.group.intake">Intake</div>
       <button class="nav-item active" data-view="samples" type="button">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
-        <span>Samples &amp; Intake</span>
+        <span data-i18n="nav.samples">Samples &amp; Intake</span>
         <span class="nav-pill mono" id="navSampleCount">0</span>
       </button>
 
-      <div class="nav-group-label">Analysis</div>
+      <div class="nav-group-label" data-i18n="nav.group.analysis">Analysis</div>
       <button class="nav-item" data-view="overview" type="button">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <span>Scan &amp; Intelligence</span>
+        <span data-i18n="nav.overview">Scan &amp; Intelligence</span>
       </button>
       <button class="nav-item" data-view="inspector" type="button">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-        <span>APK &amp; DEX Inspector</span>
+        <span data-i18n="nav.inspector">APK &amp; DEX Inspector</span>
       </button>
       <button class="nav-item" data-view="vmp" type="button">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
-        <span>VMP &amp; Native Studio</span>
+        <span data-i18n="nav.vmp">VMP &amp; Native Studio</span>
       </button>
 
-      <div class="nav-group-label">Engineering</div>
+      <div class="nav-group-label" data-i18n="nav.group.engineering">Engineering</div>
       <button class="nav-item" data-view="repair" type="button">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-        <span>Repair &amp; Verify Lab</span>
+        <span data-i18n="nav.repair">Repair &amp; Verify Lab</span>
       </button>
       <button class="nav-item" data-view="pipeline" type="button">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span>Pipeline &amp; Repack</span>
+        <span data-i18n="nav.pipeline">Pipeline Studio</span>
       </button>
       <button class="nav-item" data-view="reports" type="button">
         <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        <span>Reports &amp; Export</span>
+        <span data-i18n="nav.reports">Reports &amp; Export</span>
       </button>
     </nav>
 
-    <div class="nav-footer">
-      <button class="env-status-btn" id="btnOpenDoctor" type="button" title="Open Environment Diagnostics">
+    <div class="nav-footer" id="tourGlobalControls">
+      <button class="env-status-btn" id="btnOpenDoctor" type="button" data-i18n-title="nav.doctor" title="Open Environment Diagnostics">
         <span class="status-dot warn" id="doctorDot"></span>
-        <span class="env-status-label" id="doctorLabel">Environment Doctor</span>
+        <span class="env-status-label" id="doctorLabel" data-i18n="nav.doctor">Environment Doctor</span>
         <span class="env-status-meta mono" id="doctorEnginesMeta">--</span>
       </button>
+      <button class="env-status-btn" id="btnSidebarAiSettings" type="button" data-action="open-ai-settings">
+        <span class="status-dot warn" data-ai-dot></span>
+        <span class="env-status-label" data-i18n="ai.nav_btn">AI Model</span>
+        <span class="env-status-meta mono" data-ai-status-text>--</span>
+      </button>
+      <div class="nav-footer-actions">
+        <button class="icon-pill-btn" id="btnSidebarGuide" type="button" data-action="open-welcome">
+          <span>✦</span>
+          <span data-i18n="nav.guide">Guide</span>
+        </button>
+        <div class="lang-toggle-group" role="group" aria-label="Language Switcher" data-i18n-title="ctx.lang_switch_title">
+          <button class="lang-pill" type="button" data-action="set-lang" data-lang="zh" data-lang-pill="zh">中</button>
+          <button class="lang-pill" type="button" data-action="set-lang" data-lang="en" data-lang-pill="en">EN</button>
+        </div>
+      </div>
       <div class="nav-footer-actions">
         <button class="icon-pill-btn" id="btnCmdPalette" type="button" title="Command Palette (Cmd+K)">
-          <span>Command</span>
+          <span data-i18n="nav.command">Command</span>
           <kbd class="mono">⌘K</kbd>
         </button>
         <button class="icon-pill-btn" id="btnThemeToggle" type="button" title="Toggle Dark / Light Theme" aria-label="Toggle theme">
@@ -92,7 +110,7 @@
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
         <div class="active-sample-bar" id="activeSampleBar">
-          <span class="ctx-label">ACTIVE SAMPLE</span>
+          <span class="ctx-label" data-i18n="ctx.active_sample">ACTIVE SAMPLE</span>
           <select class="sample-switcher mono" id="sampleSwitcher" aria-label="Switch active sample">
             <option value="">No sample selected</option>
           </select>
@@ -101,15 +119,30 @@
       </div>
 
       <div class="context-actions">
-        <button class="btn btn-subtle btn-sm" id="btnQuickScan" type="button" disabled>Scan</button>
-        <button class="btn btn-subtle btn-sm" id="btnQuickReport" type="button" disabled>Export Report</button>
+        <div class="lang-toggle-group compact" role="group" aria-label="Language Switcher" data-i18n-title="ctx.lang_switch_title">
+          <button class="lang-pill" type="button" data-action="set-lang" data-lang="zh" data-lang-pill="zh">中</button>
+          <button class="lang-pill" type="button" data-action="set-lang" data-lang="en" data-lang-pill="en">EN</button>
+        </div>
+        <button class="btn btn-subtle btn-sm" id="btnTopAiSettings" type="button" data-action="open-ai-settings">
+          <span class="status-dot warn" data-ai-dot></span>
+          <span data-i18n="ai.nav_btn">AI Model</span>
+        </button>
+        <button class="btn btn-subtle btn-sm" id="btnTopGuide" type="button" data-action="open-welcome">
+          <span>✦</span>
+          <span data-i18n="ctx.guide">Guide</span>
+        </button>
+        <button class="btn btn-subtle btn-sm" id="btnQuickScan" type="button" disabled data-i18n="ctx.quick_scan">Scan</button>
+        <button class="btn btn-subtle btn-sm" id="btnQuickReport" type="button" disabled data-i18n="ctx.quick_report">Export Report</button>
         <button class="btn btn-primary btn-sm" id="btnToggleJobs" type="button">
           <span class="job-pulse-dot" id="jobPulseDot"></span>
-          <span>Tasks</span>
+          <span data-i18n="ctx.tasks">Tasks</span>
           <span class="btn-count mono" id="jobCountBadge">0</span>
         </button>
       </div>
     </header>
+
+    <!-- Workflow Journey Stepper Strip -->
+    <div id="journeyStripHost"></div>
 
     <!-- Dynamic Workspace Viewport -->
     <main class="workspace-viewport" id="workspaceViewport" tabindex="-1">
@@ -121,11 +154,11 @@
   <aside class="task-drawer" id="taskDrawer" aria-label="Async Task Manager" aria-hidden="true">
     <div class="drawer-header">
       <div class="drawer-title-group">
-        <h2>Task Manager</h2>
+        <h2 data-i18n="drawer.title">Task Manager</h2>
         <span class="badge badge-muted mono" id="drawerLiveBadge">IDLE</span>
       </div>
       <div class="drawer-actions">
-        <button class="btn btn-ghost btn-xs" id="btnRefreshJobs" type="button">Refresh</button>
+        <button class="btn btn-ghost btn-xs" id="btnRefreshJobs" type="button" data-i18n="common.refresh">Refresh</button>
         <button class="btn btn-ghost btn-xs" id="btnCloseDrawer" type="button" aria-label="Close Task Manager">✕</button>
       </div>
     </div>
@@ -134,7 +167,7 @@
     </div>
   </aside>
 
-  <!-- Modal Backdrop (Doctor & Command Palette) -->
+  <!-- Modal Backdrop (Doctor) -->
   <div class="modal-backdrop" id="modalBackdrop" hidden>
     <div class="modal-dialog" id="modalDialog" role="dialog" aria-modal="true">
       <div class="modal-header">
@@ -145,12 +178,18 @@
     </div>
   </div>
 
+  <!-- Onboarding Welcome Modal Backdrop -->
+  <div class="modal-backdrop onboard-backdrop" id="onboardBackdrop" hidden></div>
+
+  <!-- Interactive Spotlight Coachmark Layer -->
+  <div class="spotlight-layer" id="spotlightLayer" hidden></div>
+
   <!-- Command Palette -->
   <div class="palette-backdrop" id="paletteBackdrop" hidden>
     <div class="palette-box" role="dialog" aria-modal="true" aria-label="Command Palette">
       <div class="palette-input-wrap">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="paletteInput" placeholder="Jump to workspace, sample, local APK, or action..." autocomplete="off">
+        <input type="text" id="paletteInput" data-i18n-placeholder="palette.ph" placeholder="Jump to workspace, sample, local APK, or action..." autocomplete="off">
         <kbd class="mono">ESC</kbd>
       </div>
       <div class="palette-list" id="paletteList"></div>
@@ -161,9 +200,14 @@
   <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 </div>
 
+<script src="/static/js/i18n.js"></script>
 <script src="/static/js/api.js"></script>
 <script src="/static/js/state.js"></script>
 <script src="/static/js/components.js"></script>
+<script src="/static/js/workspace.js"></script>
+<script src="/static/js/ai.js"></script>
+<script src="/static/js/pipeline.js"></script>
+<script src="/static/js/onboarding.js"></script>
 <script src="/static/js/views.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
