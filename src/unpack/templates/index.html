@@ -1,452 +1,170 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>UNPACK</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg:#f8fafc;--card:#fff;--border:#e2e8f0;--text:#0f172a;--dim:#475569;--muted:#94a3b8;
-  --cyan:#0891b2;--emerald:#059669;--amber:#d97706;--violet:#7c3aed;--rose:#e11d48;
-  --r:0.5rem;
-}
-body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-code,.mono{font-family:'JetBrains Mono',monospace}
-
-.header{display:flex;align-items:center;gap:1rem;padding:1rem 2rem;border-bottom:1px solid var(--border);background:#fff}
-.header h1{font-family:'JetBrains Mono',monospace;font-size:1.25rem;font-weight:700;letter-spacing:-0.03em}
-.header h1 span{color:var(--cyan)}
-.header .status{margin-left:auto;font-size:0.75rem;color:var(--muted);display:flex;gap:1rem}
-.header .status .dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:4px}
-.header .status .on{background:var(--emerald)}
-.header .status .off{background:var(--rose)}
-
-.main{max-width:960px;margin:0 auto;padding:2rem}
-
-/* Upload zone */
-.upload-zone{border:2px dashed var(--border);border-radius:var(--r);padding:3rem 2rem;text-align:center;cursor:pointer;transition:all 0.2s;margin-bottom:1.5rem}
-.upload-zone:hover,.upload-zone.drag{border-color:var(--cyan);background:rgba(8,145,178,0.04)}
-.upload-zone h3{font-size:1rem;margin-bottom:0.5rem}
-.upload-zone p{font-size:0.85rem;color:var(--dim)}
-.upload-zone .file-info{font-family:'JetBrains Mono',monospace;font-size:0.85rem;color:var(--cyan);margin-top:0.5rem}
-.upload-zone input{display:none}
-
-/* Options bar */
-.options{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;margin-bottom:1.5rem}
-.opt-group{display:flex;align-items:center;gap:0.5rem;font-size:0.8rem}
-.opt-group label{color:var(--dim);white-space:nowrap}
-.opt-group select,.opt-group input[type=number]{font-family:'JetBrains Mono',monospace;font-size:0.8rem;padding:0.35rem 0.5rem;border:1px solid var(--border);border-radius:var(--r);background:#fff;color:var(--text)}
-.opt-group input[type=checkbox]{accent-color:var(--cyan)}
-.btn-run{margin-left:auto;padding:0.6rem 1.5rem;border:none;border-radius:var(--r);background:var(--cyan);color:#fff;font-family:'JetBrains Mono',monospace;font-size:0.85rem;font-weight:600;cursor:pointer;transition:background 0.2s}
-.btn-run:hover{background:#0e7490}
-.btn-run:disabled{background:var(--muted);cursor:not-allowed}
-
-/* Pipeline stepper */
-.pipeline{display:flex;gap:0;margin-bottom:2rem;overflow-x:auto}
-.step{flex:1;min-width:120px;text-align:center;position:relative;padding:0.75rem 0.5rem}
-.step .label{font-size:0.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.25rem}
-.step .bar{height:3px;background:var(--border);border-radius:2px;margin:0 8px}
-.step.active .label{color:var(--cyan)}
-.step.active .bar{background:var(--cyan);animation:pulse-bar 1.5s infinite}
-.step.done .label{color:var(--emerald)}
-.step.done .bar{background:var(--emerald)}
-.step.fail .label{color:var(--rose)}
-.step.fail .bar{background:var(--rose)}
-@keyframes pulse-bar{0%,100%{opacity:1}50%{opacity:0.4}}
-
-/* Result sections */
-.results{display:flex;flex-direction:column;gap:1rem}
-.result-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;display:none}
-.result-card.show{display:block}
-.result-card .card-head{padding:0.75rem 1rem;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
-.result-card .card-head h3{font-size:0.85rem;font-weight:600}
-.result-card .card-head .badge{font-family:'JetBrains Mono',monospace;font-size:0.65rem;padding:0.15rem 0.5rem;border-radius:999px;font-weight:600;margin-left:auto}
-.result-card .card-body{padding:1rem;font-size:0.85rem}
-.result-card .card-body.collapsed{display:none}
-
-/* Scan result */
-.scan-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.75rem}
-.scan-row{display:flex;justify-content:space-between;padding:0.25rem 0;border-bottom:1px solid rgba(0,0,0,0.04)}
-.scan-row .key{color:var(--dim);font-size:0.8rem}
-.scan-row .val{font-family:'JetBrains Mono',monospace;font-size:0.8rem;font-weight:500}
-.conf-bar{display:flex;align-items:center;gap:0.5rem}
-.conf-bar .track{flex:1;height:6px;background:var(--border);border-radius:3px;overflow:hidden}
-.conf-bar .fill{height:100%;border-radius:3px;transition:width 0.3s}
-
-/* Breakdown table */
-.breakdown{width:100%;font-size:0.8rem;border-collapse:collapse;margin-top:0.5rem}
-.breakdown th{text-align:left;padding:0.35rem 0.5rem;font-weight:600;color:var(--dim);border-bottom:1px solid var(--border)}
-.breakdown td{padding:0.35rem 0.5rem;border-bottom:1px solid rgba(0,0,0,0.04)}
-.breakdown .hit{color:var(--emerald);font-weight:600}
-.breakdown .miss{color:var(--muted)}
-
-/* Quality report */
-.stat-row{display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.5rem}
-.stat-box{flex:1;min-width:100px;text-align:center;padding:0.75rem;background:var(--bg);border-radius:var(--r)}
-.stat-box .num{font-family:'JetBrains Mono',monospace;font-size:1.5rem;font-weight:700}
-.stat-box .lbl{font-size:0.7rem;color:var(--muted)}
-
-/* Repair list */
-.repair-item{display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;font-size:0.8rem;border-bottom:1px solid rgba(0,0,0,0.04)}
-.repair-item .icon{font-weight:700;width:16px;text-align:center}
-.repair-item .actions{color:var(--dim);font-size:0.75rem;margin-left:auto}
-
-/* Collapsible */
-.collapsible{cursor:pointer}
-.collapsible::before{content:'+ ';font-weight:700;color:var(--muted)}
-.collapsible.open::before{content:'- '}
-.coll-body{display:none;margin-top:0.5rem}
-.coll-body.open{display:block}
-.so-list{font-family:'JetBrains Mono',monospace;font-size:0.75rem;color:var(--dim);max-height:200px;overflow-y:auto;padding:0.5rem;background:var(--bg);border-radius:var(--r)}
-
-.footer{text-align:center;padding:2rem;font-size:0.7rem;color:var(--muted)}
-
-@media(max-width:640px){
-  .main{padding:1rem}
-  .scan-grid{grid-template-columns:1fr}
-  .options{flex-direction:column;align-items:stretch}
-  .btn-run{margin-left:0}
-}
-</style>
+<title>UNPACK Studio — Android Security &amp; Reverse-Engineering Workbench</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2L3 7v10l9 5 9-5V7l-9-5z'/%3E%3Cpath d='M12 22V12'/%3E%3Cpath d='M3 7l9 5 9-5'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/css/studio.css">
 </head>
 <body>
+<div class="studio-shell" id="studioShell">
 
-<div class="header">
-  <h1>UN<span>PACK</span></h1>
-  <div class="status" id="engineStatus">loading...</div>
+  <!-- Left Navigation Rail -->
+  <aside class="nav-rail" id="navRail" aria-label="Primary Navigation">
+    <div class="brand-bar">
+      <div class="brand-logo" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2L3 7v10l9 5 9-5V7l-9-5z"/>
+          <path d="M12 22V12"/>
+          <path d="M3 7l9 5 9-5"/>
+          <path d="M7.5 4.5l9 5"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">UNPACK</span>
+        <span class="brand-tag">STUDIO</span>
+      </div>
+      <span class="brand-ver mono">v{{ version }}</span>
+    </div>
+
+    <nav class="nav-groups">
+      <div class="nav-group-label">Intake</div>
+      <button class="nav-item active" data-view="samples" type="button">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>
+        <span>Samples &amp; Intake</span>
+        <span class="nav-pill mono" id="navSampleCount">0</span>
+      </button>
+
+      <div class="nav-group-label">Analysis</div>
+      <button class="nav-item" data-view="overview" type="button">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span>Scan &amp; Intelligence</span>
+      </button>
+      <button class="nav-item" data-view="inspector" type="button">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        <span>APK &amp; DEX Inspector</span>
+      </button>
+      <button class="nav-item" data-view="vmp" type="button">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>
+        <span>VMP &amp; Native Studio</span>
+      </button>
+
+      <div class="nav-group-label">Engineering</div>
+      <button class="nav-item" data-view="repair" type="button">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        <span>Repair &amp; Verify Lab</span>
+      </button>
+      <button class="nav-item" data-view="pipeline" type="button">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <span>Pipeline &amp; Repack</span>
+      </button>
+      <button class="nav-item" data-view="reports" type="button">
+        <svg class="nav-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <span>Reports &amp; Export</span>
+      </button>
+    </nav>
+
+    <div class="nav-footer">
+      <button class="env-status-btn" id="btnOpenDoctor" type="button" title="Open Environment Diagnostics">
+        <span class="status-dot warn" id="doctorDot"></span>
+        <span class="env-status-label" id="doctorLabel">Environment Doctor</span>
+        <span class="env-status-meta mono" id="doctorEnginesMeta">--</span>
+      </button>
+      <div class="nav-footer-actions">
+        <button class="icon-pill-btn" id="btnCmdPalette" type="button" title="Command Palette (Cmd+K)">
+          <span>Command</span>
+          <kbd class="mono">⌘K</kbd>
+        </button>
+        <button class="icon-pill-btn" id="btnThemeToggle" type="button" title="Toggle Dark / Light Theme" aria-label="Toggle theme">
+          <span id="themeLabel">Light</span>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Workspace Column -->
+  <div class="studio-main">
+    <!-- Top Context Bar -->
+    <header class="context-bar">
+      <div class="context-left">
+        <button class="mobile-menu-btn" id="btnToggleNav" type="button" aria-label="Toggle sidebar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="active-sample-bar" id="activeSampleBar">
+          <span class="ctx-label">ACTIVE SAMPLE</span>
+          <select class="sample-switcher mono" id="sampleSwitcher" aria-label="Switch active sample">
+            <option value="">No sample selected</option>
+          </select>
+          <span class="ctx-badges" id="activeSampleBadges"></span>
+        </div>
+      </div>
+
+      <div class="context-actions">
+        <button class="btn btn-subtle btn-sm" id="btnQuickScan" type="button" disabled>Scan</button>
+        <button class="btn btn-subtle btn-sm" id="btnQuickReport" type="button" disabled>Export Report</button>
+        <button class="btn btn-primary btn-sm" id="btnToggleJobs" type="button">
+          <span class="job-pulse-dot" id="jobPulseDot"></span>
+          <span>Tasks</span>
+          <span class="btn-count mono" id="jobCountBadge">0</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Dynamic Workspace Viewport -->
+    <main class="workspace-viewport" id="workspaceViewport" tabindex="-1">
+      <!-- Rendered dynamically by views.js -->
+    </main>
+  </div>
+
+  <!-- Slide-Over Async Task Manager Drawer -->
+  <aside class="task-drawer" id="taskDrawer" aria-label="Async Task Manager" aria-hidden="true">
+    <div class="drawer-header">
+      <div class="drawer-title-group">
+        <h2>Task Manager</h2>
+        <span class="badge badge-muted mono" id="drawerLiveBadge">IDLE</span>
+      </div>
+      <div class="drawer-actions">
+        <button class="btn btn-ghost btn-xs" id="btnRefreshJobs" type="button">Refresh</button>
+        <button class="btn btn-ghost btn-xs" id="btnCloseDrawer" type="button" aria-label="Close Task Manager">✕</button>
+      </div>
+    </div>
+    <div class="drawer-body" id="taskDrawerBody">
+      <!-- Populated by views.js -->
+    </div>
+  </aside>
+
+  <!-- Modal Backdrop (Doctor & Command Palette) -->
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal-dialog" id="modalDialog" role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3 id="modalTitle">Modal</h3>
+        <button class="btn btn-ghost btn-xs" id="btnCloseModal" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- Command Palette -->
+  <div class="palette-backdrop" id="paletteBackdrop" hidden>
+    <div class="palette-box" role="dialog" aria-modal="true" aria-label="Command Palette">
+      <div class="palette-input-wrap">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="paletteInput" placeholder="Jump to workspace, sample, local APK, or action..." autocomplete="off">
+        <kbd class="mono">ESC</kbd>
+      </div>
+      <div class="palette-list" id="paletteList"></div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
 </div>
 
-<div class="main">
-
-  <!-- Cached APKs -->
-  <div id="cacheBar" style="display:none;margin-bottom:1rem">
-    <div style="font-size:0.75rem;color:var(--dim);margin-bottom:0.5rem">Recent APKs (cached)</div>
-    <div id="cacheList" style="display:flex;gap:0.5rem;flex-wrap:wrap"></div>
-  </div>
-
-  <!-- Upload -->
-  <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
-    <h3>Drop APK here or click to browse</h3>
-    <p>Upload once, full pipeline runs automatically. Cached APKs can re-run instantly.</p>
-    <div class="file-info" id="fileInfo"></div>
-    <input type="file" id="fileInput" accept=".apk">
-  </div>
-
-  <!-- Options + Run -->
-  <div class="options">
-    <div class="opt-group">
-      <label>Engine</label>
-      <select id="optEngine"><option value="">Auto</option><option value="memory">Memory</option><option value="frida">Frida</option><option value="ebpf">eBPF</option></select>
-    </div>
-    <div class="opt-group">
-      <label>Timeout</label>
-      <input type="number" id="optTimeout" value="15" min="5" max="120" style="width:60px"> s
-    </div>
-    <div class="opt-group">
-      <input type="checkbox" id="optDeep"><label for="optDeep">Deep mode (active invoke)</label>
-    </div>
-    <div class="opt-group">
-      <input type="checkbox" id="optAntiDetect" checked><label for="optAntiDetect">Anti-detect</label>
-    </div>
-    <div class="opt-group" id="startFromGroup" style="display:none">
-      <label>From</label>
-      <select id="optStartFrom"><option value="scan">Full (scan)</option><option value="dumping">Re-dump</option><option value="repairing">Re-repair</option></select>
-    </div>
-    <button class="btn-run" id="btnRun" disabled onclick="startPipeline()">Run Pipeline</button>
-  </div>
-
-  <!-- Pipeline stepper -->
-  <div class="pipeline" id="pipeline">
-    <div class="step" data-phase="scanning"><div class="label">Scan</div><div class="bar"></div></div>
-    <div class="step" data-phase="dumping"><div class="label">Dump</div><div class="bar"></div></div>
-    <div class="step" data-phase="active_invoke"><div class="label">Deep</div><div class="bar"></div></div>
-    <div class="step" data-phase="repairing"><div class="label">Repair</div><div class="bar"></div></div>
-    <div class="step" data-phase="verifying"><div class="label">Verify</div><div class="bar"></div></div>
-  </div>
-
-  <!-- Results -->
-  <div class="results">
-
-    <!-- Scan result -->
-    <div class="result-card" id="cardScan">
-      <div class="card-head" onclick="toggleCard('cardScan')">
-        <h3>Scan Result</h3>
-        <span class="badge" id="scanBadge" style="background:var(--bg);color:var(--dim)">--</span>
-      </div>
-      <div class="card-body" id="scanBody"></div>
-    </div>
-
-    <!-- Dump result -->
-    <div class="result-card" id="cardDump">
-      <div class="card-head" onclick="toggleCard('cardDump')">
-        <h3>Dump Result</h3>
-        <span class="badge" id="dumpBadge" style="background:var(--bg);color:var(--dim)">--</span>
-      </div>
-      <div class="card-body" id="dumpBody"></div>
-    </div>
-
-    <!-- Repair result -->
-    <div class="result-card" id="cardRepair">
-      <div class="card-head" onclick="toggleCard('cardRepair')">
-        <h3>Repair</h3>
-        <span class="badge" id="repairBadge" style="background:var(--bg);color:var(--dim)">--</span>
-      </div>
-      <div class="card-body" id="repairBody"></div>
-    </div>
-
-    <!-- Quality report -->
-    <div class="result-card" id="cardReport">
-      <div class="card-head" onclick="toggleCard('cardReport')">
-        <h3>Quality Report</h3>
-        <span class="badge" id="reportBadge" style="background:var(--bg);color:var(--dim)">--</span>
-      </div>
-      <div class="card-body" id="reportBody"></div>
-    </div>
-
-    <!-- Error -->
-    <div class="result-card" id="cardError" style="border-color:var(--rose)">
-      <div class="card-head"><h3 style="color:var(--rose)">Error</h3></div>
-      <div class="card-body" id="errorBody" style="color:var(--rose)"></div>
-    </div>
-
-  </div>
-</div>
-
-<div class="footer">UNPACK v0.1.0 -- Android unpacker tool</div>
-
-<script>
-const $ = id => document.getElementById(id);
-const dropZone = $('dropZone'), fileInput = $('fileInput'), fileInfo = $('fileInfo'), btnRun = $('btnRun');
-let selectedFile = null;
-let currentApkHash = null;
-
-// Drag & drop
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
-dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag'); handleFile(e.dataTransfer.files[0]); });
-fileInput.addEventListener('change', () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
-
-function handleFile(f) {
-  if (!f || !f.name.endsWith('.apk')) { fileInfo.textContent = 'Please select an .apk file'; return; }
-  selectedFile = f;
-  currentApkHash = null;
-  fileInfo.textContent = f.name + ' (' + (f.size / 1024 / 1024).toFixed(1) + ' MB)';
-  btnRun.disabled = false;
-  $('startFromGroup').style.display = 'none';
-}
-
-function selectCached(hash, name) {
-  selectedFile = null;
-  currentApkHash = hash;
-  fileInfo.textContent = name + ' (cached)';
-  btnRun.disabled = false;
-  $('startFromGroup').style.display = '';
-}
-
-// Engine status
-fetch('/api/engines').then(r => r.json()).then(data => {
-  const el = $('engineStatus');
-  el.innerHTML = data.engines.map(e => '<span><span class="dot ' + (e.available ? 'on' : 'off') + '"></span>' + e.name + '</span>').join('');
-});
-
-// Load cached APKs
-function loadCache() {
-  fetch('/api/cache').then(r => r.json()).then(data => {
-    if (!data.items || !data.items.length) return;
-    $('cacheBar').style.display = '';
-    $('cacheList').innerHTML = data.items.map(c =>
-      '<button onclick="selectCached(\''+c.hash+'\',\''+c.filename+'\')" style="'+
-      'font-family:JetBrains Mono,monospace;font-size:0.75rem;padding:0.3rem 0.75rem;'+
-      'border:1px solid var(--border);border-radius:999px;background:#fff;cursor:pointer;'+
-      'color:var(--dim);transition:all 0.2s" onmouseover="this.style.borderColor=\'var(--cyan)\';this.style.color=\'var(--cyan)\'" '+
-      'onmouseout="this.style.borderColor=\'var(--border)\';this.style.color=\'var(--dim)\'">'+
-      c.filename+' ('+c.size_mb+'MB)'+(c.packer?' ['+c.packer+']':'')+'</button>'
-    ).join('');
-  });
-}
-loadCache();
-
-// Pipeline
-const PHASES = ['scanning', 'dumping', 'active_invoke', 'repairing', 'verifying', 'done'];
-
-function setPhase(phase) {
-  document.querySelectorAll('.step').forEach(s => {
-    const p = s.dataset.phase;
-    const idx = PHASES.indexOf(p);
-    const cur = PHASES.indexOf(phase);
-    s.className = 'step';
-    if (idx < cur) s.classList.add('done');
-    else if (idx === cur) s.classList.add('active');
-  });
-}
-
-function startPipeline() {
-  if (!selectedFile && !currentApkHash) return;
-  btnRun.disabled = true;
-  btnRun.textContent = 'Running...';
-
-  // Reset UI
-  document.querySelectorAll('.result-card').forEach(c => c.classList.remove('show'));
-  ['scanBody','dumpBody','repairBody','reportBody','errorBody'].forEach(id => $(id).innerHTML = '');
-
-  const startFrom = currentApkHash ? ($('optStartFrom').value || 'scan') : 'scan';
-  setPhase(startFrom === 'scan' ? 'scanning' : startFrom);
-
-  const form = new FormData();
-  if (selectedFile) form.append('file', selectedFile);
-  if (currentApkHash) form.append('apk_hash', currentApkHash);
-  form.append('engine', $('optEngine').value);
-  form.append('timeout', $('optTimeout').value);
-  form.append('deep', $('optDeep').checked);
-  form.append('anti_detect', $('optAntiDetect').checked);
-  form.append('start_from', startFrom);
-
-  fetch('/api/full', { method: 'POST', body: form })
-    .then(r => r.json())
-    .then(data => {
-      if (data.error) { showError(data.error); return; }
-      if (data.apk_hash) currentApkHash = data.apk_hash;
-      pollJob(data.job_id);
-    })
-    .catch(e => showError(e.message));
-}
-
-function pollJob(jobId) {
-  const poll = () => {
-    fetch('/api/job/' + jobId).then(r => r.json()).then(job => {
-      setPhase(job.phase || 'scanning');
-      renderPhases(job.phases || {});
-
-      if (job.status === 'done') {
-        setPhase('done');
-        btnRun.disabled = false;
-        btnRun.textContent = 'Run Pipeline';
-        if (job.apk_hash) { currentApkHash = job.apk_hash; $('startFromGroup').style.display = ''; }
-        loadCache();
-      } else if (job.status === 'failed') {
-        showError(job.error || 'Unknown error');
-        btnRun.disabled = false;
-        btnRun.textContent = 'Run Pipeline';
-      } else {
-        setTimeout(poll, 1000);
-      }
-    }).catch(() => setTimeout(poll, 2000));
-  };
-  poll();
-}
-
-function renderPhases(phases) {
-  if (phases.scan) renderScan(phases.scan);
-  if (phases.dump) renderDump(phases.dump);
-  if (phases.repair) renderRepair(phases.repair);
-  if (phases.report) renderReport(phases.report);
-}
-
-function renderScan(s) {
-  const card = $('cardScan'); card.classList.add('show');
-  const badge = $('scanBadge');
-
-  if (s.packer_name) {
-    badge.textContent = s.packer_name + (s.packer_version ? ' ' + s.packer_version : '');
-    badge.style.background = 'rgba(8,145,178,0.1)';
-    badge.style.color = 'var(--cyan)';
-  } else {
-    badge.textContent = 'No packer';
-    badge.style.background = 'var(--bg)';
-    badge.style.color = 'var(--muted)';
-  }
-
-  const conf = Math.round((s.confidence || 0) * 100);
-  const confColor = conf >= 60 ? 'var(--emerald)' : conf >= 30 ? 'var(--amber)' : 'var(--rose)';
-
-  let html = '<div class="scan-grid">';
-  html += row('Packer', s.packer_name || '--');
-  html += row('Version', s.packer_version || '--');
-  html += row('Protection', s.protection_level || '--');
-  html += row('Confidence', '<div class="conf-bar"><div class="track"><div class="fill" style="width:'+conf+'%;background:'+confColor+'"></div></div><span class="mono">'+conf+'%</span></div>');
-  html += row('Signatures', (s.matched_signatures||[]).join(', ') || '--');
-  html += '</div>';
-
-  if (s.score_breakdown && s.score_breakdown.length) {
-    html += '<table class="breakdown"><thead><tr><th>Dimension</th><th>Score</th><th>Max</th><th>Status</th></tr></thead><tbody>';
-    s.score_breakdown.forEach(b => {
-      const cls = b.matched ? 'hit' : 'miss';
-      html += '<tr><td>'+b.dimension+'</td><td class="mono '+cls+'">'+b.score.toFixed(1)+'</td><td class="mono">'+b.max.toFixed(1)+'</td><td class="'+cls+'">'+(b.matched?'HIT':'--')+'</td></tr>';
-    });
-    html += '</tbody></table>';
-  }
-
-  if (s.all_so_files && s.all_so_files.length) {
-    html += '<div class="collapsible" onclick="toggleColl(this)">Native Libraries ('+s.all_so_files.length+')</div>';
-    html += '<div class="coll-body"><div class="so-list">'+s.all_so_files.join('<br>')+'</div></div>';
-  }
-
-  $('scanBody').innerHTML = html;
-}
-
-function renderDump(d) {
-  const card = $('cardDump'); card.classList.add('show');
-  $('dumpBadge').textContent = d.dex_count + ' DEX';
-  $('dumpBadge').style.background = 'rgba(5,150,105,0.1)';
-  $('dumpBadge').style.color = 'var(--emerald)';
-
-  let html = '<div class="scan-grid">';
-  html += row('Engine', d.engine);
-  html += row('DEX files', d.dex_count);
-  html += row('SO files', d.so_count || 0);
-  html += row('Duration', (d.duration_ms / 1000).toFixed(1) + 's');
-  if (d.duplicates_removed) html += row('Duplicates removed', d.duplicates_removed);
-  html += '</div>';
-  $('dumpBody').innerHTML = html;
-}
-
-function renderRepair(repairs) {
-  const card = $('cardRepair'); card.classList.add('show');
-  const ok = repairs.filter(r => r.success).length;
-  $('repairBadge').textContent = ok + '/' + repairs.length;
-  $('repairBadge').style.background = 'rgba(5,150,105,0.1)';
-  $('repairBadge').style.color = 'var(--emerald)';
-
-  let html = '';
-  repairs.forEach(r => {
-    html += '<div class="repair-item"><span class="icon" style="color:'+(r.success?'var(--emerald)':'var(--rose)')+'">'+
-      (r.success?'+':'x')+'</span><span class="mono">'+r.file+'</span>'+
-      '<span class="actions">'+r.actions.join(', ')+'</span></div>';
-  });
-  $('repairBody').innerHTML = html;
-}
-
-function renderReport(r) {
-  const card = $('cardReport'); card.classList.add('show');
-  const cov = Math.round((r.code_coverage || 0) * 100);
-  $('reportBadge').textContent = cov + '%';
-  $('reportBadge').style.background = cov >= 80 ? 'rgba(5,150,105,0.1)' : 'rgba(217,119,6,0.1)';
-  $('reportBadge').style.color = cov >= 80 ? 'var(--emerald)' : 'var(--amber)';
-
-  let html = '<div class="stat-row">';
-  html += stat(r.dex_count, 'DEX files', '--cyan');
-  html += stat(r.total_classes?.toLocaleString() || 0, 'Classes', '--cyan');
-  html += stat(r.total_methods?.toLocaleString() || 0, 'Methods', '--cyan');
-  html += stat(r.methods_with_code?.toLocaleString() || 0, 'With code', '--emerald');
-  if (r.nop_methods > 0) html += stat(r.nop_methods, 'NOP-only', '--rose');
-  html += stat(cov + '%', 'Coverage', cov >= 80 ? '--emerald' : '--amber');
-  html += stat(Math.round((r.score || 0) * 100) + '%', 'Score', '--violet');
-  html += '</div>';
-  $('reportBody').innerHTML = html;
-}
-
-function showError(msg) {
-  const card = $('cardError'); card.classList.add('show');
-  $('errorBody').textContent = msg;
-  document.querySelectorAll('.step.active').forEach(s => s.classList.replace('active','fail'));
-}
-
-function row(k, v) { return '<div class="scan-row"><span class="key">'+k+'</span><span class="val">'+v+'</span></div>'; }
-function stat(n, l, c) { return '<div class="stat-box"><div class="num" style="color:var('+c+')">'+n+'</div><div class="lbl">'+l+'</div></div>'; }
-function toggleCard(id) { $(id).querySelector('.card-body').classList.toggle('collapsed'); }
-function toggleColl(el) { el.classList.toggle('open'); el.nextElementSibling.classList.toggle('open'); }
-</script>
+<script src="/static/js/api.js"></script>
+<script src="/static/js/state.js"></script>
+<script src="/static/js/components.js"></script>
+<script src="/static/js/views.js"></script>
+<script src="/static/js/app.js"></script>
 </body>
 </html>
