@@ -550,6 +550,11 @@ class FridaEngine(BaseEngine):
         self._anti_detect = anti_detect
         self._wait_seconds = wait_seconds
         self._frida = None
+        self._unavailable_reason: str | None = None
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        return self._unavailable_reason
 
     def is_available(self) -> bool:
         try:
@@ -557,10 +562,13 @@ class FridaEngine(BaseEngine):
 
             self._frida = frida
             frida.get_usb_device(timeout=3)
+            self._unavailable_reason = None
             return True
         except ImportError:
+            self._unavailable_reason = "frida not installed (pip install -e '.[frida]')"
             return False
-        except Exception:
+        except Exception as exc:
+            self._unavailable_reason = f"no USB Frida device reachable ({exc})"
             return False
 
     def dump(

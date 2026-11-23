@@ -21,6 +21,16 @@ class DumpResult:
     error: str | None = None
     duration_ms: int = 0
 
+    def to_dict(self) -> dict:
+        return {
+            "engine": self.engine.value,
+            "dex_files": [str(p) for p in self.dex_files],
+            "so_files": [str(p) for p in self.so_files],
+            "success": self.success,
+            "error": self.error,
+            "duration_ms": self.duration_ms,
+        }
+
 
 class BaseEngine(ABC):
     engine_type: EngineType

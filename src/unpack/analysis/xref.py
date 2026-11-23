@@ -82,11 +82,77 @@ class XrefReport:
     reflection_calls: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
+        """Backward-compatible 4-key serialization."""
         return {
             "string_refs": self.string_refs,
             "method_calls": self.method_calls,
             "field_refs": self.field_refs,
             "reflection_calls": self.reflection_calls,
+        }
+
+    def summary(self, limit: int = 100) -> dict:
+        """Bounded, categorized summary suitable for Web UI and CLI tables."""
+        import re
+
+        url_re = re.compile(r"https?://[^\s'\"<>]{4,}", re.IGNORECASE)
+        ip_re = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+        anti_re = re.compile(r"(?:/system/bin/su|/sbin/su|frida|/proc/self/maps|xposed)", re.IGNORECASE)
+
+        sensitive_categories: dict[str, tuple[str, ...]] = {
+            "crypto": ("Ljavax/crypto/", "Ljava/security/MessageDigest;", "Ljava/security/Cipher;"),
+            "network": ("Ljava/net/URL;", "Ljava/net/HttpURLConnection;", "Lokhttp3/", "Ljavax/net/ssl/"),
+            "exec": ("Ljava/lang/Runtime;->exec", "Ljava/lang/ProcessBuilder;"),
+            "dynamic_load": ("Ldalvik/system/DexClassLoader;", "Ldalvik/system/InMemoryDexClassLoader;", "Ljava/lang/System;->load"),
+        }
+
+        sensitive_apis: dict[str, list[dict]] = {k: [] for k in sensitive_categories}
+        for target, callers in self.method_calls.items():
+            for cat, prefixes in sensitive_categories.items():
+                if any(p in target for p in prefixes):
+                    if len(sensitive_apis[cat]) < limit:
+                        sensitive_apis[cat].append({
+                            "target": target,
+                            "caller_count": len(callers),
+                            "callers": callers[:10],
+                        })
+                    break
+
+        urls: list[dict] = []
+        ips: list[dict] = []
+        anti_analysis: list[dict] = []
+        for s, callers in self.string_refs.items():
+            if len(urls) < limit and url_re.search(s):
+                urls.append({"value": s[:256], "caller_count": len(callers), "callers": callers[:5]})
+            elif len(anti_analysis) < limit and anti_re.search(s):
+                anti_analysis.append({"value": s[:256], "caller_count": len(callers), "callers": callers[:5]})
+            elif len(ips) < limit and ip_re.search(s):
+                ips.append({"value": s[:256], "caller_count": len(callers), "callers": callers[:5]})
+
+        top_strings = [
+            {"value": k[:256], "caller_count": len(v)}
+            for k, v in sorted(self.string_refs.items(), key=lambda kv: -len(kv[1]))[:limit]
+        ]
+        top_callees = [
+            {"target": k, "caller_count": len(v)}
+            for k, v in sorted(self.method_calls.items(), key=lambda kv: -len(kv[1]))[:limit]
+        ]
+
+        return {
+            "counts": {
+                "strings": len(self.string_refs),
+                "method_calls": len(self.method_calls),
+                "field_refs": len(self.field_refs),
+                "reflection_calls": len(self.reflection_calls),
+            },
+            "reflection_calls": self.reflection_calls[:limit],
+            "sensitive_apis": sensitive_apis,
+            "iocs": {
+                "urls": urls,
+                "ips": ips,
+                "anti_analysis": anti_analysis,
+            },
+            "top_strings": top_strings,
+            "top_callees": top_callees,
         }
 
 

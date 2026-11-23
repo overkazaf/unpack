@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import subprocess
 from dataclasses import dataclass
 
@@ -71,7 +72,7 @@ def adb_cmd(serial: str, *args: str, timeout: int = 15) -> str:
 
 def adb_shell(serial: str, cmd: str, timeout: int = 30, root: bool = False) -> str:
     if root:
-        cmd = f"su -c '{cmd}'"
+        cmd = f"su -c {shlex.quote(cmd)}"
     return adb_cmd(serial, "shell", cmd, timeout=timeout)
 
 

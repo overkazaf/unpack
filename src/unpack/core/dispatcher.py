@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from typing import Callable
+
 from rich.console import Console
 
 from unpack.core.scanner import ProtectionLevel, ScanResult
@@ -23,12 +25,24 @@ _ENGINE_PRIORITY: dict[ProtectionLevel, list[EngineType]] = {
 
 
 class Dispatcher:
-    def __init__(self):
+    def __init__(
+        self,
+        quiet: bool = False,
+        on_event: Callable[[str, str], None] | None = None,
+    ):
+        self._quiet = quiet
+        self._on_event = on_event
         self._engines: dict[EngineType, BaseEngine] = {
             EngineType.EBPF: EbpfEngine(),
             EngineType.FRIDA: FridaEngine(),
             EngineType.MEMORY: MemoryEngine(),
         }
+
+    def _emit(self, level: str, plain: str, rich_msg: str | None = None) -> None:
+        if self._on_event is not None:
+            self._on_event(level, plain)
+        if not self._quiet:
+            console.print(rich_msg if rich_msg is not None else plain)
 
     def dispatch(
         self,
@@ -59,12 +73,17 @@ class Dispatcher:
                 error=f"Refusing to dispatch: {exc}",
             )
 
-        console.print(f"  Package: [cyan]{package_name}[/]")
+        self._emit("info", f"Package: {package_name}", f"  Package: [cyan]{package_name}[/]")
 
         if scan_result.protection_level in (ProtectionLevel.VMP, ProtectionLevel.DEX2C):
-            console.print(
-                f"  [yellow]Warning:[/] {scan_result.protection_level.value} protection "
-                "detected — full automatic unpack is unlikely. Attempting partial dump."
+            warn_plain = (
+                f"{scan_result.protection_level.value} protection detected — "
+                "full automatic unpack is unlikely. Attempting partial dump."
+            )
+            self._emit(
+                "warn",
+                warn_plain,
+                f"  [yellow]Warning:[/] {warn_plain}",
             )
 
         if timeout:
@@ -95,7 +114,7 @@ class Dispatcher:
         for engine_type in priority:
             engine = self._engines.get(engine_type)
             if engine and engine.is_available():
-                console.print(f"  Engine: [green]{engine_type.value}[/]")
+                self._emit("info", f"Engine: {engine_type.value}", f"  Engine: [green]{engine_type.value}[/]")
                 return engine.dump(package_name, output_dir, device_serial)
 
         return DumpResult(
@@ -117,9 +136,17 @@ class Dispatcher:
                 error=f"Engine {engine_type.value} is not registered",
             )
         if not engine.is_available():
+            reason = getattr(engine, "unavailable_reason", None)
+            msg = f"Engine {engine_type.value} is not available"
+            if reason:
+                msg = f"{msg}: {reason}"
             return DumpResult(
                 engine=engine_type,
-                error=f"Engine {engine_type.value} is not available",
+                error=msg,
             )
-        console.print(f"  Engine: [green]{engine_type.value}[/] (forced)")
+        self._emit(
+            "info",
+            f"Engine: {engine_type.value} (forced)",
+            f"  Engine: [green]{engine_type.value}[/] (forced)",
+        )
         return engine.dump(package_name, output_dir, device_serial)

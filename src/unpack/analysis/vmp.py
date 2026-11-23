@@ -63,6 +63,7 @@ class VmpReport:
     call_graph: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
+        """Backward-compatible 6-key serialization."""
         return {
             "total_methods": self.total_methods,
             "normal_count": self.normal_count,
@@ -71,6 +72,70 @@ class VmpReport:
             "vmp_methods": self.vmp_methods,
             "call_graph": self.call_graph,
         }
+
+    @property
+    def vmp_ratio(self) -> float:
+        return (self.vmp_count / self.total_methods) if self.total_methods > 0 else 0.0
+
+    @property
+    def nop_ratio(self) -> float:
+        return (self.nop_count / self.total_methods) if self.total_methods > 0 else 0.0
+
+    @property
+    def dispatchers(self) -> list[dict]:
+        """Group VMP stubs by shared native/Java dispatcher target."""
+        counts: dict[str, int] = {}
+        for m in self.vmp_methods:
+            target = m.get("target") or "(unresolved)"
+            counts[target] = counts.get(target, 0) + 1
+        return [
+            {"dispatcher": target, "stub_count": count}
+            for target, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ]
+
+    @property
+    def class_density(self) -> list[dict]:
+        """Top classes ranked by number of VMP-stubbed methods."""
+        counts: dict[str, int] = {}
+        for m in self.vmp_methods:
+            cls = m.get("class_name") or "(unknown)"
+            counts[cls] = counts.get(cls, 0) + 1
+        return [
+            {"class_name": cls, "vmp_count": count}
+            for cls, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:50]
+        ]
+
+    @property
+    def risk_score(self) -> int:
+        if self.total_methods == 0:
+            return 0
+        score = int(min(100, self.vmp_ratio * 120 + self.nop_ratio * 60))
+        if self.vmp_count >= 10:
+            score = max(score, 65)
+        elif self.vmp_count > 0:
+            score = max(score, 30)
+        return min(100, score)
+
+    @property
+    def verdict(self) -> str:
+        if self.vmp_count == 0 and self.nop_count == 0:
+            return "clean"
+        if self.vmp_count >= 10 or (self.vmp_count >= 3 and self.vmp_ratio >= 0.05):
+            return "heavy_vmp"
+        if self.vmp_count > 0:
+            return "partial_vmp"
+        return "function_extracted"
+
+    def to_detailed_dict(self) -> dict:
+        """Extended report with dispatcher clustering, density, risk score & verdict."""
+        d = self.to_dict()
+        d["vmp_ratio"] = round(self.vmp_ratio, 4)
+        d["nop_ratio"] = round(self.nop_ratio, 4)
+        d["dispatchers"] = self.dispatchers
+        d["class_density"] = self.class_density
+        d["risk_score"] = self.risk_score
+        d["verdict"] = self.verdict
+        return d
 
 
 class VmpDetector:

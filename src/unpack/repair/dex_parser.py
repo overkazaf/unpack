@@ -31,7 +31,10 @@ def is_cdex(data: bytes) -> bool:
 def _uleb128(data: bytes, off: int) -> tuple[int, int]:
     result = 0
     shift = 0
-    while True:
+    n = len(data)
+    for _ in range(5):
+        if off >= n:
+            raise IndexError("truncated uleb128")
         b = data[off]
         off += 1
         result |= (b & 0x7F) << shift
@@ -44,7 +47,10 @@ def _uleb128(data: bytes, off: int) -> tuple[int, int]:
 def _sleb128(data: bytes, off: int) -> tuple[int, int]:
     result = 0
     shift = 0
-    while True:
+    n = len(data)
+    for _ in range(5):
+        if off >= n:
+            raise IndexError("truncated sleb128")
         b = data[off]
         off += 1
         result |= (b & 0x7F) << shift
@@ -54,6 +60,39 @@ def _sleb128(data: bytes, off: int) -> tuple[int, int]:
                 result |= -(1 << shift)
             break
     return result, off
+
+
+_ACCESS_FLAGS_COMMON: tuple[tuple[int, str], ...] = (
+    (0x0001, "public"),
+    (0x0002, "private"),
+    (0x0004, "protected"),
+    (0x0008, "static"),
+    (0x0010, "final"),
+    (0x0020, "synchronized"),
+    (0x0100, "native"),
+    (0x0200, "interface"),
+    (0x0400, "abstract"),
+    (0x1000, "synthetic"),
+    (0x2000, "annotation"),
+    (0x4000, "enum"),
+    (0x10000, "constructor"),
+)
+
+
+def decode_access_flags(flags: int, is_field: bool = False) -> list[str]:
+    """Decode DEX access_flags bitmask into human-readable modifier names."""
+    names: list[str] = []
+    for bit, label in _ACCESS_FLAGS_COMMON:
+        if bit == 0x0020 and is_field:
+            continue
+        if flags & bit:
+            names.append(label)
+    if is_field:
+        if flags & 0x0040:
+            names.append("volatile")
+        if flags & 0x0080:
+            names.append("transient")
+    return names
 
 
 @dataclass
@@ -314,11 +353,11 @@ class DexFile:
         if data_off >= len(self.data):
             return None
         # skip MUTF-8 size (uleb128)
-        _, pos = _uleb128(self.data, data_off)
-        end = self.data.index(0, pos)
         try:
+            _, pos = _uleb128(self.data, data_off)
+            end = self.data.index(0, pos)
             return self.data[pos:end].decode("utf-8", errors="replace")
-        except Exception:
+        except (IndexError, ValueError, UnicodeDecodeError):
             return None
 
     def get_type_name(self, idx: int) -> str | None:
@@ -330,6 +369,28 @@ class DexFile:
             return None
         string_idx = struct.unpack_from(f"{self.fmt}I", self.data, type_id_off)[0]
         return self.get_string(string_idx)
+
+    def get_proto(self, idx: int) -> tuple[str | None, str | None, list[str]]:
+        """Resolve proto_idx to (shorty, return_type, param_types)."""
+        h = self.header
+        if idx < 0 or idx >= h.proto_ids_size:
+            return None, None, []
+        pid_off = h.proto_ids_off + idx * 12
+        if pid_off + 12 > len(self.data):
+            return None, None, []
+        shorty_idx, ret_type_idx, params_off = struct.unpack_from(f"{self.fmt}3I", self.data, pid_off)
+        shorty = self.get_string(shorty_idx)
+        ret_type = self.get_type_name(ret_type_idx)
+        params: list[str] = []
+        if params_off != 0 and params_off + 4 <= len(self.data):
+            count = struct.unpack_from(f"{self.fmt}I", self.data, params_off)[0]
+            if count <= 256 and params_off + 4 + count * 2 <= len(self.data):
+                for i in range(count):
+                    t_idx = struct.unpack_from(f"{self.fmt}H", self.data, params_off + 4 + i * 2)[0]
+                    t_name = self.get_type_name(t_idx)
+                    if t_name:
+                        params.append(t_name)
+        return shorty, ret_type, params
 
     def get_method_name(self, idx: int) -> str | None:
         """Resolve method_idx to the method's simple name."""
@@ -353,6 +414,19 @@ class DexFile:
         vals = struct.unpack_from(f"{self.fmt}HHI", self.data, mid_off)
         return self.get_type_name(vals[0]), self.get_string(vals[2])
 
+    def get_method_signature(self, idx: int) -> tuple[str | None, str | None, str]:
+        """Resolve method_idx to (class_descriptor, method_name, '(params)ret')."""
+        h = self.header
+        if idx < 0 or idx >= h.method_ids_size:
+            return None, None, "()?"
+        mid_off = h.method_ids_off + idx * 8
+        if mid_off + 8 > len(self.data):
+            return None, None, "()?"
+        cls_idx, proto_idx, name_idx = struct.unpack_from(f"{self.fmt}HHI", self.data, mid_off)
+        _, ret_type, params = self.get_proto(proto_idx)
+        proto_str = f"({''.join(params)}){ret_type or 'V'}"
+        return self.get_type_name(cls_idx), self.get_string(name_idx), proto_str
+
     def get_field_full(self, idx: int) -> tuple[str | None, str | None]:
         """Resolve field_idx to (class_descriptor, field_name)."""
         h = self.header
@@ -363,6 +437,38 @@ class DexFile:
             return None, None
         vals = struct.unpack_from(f"{self.fmt}HHI", self.data, fid_off)
         return self.get_type_name(vals[0]), self.get_string(vals[2])
+
+    def get_field_detail(self, idx: int) -> tuple[str | None, str | None, str | None]:
+        """Resolve field_idx to (class_descriptor, field_name, field_type)."""
+        h = self.header
+        if idx < 0 or idx >= h.field_ids_size:
+            return None, None, None
+        fid_off = h.field_ids_off + idx * 8
+        if fid_off + 8 > len(self.data):
+            return None, None, None
+        cls_idx, type_idx, name_idx = struct.unpack_from(f"{self.fmt}HHI", self.data, fid_off)
+        return self.get_type_name(cls_idx), self.get_string(name_idx), self.get_type_name(type_idx)
+
+    def get_interfaces(self, cdef: ClassDef) -> list[str]:
+        """Resolve the interface type descriptors implemented by ``cdef``."""
+        off = cdef.interfaces_off
+        if off == 0 or off + 4 > len(self.data):
+            return []
+        count = struct.unpack_from(f"{self.fmt}I", self.data, off)[0]
+        if count > 256 or off + 4 + count * 2 > len(self.data):
+            return []
+        interfaces: list[str] = []
+        for i in range(count):
+            t_idx = struct.unpack_from(f"{self.fmt}H", self.data, off + 4 + i * 2)[0]
+            t_name = self.get_type_name(t_idx)
+            if t_name:
+                interfaces.append(t_name)
+        return interfaces
+
+    def get_source_file(self, cdef: ClassDef) -> str | None:
+        if cdef.source_file_idx == 0xFFFFFFFF:
+            return None
+        return self.get_string(cdef.source_file_idx)
 
     @property
     def all_methods(self) -> list[EncodedMethod]:

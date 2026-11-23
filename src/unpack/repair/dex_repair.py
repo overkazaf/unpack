@@ -5,8 +5,10 @@ import struct
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from unpack.repair.dex_parser import DexFile, VALID_MAGICS, HEADER_SIZE, is_cdex
+from unpack.repair.verifier import DexVerifier, VerifyResult
 
 
 @dataclass
@@ -15,6 +17,68 @@ class RepairResult:
     actions: list[str] = field(default_factory=list)
     output_path: Path | None = None
     nop_method_count: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "success": self.success,
+            "actions": self.actions,
+            "output_path": str(self.output_path) if self.output_path else None,
+            "nop_method_count": self.nop_method_count,
+        }
+
+
+@dataclass
+class FieldDiff:
+    field: str
+    before: str
+    after: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "field": self.field,
+            "before": self.before,
+            "after": self.after,
+        }
+
+
+@dataclass
+class RepairDiff:
+    file: str
+    before: VerifyResult
+    after: VerifyResult
+    repair: RepairResult
+    field_diffs: list[FieldDiff] = field(default_factory=list)
+    resolved_issues: list[str] = field(default_factory=list)
+    remaining_issues: list[str] = field(default_factory=list)
+    health_delta: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "file": self.file,
+            "before": self.before.to_dict(),
+            "after": self.after.to_dict(),
+            "repair": self.repair.to_dict(),
+            "field_diffs": [d.to_dict() for d in self.field_diffs],
+            "resolved_issues": self.resolved_issues,
+            "remaining_issues": self.remaining_issues,
+            "health_delta": round(self.health_delta, 2),
+        }
+
+
+def _extract_header_snapshot(data: bytes) -> dict[str, str]:
+    if len(data) < HEADER_SIZE:
+        return {"size": str(len(data))}
+    endian_tag = struct.unpack_from("<I", data, 40)[0]
+    fmt = ">" if endian_tag == 0x78563412 else "<"
+    return {
+        "magic": data[:8].decode("ascii", errors="replace").replace("\n", "\\n").replace("\x00", "\\0"),
+        "checksum": f"{struct.unpack_from(f'{fmt}I', data, 8)[0]:#010x}",
+        "signature": data[12:32].hex()[:16],
+        "file_size": str(struct.unpack_from(f"{fmt}I", data, 32)[0]),
+        "map_off": f"{struct.unpack_from(f'{fmt}I', data, 52)[0]:#x}",
+        "data_size": str(struct.unpack_from(f"{fmt}I", data, 104)[0]),
+        "data_off": f"{struct.unpack_from(f'{fmt}I', data, 108)[0]:#x}",
+    }
 
 
 class DexRepairPipeline:
@@ -48,7 +112,7 @@ class DexRepairPipeline:
         data = self._fix_map_off(data, dex.header, fmt, actions)
         data = self._fix_code_item_alignment(data, dex, actions)
         code_item_offsets = [(ci.offset, ci.insns_size) for ci in dex.code_items]
-        data = self._fix_debug_info_offsets(data, code_item_offsets, len(data), actions)
+        data = self._fix_debug_info_offsets(data, code_item_offsets, len(data), actions, fmt=fmt)
 
         nop_count = self._detect_nop_methods(dex, actions)
 
@@ -71,6 +135,46 @@ class DexRepairPipeline:
             actions=actions,
             output_path=out_path,
             nop_method_count=nop_count,
+        )
+
+    def repair_with_diff(self, dex_path: Path, in_place: bool = False) -> RepairDiff:
+        """Verify before repair, run repair, verify after, and compute structured diff."""
+        verifier = DexVerifier()
+        before_bytes = dex_path.read_bytes()
+        before_verify = verifier.verify_bytes(before_bytes)
+        before_snap = _extract_header_snapshot(before_bytes)
+
+        repair_result = self.repair(dex_path, in_place=in_place)
+
+        if repair_result.success and repair_result.output_path and repair_result.output_path.exists():
+            after_bytes = repair_result.output_path.read_bytes()
+            after_verify = verifier.verify_bytes(after_bytes)
+            after_snap = _extract_header_snapshot(after_bytes)
+        else:
+            after_verify = before_verify
+            after_snap = before_snap
+
+        field_diffs: list[FieldDiff] = []
+        for key in sorted(set(before_snap) | set(after_snap)):
+            b_val = before_snap.get(key, "")
+            a_val = after_snap.get(key, "")
+            if b_val != a_val:
+                field_diffs.append(FieldDiff(field=key, before=b_val, after=a_val))
+
+        after_set = set(after_verify.issues)
+        resolved = [i for i in before_verify.issues if i not in after_set]
+        remaining = list(after_verify.issues)
+        delta = round(after_verify.health_score - before_verify.health_score, 2)
+
+        return RepairDiff(
+            file=dex_path.name,
+            before=before_verify,
+            after=after_verify,
+            repair=repair_result,
+            field_diffs=field_diffs,
+            resolved_issues=resolved,
+            remaining_issues=remaining,
+            health_delta=delta,
         )
 
     @staticmethod
@@ -100,12 +204,16 @@ class DexRepairPipeline:
             struct.pack_into(f"{fmt}I", data, 32, actual)
             actions.append(f"fixed file_size: {header.file_size} -> {actual}")
 
-        expected_data_off = header.header_size
-        expected_data_size = actual - expected_data_off
-        if expected_data_size < 0:
-            expected_data_size = 0
-
-        if header.data_size != expected_data_size or header.data_off != expected_data_off:
+        # Only repair data_off/data_size when they are invalid/out-of-bounds
+        # (valid DEX files legitimately place data_off after class_defs, not at 0x70).
+        data_off_valid = (
+            header.header_size <= header.data_off <= actual
+            and header.data_off + header.data_size <= actual
+            and (header.data_size > 0 or actual == header.header_size)
+        )
+        if not data_off_valid:
+            expected_data_off = header.header_size
+            expected_data_size = max(0, actual - expected_data_off)
             struct.pack_into(f"{fmt}I", data, 104, expected_data_size)
             struct.pack_into(f"{fmt}I", data, 108, expected_data_off)
             actions.append(
@@ -186,8 +294,6 @@ class DexRepairPipeline:
     ) -> bytearray:
         """Walk class_defs entries and zero any class_data_off/annotations_off/
         static_values_off pointer that lies at or past EOF (truncated dump).
-        Re-reads class_defs_size/off from `data` directly since earlier
-        steps may have modified the header in place.
         """
         file_len = len(data)
         class_defs_size = struct.unpack_from(f"{fmt}I", data, 96)[0]
@@ -225,6 +331,7 @@ class DexRepairPipeline:
         code_item_offsets: list[tuple[int, int]],
         file_len: int,
         actions: list[str],
+        fmt: str = "<",
     ) -> bytearray:
         """Zero any CodeItem's debug_info_off that points at or past EOF."""
         for ci_offset, _insns_size in code_item_offsets:
@@ -232,9 +339,9 @@ class DexRepairPipeline:
             if debug_info_ptr + 4 > len(data):
                 continue
 
-            debug_info_off = struct.unpack_from("<I", data, debug_info_ptr)[0]
+            debug_info_off = struct.unpack_from(f"{fmt}I", data, debug_info_ptr)[0]
             if debug_info_off != 0 and debug_info_off >= file_len:
-                struct.pack_into("<I", data, debug_info_ptr, 0)
+                struct.pack_into(f"{fmt}I", data, debug_info_ptr, 0)
                 actions.append(
                     f"zeroed out-of-bounds debug_info_off at code_item {ci_offset:#x}: "
                     f"{debug_info_off:#x} >= file_len {file_len}"

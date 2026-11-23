@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+import hashlib
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+
+_SIGNATURE_SUFFIXES = (".SF", ".RSA", ".DSA", ".EC")
+
+
+def _is_signature_entry(filename: str) -> bool:
+    if not filename.startswith("META-INF/"):
+        return False
+    upper = filename.upper()
+    return upper == "META-INF/MANIFEST.MF" or upper.endswith(_SIGNATURE_SUFFIXES)
 
 
 @dataclass
@@ -11,18 +22,40 @@ class RepackResult:
     output_path: Path | None = None
     dex_count: int = 0
     resources_preserved: int = 0
+    signatures_stripped: int = 0
+    output_size_bytes: int = 0
+    output_sha256: str = ""
     error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "success": self.success,
+            "output_path": str(self.output_path) if self.output_path else None,
+            "dex_count": self.dex_count,
+            "resources_preserved": self.resources_preserved,
+            "signatures_stripped": self.signatures_stripped,
+            "output_size_bytes": self.output_size_bytes,
+            "output_sha256": self.output_sha256,
+            "error": self.error,
+        }
 
 
 class Repacker:
     """Combines an original APK with dumped/repaired DEX files into a new APK.
 
     No device needed: this is purely a zip-level operation that strips the
-    original (encrypted/packed) classes*.dex entries and substitutes the
-    dumped DEX files, while preserving every other resource unchanged.
+    original (encrypted/packed) classes*.dex entries (and optionally stale
+    META-INF v1 signature files) and substitutes the dumped DEX files, while
+    preserving every other resource unchanged.
     """
 
-    def repack(self, original_apk: Path, dex_dir: Path, output_dir: Path) -> RepackResult:
+    def repack(
+        self,
+        original_apk: Path,
+        dex_dir: Path,
+        output_dir: Path,
+        strip_signatures: bool = True,
+    ) -> RepackResult:
         result = RepackResult()
 
         if not original_apk.exists():
@@ -43,6 +76,9 @@ class Repacker:
                 for item in src.infolist():
                     if item.filename.startswith("classes") and item.filename.endswith(".dex"):
                         continue
+                    if strip_signatures and _is_signature_entry(item.filename):
+                        result.signatures_stripped += 1
+                        continue
                     dst.writestr(item, src.read(item.filename))
                     result.resources_preserved += 1
 
@@ -56,4 +92,10 @@ class Repacker:
 
         result.success = True
         result.output_path = output_path
+        try:
+            raw = output_path.read_bytes()
+            result.output_size_bytes = len(raw)
+            result.output_sha256 = hashlib.sha256(raw).hexdigest()
+        except OSError:
+            pass
         return result
