@@ -230,9 +230,12 @@ def test_create_app_zero_args_and_shell():
 
             for asset in (
                 "/static/css/studio.css",
+                "/static/js/i18n.js",
                 "/static/js/api.js",
                 "/static/js/state.js",
                 "/static/js/components.js",
+                "/static/js/pipeline.js",
+                "/static/js/onboarding.js",
                 "/static/js/views.js",
                 "/static/js/app.js",
             ):
@@ -543,3 +546,167 @@ def test_legacy_api_compatibility(studio_client):
 
     cache = client.get("/api/cache").get_json()["items"]
     assert any(c["filename"] == "legacy_full.apk" for c in cache)
+
+
+# ---------------------------------------------------------------------------
+# 5. Wave 2: Bilingual Reports, Deep Pipeline Planner & Offline E2E Telemetry
+# ---------------------------------------------------------------------------
+
+
+def test_bilingual_report_export_zh_and_en(studio_client):
+    client, local_apks, _ = studio_client
+
+    sample = client.post(
+        "/api/v1/samples/import-local",
+        json={"path": str(local_apks / "demo_packed.apk"), "auto_scan": True},
+    ).get_json()["sample"]
+    sid = sample["id"]
+
+    # Chinese HTML & Markdown via /api/v1/samples/<id>/reports
+    r_html_zh = client.get(f"/api/v1/samples/{sid}/reports?format=html&lang=zh")
+    assert r_html_zh.status_code == 200
+    body_zh = r_html_zh.get_data(as_text=True)
+    assert "<!DOCTYPE html>" in body_zh
+    assert "安全审计报告" in body_zh
+
+    r_md_zh = client.get(f"/api/v1/samples/{sid}/reports?format=markdown&lang=zh")
+    assert r_md_zh.status_code == 200
+    md_zh = r_md_zh.get_data(as_text=True)
+    assert "UNPACK 安全审计报告" in md_zh
+    assert "核心安全发现" in md_zh
+
+    # English HTML & Markdown via /api/v1/samples/<id>/reports
+    r_html_en = client.get(f"/api/v1/samples/{sid}/reports?format=html&lang=en")
+    assert r_html_en.status_code == 200
+    assert "<!DOCTYPE html>" in r_html_en.get_data(as_text=True)
+
+    r_md_en = client.get(f"/api/v1/samples/{sid}/reports?format=markdown&lang=en")
+    assert r_md_en.status_code == 200
+    assert "# UNPACK Security Audit" in r_md_en.get_data(as_text=True)
+
+
+def test_pipeline_plan_preflight_and_offline_end_to_end_telemetry(studio_client):
+    client, local_apks, local_dexs = studio_client
+
+    # Mount APK with corrupt DEX checksum so repair stage has real work to fix
+    corrupt_apk_path = local_apks / "corrupt_packed.apk"
+    corrupt_apk_path.write_bytes(
+        _build_synthetic_apk(dex_bytes=_build_dex_with_class(corrupt_checksum=True))
+    )
+    sample = client.post(
+        "/api/v1/samples/import-local",
+        json={"path": str(corrupt_apk_path), "auto_scan": True},
+    ).get_json()["sample"]
+    sid = sample["id"]
+
+    # 1. Plan offline_audit in zh
+    plan_off = client.post(
+        "/api/v1/pipeline/plan",
+        json={
+            "sample_id": sid,
+            "mode": "offline_audit",
+            "repack": True,
+            "generate_report": True,
+            "lang": "zh",
+            "check_devices": False,
+        },
+    )
+    assert plan_off.status_code == 200
+    po = plan_off.get_json()
+    assert po["mode"] == "offline_audit"
+    assert po["recommended_mode"] == "offline_audit"
+    assert po["can_run"] is True
+    assert po["blocking_count"] == 0
+    assert len(po["stages"]) == 6
+    assert [s["id"] for s in po["stages"]] == [
+        "intake",
+        "scan_inspect",
+        "extract_dex",
+        "repair_verify",
+        "vmp_xref",
+        "repack_report",
+    ]
+    for st in po["stages"]:
+        assert st["what_it_does"]
+        assert st["why_it_matters"]
+        assert isinstance(st["inputs"], list) and isinstance(st["outputs"], list)
+        assert st["will_run"] is True
+
+    # 2. Plan device_deep with 0 devices -> blocked with fallback_mode=offline_audit
+    plan_dev = client.post(
+        "/api/v1/pipeline/plan",
+        json={
+            "sample_id": sid,
+            "mode": "device_deep",
+            "lang": "en",
+            "check_devices": False,
+        },
+    )
+    assert plan_dev.status_code == 200
+    pd = plan_dev.get_json()
+    assert pd["can_run"] is False
+    assert pd["blocking_count"] >= 1
+    assert any(c.get("fallback_mode") == "offline_audit" for c in pd["preflight_checks"])
+
+    # 3. Plan DEX dir -> recommends repair_repack
+    dex_sample = client.post(
+        "/api/v1/samples/import-local",
+        json={"path": str(local_dexs)},
+    ).get_json()["sample"]
+    plan_dex = client.post(
+        "/api/v1/pipeline/plan",
+        json={"sample_id": dex_sample["id"], "lang": "zh", "check_devices": False},
+    ).get_json()
+    assert plan_dex["recommended_mode"] == "repair_repack"
+    assert plan_dex["can_run"] is True
+
+    # 4. Launch real Offline End-to-End Pipeline via POST /api/v1/jobs/pipeline
+    launch = client.post(
+        "/api/v1/jobs/pipeline",
+        json={
+            "sample_id": sid,
+            "mode": "offline_audit",
+            "repack": True,
+            "generate_report": True,
+            "lang": "zh",
+        },
+    )
+    assert launch.status_code == 202
+    job_id = launch.get_json()["job_id"]
+
+    # Stream SSE until terminal event
+    sse = client.get(f"/api/v1/jobs/{job_id}/events")
+    assert sse.status_code == 200
+    sse_body = sse.get_data(as_text=True)
+    assert "event: snapshot" in sse_body
+    assert ("event: stage" in sse_body) or ('"stages":' in sse_body)
+    assert ("event: done" in sse_body) or ('"status": "done"' in sse_body)
+
+    # Verify structured per-stage telemetry on completed job
+    job = client.get(f"/api/v1/jobs/{job_id}").get_json()
+    assert job["status"] == "done"
+    assert job["mode"] == "offline_audit"
+    stages_by_id = {st["id"]: st for st in job["stages"]}
+    for stage_id in ("intake", "scan_inspect", "extract_dex", "repair_verify", "vmp_xref", "repack_report"):
+        st = stages_by_id[stage_id]
+        assert st["status"] == "done", f"Stage {stage_id} was {st['status']}"
+        assert st["summary"]
+        assert isinstance(st["metrics"], dict) and len(st["metrics"]) >= 1
+        assert len(st["logs"]) >= 1
+
+    # Repair stage resolved the corrupt checksum and produced downloadable artifacts
+    assert stages_by_id["repair_verify"]["metrics"]["issues_resolved"] >= 1
+    assert len(job["artifacts"]) >= 3  # repaired DEX zip + repacked APK + HTML report
+    for art in job["artifacts"]:
+        dl = client.get(art["download_url"])
+        assert dl.status_code == 200
+        assert len(dl.data) > 0
+
+    # Sample record is enriched with scan, inspect, repair_diffs, vmp, and xref
+    enriched = client.get(f"/api/v1/samples/{sid}").get_json()["sample"]
+    assert enriched["scan_result"]["packer_name"] == "360加固保"
+    assert enriched["inspect_result"] is not None
+    assert enriched["vmp_result"]["total_methods"] == 1
+    assert enriched["xref_result"] is not None
+    assert len(enriched["repair_diffs"]) == 1
+

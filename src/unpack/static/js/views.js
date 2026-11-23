@@ -1,5 +1,5 @@
 /**
- * UNPACK Studio — All 7 Workspace Views + Task Drawer & Doctor Modal
+ * UNPACK Studio — All 7 Workspace Views + Task Drawer & Doctor Modal (Fully Bilingual)
  */
 (function (global) {
   "use strict";
@@ -7,6 +7,10 @@
   const UI = global.UnpackUI;
   const Store = global.UnpackStore;
   const esc = UI.esc;
+
+  function t(key, params) {
+    return global.UnpackI18n ? global.UnpackI18n.t(key, params) : key;
+  }
 
   // =========================================================================
   // 1. Samples & Intake Workspace
@@ -36,11 +40,11 @@
             <td>${UI.kindBadge(s.kind)}</td>
             <td class="mono num">${esc(UI.fmtBytes(s.size_bytes))}</td>
             <td>${s.packer ? UI.badge(s.packer, "accent") : UI.badge("—", "muted")}</td>
-            <td>${s.protection_level ? UI.protectionBadge(s.protection_level) : UI.badge("PENDING", "muted")}</td>
+            <td>${s.protection_level ? UI.protectionBadge(s.protection_level) : UI.badge(t("common.pending"), "muted")}</td>
             <td class="num">
               <div class="toolbar" style="justify-content:flex-end">
-                <button class="btn btn-subtle btn-xs" type="button" data-action="select-sample" data-id="${esc(s.id)}">${isActive ? "Open" : "Select"}</button>
-                <button class="btn btn-ghost btn-xs" type="button" data-action="delete-sample" data-id="${esc(s.id)}" title="Remove from vault">✕</button>
+                <button class="btn btn-subtle btn-xs" type="button" data-action="select-sample" data-id="${esc(s.id)}">${esc(isActive ? t("common.open") : t("common.select"))}</button>
+                <button class="btn btn-ghost btn-xs" type="button" data-action="delete-sample" data-id="${esc(s.id)}" title="${esc(t("samples.vault.remove_tip"))}">✕</button>
               </div>
             </td>
           </tr>
@@ -60,7 +64,7 @@
             <td class="mono num">${it.dex_count ? `${it.dex_count} DEX` : "—"}</td>
             <td class="mono num">${esc(UI.fmtBytes(it.size_bytes))}</td>
             <td class="num">
-              <button class="btn btn-primary btn-xs" type="button" data-action="import-local" data-path="${esc(it.path)}">Import &amp; Analyze</button>
+              <button class="btn btn-primary btn-xs" type="button" data-action="import-local" data-path="${esc(it.path)}">${esc(t("samples.local.import_btn"))}</button>
             </td>
           </tr>
         `
@@ -70,70 +74,72 @@
     return `
       <div class="view-header">
         <div>
-          <h1 class="view-title">Samples &amp; Intake</h1>
-          <p class="view-subtitle">Upload APK/DEX artifacts or mount zero-copy targets from allowlisted local libraries.</p>
+          <h1 class="view-title">${esc(t("samples.title"))}</h1>
+          <p class="view-subtitle">${esc(t("samples.subtitle"))}</p>
         </div>
         <div class="view-actions">
-          <button class="btn btn-subtle btn-sm" type="button" data-action="refresh-library">Refresh Library</button>
-          <button class="btn btn-primary btn-sm" type="button" data-action="trigger-upload">Upload Files</button>
+          <button class="btn btn-subtle btn-sm" type="button" data-action="refresh-library">${esc(t("samples.refresh_lib"))}</button>
+          <button class="btn btn-primary btn-sm" type="button" data-action="trigger-upload">${esc(t("samples.upload_btn"))}</button>
         </div>
       </div>
 
       <div class="kpi-strip">
-        ${UI.kpi("Vault Samples", samples.length, "Deduplicated by SHA-256")}
-        ${UI.kpi("Local Library", localItems.length, (Store.localLibrary.roots || []).join(", ") || "No local roots")}
-        ${UI.kpi("Active Target", Store.activeSample ? Store.activeSample.name : "None", Store.activeSample ? Store.activeSample.kind.toUpperCase() : "Select a target")}
-        ${UI.kpi("Active Jobs", Store.jobs.filter((j) => j.status === "running").length, `${Store.jobs.length} total recorded`)}
+        ${UI.kpi(t("samples.kpi.vault"), samples.length, t("samples.kpi.vault_sub"))}
+        ${UI.kpi(t("samples.kpi.local"), localItems.length, (Store.localLibrary.roots || []).join(", ") || t("samples.kpi.local_none"))}
+        ${UI.kpi(t("samples.kpi.active"), Store.activeSample ? Store.activeSample.name : t("common.none"), Store.activeSample ? Store.activeSample.kind.toUpperCase() : t("samples.kpi.active_none"))}
+        ${UI.kpi(t("samples.kpi.jobs"), Store.jobs.filter((j) => j.status === "running").length, t("samples.kpi.jobs_sub", { count: Store.jobs.length }))}
       </div>
 
-      <div class="panel">
-        <div class="panel-body">
-          <div class="dropzone" id="uploadDropzone" data-action="trigger-upload">
-            <h3>Drop Android .apk or .dex files here, or click to browse</h3>
-            <p>Supports multi-file upload up to 512 MB &middot; Automatic SHA-256 deduplication &amp; instant packer scan</p>
-            <input type="file" id="studioFileInput" accept=".apk,.dex" multiple>
+      <div id="tourSamplesLibrary">
+        <div class="panel">
+          <div class="panel-body">
+            <div class="dropzone" id="uploadDropzone" data-action="trigger-upload">
+              <h3>${esc(t("samples.dropzone.title"))}</h3>
+              <p>${esc(t("samples.dropzone.desc"))}</p>
+              <input type="file" id="studioFileInput" accept=".apk,.dex" multiple>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="panel">
-        <div class="panel-head">
-          <div class="panel-title">Workspace Sample Vault ${UI.badge(String(samples.length), "accent")}</div>
-        </div>
-        <div class="panel-body-flush">
-          ${
-            samples.length
-              ? `<div class="table-wrap"><table class="data-table">
-                  <thead><tr><th>Sample</th><th>Type</th><th class="num">Size</th><th>Packer</th><th>Protection</th><th class="num">Actions</th></tr></thead>
-                  <tbody>${vaultRows}</tbody>
-                </table></div>`
-              : `<div class="panel-body" style="color:var(--text-secondary)">No samples in vault yet. Upload a file above or import from the Local Library below.</div>`
-          }
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head">
-          <div class="panel-title">Sandboxed Local Library ${UI.badge(String(filteredLocal.length), "muted")}</div>
-          <div class="toolbar">
-            <select class="select select-sm" id="localKindFilter">
-              <option value="all" ${kindF === "all" ? "selected" : ""}>All Types</option>
-              <option value="apk" ${kindF === "apk" ? "selected" : ""}>APKs</option>
-              <option value="dex_dir" ${kindF === "dex_dir" ? "selected" : ""}>DEX Dump Dirs</option>
-              <option value="dex" ${kindF === "dex" ? "selected" : ""}>Single DEX</option>
-            </select>
-            <input type="search" class="input input-sm" id="localSearchInput" placeholder="Filter local samples..." value="${esc(Store.localFilter)}">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">${esc(t("samples.vault.title"))} ${UI.badge(String(samples.length), "accent")}</div>
+          </div>
+          <div class="panel-body-flush">
+            ${
+              samples.length
+                ? `<div class="table-wrap"><table class="data-table">
+                    <thead><tr><th>${esc(t("samples.vault.col.sample"))}</th><th>${esc(t("common.type"))}</th><th class="num">${esc(t("common.size"))}</th><th>${esc(t("samples.vault.col.packer"))}</th><th>${esc(t("samples.vault.col.protection"))}</th><th class="num">${esc(t("common.actions"))}</th></tr></thead>
+                    <tbody>${vaultRows}</tbody>
+                  </table></div>`
+                : `<div class="panel-body" style="color:var(--text-secondary)">${esc(t("samples.vault.empty"))}</div>`
+            }
           </div>
         </div>
-        <div class="panel-body-flush">
-          ${
-            filteredLocal.length
-              ? `<div class="table-wrap"><table class="data-table">
-                  <thead><tr><th>Target</th><th>Type</th><th class="num">DEX</th><th class="num">Size</th><th class="num">Action</th></tr></thead>
-                  <tbody>${localRows}</tbody>
-                </table></div>`
-              : `<div class="panel-body" style="color:var(--text-secondary)">No local samples match the current filter. Configure <code>UNPACK_LOCAL_ROOTS</code> or place APKs in <code>test_apks/</code>.</div>`
-          }
+
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">${esc(t("samples.local.title"))} ${UI.badge(String(filteredLocal.length), "muted")}</div>
+            <div class="toolbar">
+              <select class="select select-sm" id="localKindFilter">
+                <option value="all" ${kindF === "all" ? "selected" : ""}>${esc(t("samples.local.all"))}</option>
+                <option value="apk" ${kindF === "apk" ? "selected" : ""}>${esc(t("samples.local.apks"))}</option>
+                <option value="dex_dir" ${kindF === "dex_dir" ? "selected" : ""}>${esc(t("samples.local.dex_dirs"))}</option>
+                <option value="dex" ${kindF === "dex" ? "selected" : ""}>${esc(t("samples.local.dex"))}</option>
+              </select>
+              <input type="search" class="input input-sm" id="localSearchInput" placeholder="${esc(t("samples.local.search_ph"))}" value="${esc(Store.localFilter)}">
+            </div>
+          </div>
+          <div class="panel-body-flush">
+            ${
+              filteredLocal.length
+                ? `<div class="table-wrap"><table class="data-table">
+                    <thead><tr><th>${esc(t("samples.local.col.target"))}</th><th>${esc(t("common.type"))}</th><th class="num">${esc(t("samples.local.col.dex"))}</th><th class="num">${esc(t("common.size"))}</th><th class="num">${esc(t("samples.local.col.action"))}</th></tr></thead>
+                    <tbody>${localRows}</tbody>
+                  </table></div>`
+                : `<div class="panel-body" style="color:var(--text-secondary)">${esc(t("samples.local.empty"))}</div>`
+            }
+          </div>
         </div>
       </div>
     `;
@@ -145,7 +151,7 @@
 
   function renderOverviewView() {
     const sample = Store.activeSample;
-    if (!sample) return UI.requireSamplePrompt("Scan & Intelligence");
+    if (!sample) return UI.requireSamplePrompt(t("nav.overview"));
 
     const scan = sample.scan_result;
     const insp = sample.inspect_result;
@@ -168,7 +174,7 @@
                   <td class="mono num">${Number(b.score || 0).toFixed(1)}</td>
                   <td class="mono num">${Number(b.max || 0).toFixed(1)}</td>
                   <td style="width:140px"><div class="bar-track"><div class="bar-seg ${b.matched ? "ok" : "accent"}" style="width:${pct}%"></div></div></td>
-                  <td>${b.matched ? UI.badge("HIT", "ok") : UI.badge("MISS", "muted")}</td>
+                  <td>${b.matched ? UI.badge(t("badge.hit"), "ok") : UI.badge(t("badge.miss"), "muted")}</td>
                 </tr>
               `;
             })
@@ -210,85 +216,88 @@
     return `
       <div class="view-header">
         <div>
-          <h1 class="view-title">Scan &amp; Packer Intelligence</h1>
+          <h1 class="view-title">${esc(t("overview.title"))}</h1>
           <p class="view-subtitle mono">${esc(sample.name)} &middot; SHA-256 ${esc(sample.sha256.slice(0, 16))}…</p>
         </div>
         <div class="view-actions">
-          ${isApk ? `<button class="btn btn-primary btn-sm" type="button" data-action="run-scan">${Store.busy.scan ? "Scanning..." : "Run Deep Scan"}</button>` : ""}
-          <button class="btn btn-subtle btn-sm" type="button" data-action="run-inspect">${Store.busy.inspect ? "Inspecting..." : "Refresh APK Intel"}</button>
-          <button class="btn btn-subtle btn-sm" type="button" data-action="nav" data-view="inspector">Open DEX Inspector</button>
-          <button class="btn btn-subtle btn-sm" type="button" data-action="nav" data-view="reports">Export Report</button>
+          ${isApk ? `<button class="btn btn-primary btn-sm" type="button" data-action="run-scan">${esc(Store.busy.scan ? t("overview.scanning") : t("overview.run_scan"))}</button>` : ""}
+          <button class="btn btn-subtle btn-sm" type="button" data-action="run-inspect">${esc(Store.busy.inspect ? t("overview.inspecting") : t("overview.refresh_intel"))}</button>
+          <button class="btn btn-subtle btn-sm" type="button" data-action="nav" data-view="pipeline">${esc(t("overview.open_pipeline"))}</button>
+          <button class="btn btn-subtle btn-sm" type="button" data-action="nav" data-view="inspector">${esc(t("overview.open_inspector"))}</button>
+          <button class="btn btn-subtle btn-sm" type="button" data-action="nav" data-view="reports">${esc(t("overview.export_report"))}</button>
         </div>
       </div>
 
-      <div class="verdict-banner ${sevClass}">
-        <div>
-          <div class="verdict-kicker">PACKER &amp; PROTECTION VERDICT</div>
-          <div class="verdict-title">
-            <span>${esc(scan ? scan.packer_name || "No Commercial Packer Detected" : isApk ? "Scan Not Yet Executed" : "DEX Artifact Ready")}</span>
-            ${scan && scan.packer_version ? UI.badge(scan.packer_version, "accent") : ""}
-            ${scan ? UI.protectionBadge(scan.protection_level) : ""}
+      <div id="tourVerdictBanner">
+        <div class="verdict-banner ${sevClass}">
+          <div>
+            <div class="verdict-kicker">${esc(t("overview.verdict.kicker"))}</div>
+            <div class="verdict-title">
+              <span>${esc(scan ? scan.packer_name || t("overview.verdict.no_packer") : isApk ? t("overview.verdict.not_scanned") : t("overview.verdict.dex_ready"))}</span>
+              ${scan && scan.packer_version ? UI.badge(scan.packer_version, "accent") : ""}
+              ${scan ? UI.protectionBadge(scan.protection_level) : ""}
+            </div>
+            <div class="verdict-desc">${esc(
+              (scan && (scan.strategy_reason || scan.details)) ||
+                (isApk ? t("overview.verdict.desc_apk") : t("overview.verdict.desc_dex"))
+            )}</div>
           </div>
-          <div class="verdict-desc">${esc(
-            (scan && (scan.strategy_reason || scan.details)) ||
-              (isApk ? "Click Run Deep Scan to evaluate 24 commercial packer signature families and protection tiers." : "Use DEX Inspector, Repair Lab, or VMP Studio to inspect this DEX sample.")
-          )}</div>
-        </div>
-        <div class="gauge-group">
-          ${scan ? UI.ringGauge(confPct, "Confidence", confTone) : ""}
-          ${UI.ringGauge(riskScore, "Risk Score", riskTone)}
-        </div>
-      </div>
-
-      ${
-        scan
-          ? `
-        <div class="grid-2">
-          <div class="panel">
-            <div class="panel-head">
-              <div class="panel-title">Evidence Matrix &amp; Scoring</div>
-              ${UI.badge(`${(scan.matched_signatures || []).length} Signatures`, "accent")}
-            </div>
-            <div class="panel-body-flush">
-              <table class="data-table">
-                <thead><tr><th>Dimension</th><th class="num">Score</th><th class="num">Max</th><th>Weight</th><th>Status</th></tr></thead>
-                <tbody>${breakdownRows || `<tr><td colspan="5" style="color:var(--text-muted)">No breakdown available</td></tr>`}</tbody>
-              </table>
-            </div>
-            ${
-              scan.matched_signatures && scan.matched_signatures.length
-                ? `<div class="panel-body" style="border-top:1px solid var(--border)">
-                    <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">Matched Indicators</div>
-                    <div class="toolbar">${scan.matched_signatures.map((s) => UI.badge(s, "accent")).join("")}</div>
-                  </div>`
-                : ""
-            }
+          <div class="gauge-group">
+            ${scan ? UI.ringGauge(confPct, t("overview.gauge.confidence"), confTone) : ""}
+            ${UI.ringGauge(riskScore, t("overview.gauge.risk"), riskTone)}
           </div>
+        </div>
 
-          <div class="panel">
-            <div class="panel-head">
-              <div class="panel-title">Recommended Strategy &amp; Candidates</div>
-              ${scan.recommended_engine ? UI.badge(`ENGINE: ${scan.recommended_engine.toUpperCase()}`, "ok") : ""}
-            </div>
-            <div class="panel-body">
-              <div class="kv-list" style="margin-bottom:14px">
-                <div class="kv-row"><span class="kv-k">Application Class</span><span class="kv-v">${esc(scan.app_class || manifest.application_class || "—")}</span></div>
-                <div class="kv-row"><span class="kv-k">Recommended Engine</span><span class="kv-v">${esc(scan.recommended_engine || "auto")}</span></div>
-                <div class="kv-row"><span class="kv-k">Suggested Flags</span><span class="kv-v">${esc((scan.recommended_flags || []).join(" ") || "none")}</span></div>
-                <div class="kv-row"><span class="kv-k">Suspicious Assets</span><span class="kv-v">${(scan.suspicious_assets || []).length}</span></div>
+        ${
+          scan
+            ? `
+          <div class="grid-2">
+            <div class="panel">
+              <div class="panel-head">
+                <div class="panel-title">${esc(t("overview.evidence.title"))}</div>
+                ${UI.badge(t("overview.evidence.sigs", { count: (scan.matched_signatures || []).length }), "accent")}
+              </div>
+              <div class="panel-body-flush">
+                <table class="data-table">
+                  <thead><tr><th>${esc(t("overview.evidence.dim"))}</th><th class="num">${esc(t("overview.evidence.score"))}</th><th class="num">${esc(t("overview.evidence.max"))}</th><th>${esc(t("overview.evidence.weight"))}</th><th>${esc(t("common.status"))}</th></tr></thead>
+                  <tbody>${breakdownRows || `<tr><td colspan="5" style="color:var(--text-muted)">${esc(t("overview.evidence.empty"))}</td></tr>`}</tbody>
+                </table>
               </div>
               ${
-                candidateRows
-                  ? `<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">All Scored Candidates</div>
-                     <table class="data-table"><thead><tr><th>Vendor</th><th class="num">Score</th><th>Signatures</th></tr></thead><tbody>${candidateRows}</tbody></table>`
-                  : `<div style="color:var(--text-muted);font-size:12px">No competing packer candidates matched.</div>`
+                scan.matched_signatures && scan.matched_signatures.length
+                  ? `<div class="panel-body" style="border-top:1px solid var(--border)">
+                      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">${esc(t("overview.evidence.matched"))}</div>
+                      <div class="toolbar">${scan.matched_signatures.map((s) => UI.badge(s, "accent")).join("")}</div>
+                    </div>`
+                  : ""
               }
             </div>
+
+            <div class="panel">
+              <div class="panel-head">
+                <div class="panel-title">${esc(t("overview.strategy.title"))}</div>
+                ${scan.recommended_engine ? UI.badge(`ENGINE: ${scan.recommended_engine.toUpperCase()}`, "ok") : ""}
+              </div>
+              <div class="panel-body">
+                <div class="kv-list" style="margin-bottom:14px">
+                  <div class="kv-row"><span class="kv-k">${esc(t("overview.strategy.app_class"))}</span><span class="kv-v">${esc(scan.app_class || manifest.application_class || "—")}</span></div>
+                  <div class="kv-row"><span class="kv-k">${esc(t("overview.strategy.rec_engine"))}</span><span class="kv-v">${esc(scan.recommended_engine || "auto")}</span></div>
+                  <div class="kv-row"><span class="kv-k">${esc(t("overview.strategy.flags"))}</span><span class="kv-v">${esc((scan.recommended_flags || []).join(" ") || t("common.none"))}</span></div>
+                  <div class="kv-row"><span class="kv-k">${esc(t("overview.strategy.assets"))}</span><span class="kv-v">${(scan.suspicious_assets || []).length}</span></div>
+                </div>
+                ${
+                  candidateRows
+                    ? `<div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">${esc(t("overview.strategy.candidates"))}</div>
+                       <table class="data-table"><thead><tr><th>${esc(t("overview.strategy.vendor"))}</th><th class="num">${esc(t("overview.evidence.score"))}</th><th>${esc(t("overview.strategy.signatures"))}</th></tr></thead><tbody>${candidateRows}</tbody></table>`
+                    : `<div style="color:var(--text-muted);font-size:12px">${esc(t("overview.strategy.no_candidates"))}</div>`
+                }
+              </div>
+            </div>
           </div>
-        </div>
-      `
-          : ""
-      }
+        `
+            : ""
+        }
+      </div>
 
       ${
         insp
@@ -296,35 +305,35 @@
         <div class="grid-2">
           <div class="panel">
             <div class="panel-head">
-              <div class="panel-title">Manifest &amp; Signing Posture</div>
-              ${UI.badge(`GRADE ${insp.risk_grade || "A"}`, riskTone)}
+              <div class="panel-title">${esc(t("overview.manifest.title"))}</div>
+              ${UI.badge(t("overview.manifest.grade", { grade: insp.risk_grade || "A" }), riskTone)}
             </div>
             <div class="panel-body">
               <div class="kv-list">
-                <div class="kv-row"><span class="kv-k">Package</span><span class="kv-v">${esc(manifest.package || manifest.package_name || "—")}</span></div>
-                <div class="kv-row"><span class="kv-k">Version</span><span class="kv-v">${esc(manifest.version_name || "—")} (${esc(manifest.version_code || "—")})</span></div>
-                <div class="kv-row"><span class="kv-k">SDK (Min / Target)</span><span class="kv-v">${esc(manifest.min_sdk || "—")} / ${esc(manifest.target_sdk || "—")}</span></div>
-                <div class="kv-row"><span class="kv-k">Debuggable</span><span class="kv-v">${manifest.debuggable ? UI.badge("TRUE", "danger") : UI.badge("FALSE", "ok")}</span></div>
-                <div class="kv-row"><span class="kv-k">Signing Schemes</span><span class="kv-v">${
+                <div class="kv-row"><span class="kv-k">${esc(t("overview.manifest.package"))}</span><span class="kv-v">${esc(manifest.package || manifest.package_name || "—")}</span></div>
+                <div class="kv-row"><span class="kv-k">${esc(t("overview.manifest.version"))}</span><span class="kv-v">${esc(manifest.version_name || "—")} (${esc(manifest.version_code || "—")})</span></div>
+                <div class="kv-row"><span class="kv-k">${esc(t("overview.manifest.sdk"))}</span><span class="kv-v">${esc(manifest.min_sdk || "—")} / ${esc(manifest.target_sdk || "—")}</span></div>
+                <div class="kv-row"><span class="kv-k">${esc(t("overview.manifest.debuggable"))}</span><span class="kv-v">${manifest.debuggable ? UI.badge("TRUE", "danger") : UI.badge("FALSE", "ok")}</span></div>
+                <div class="kv-row"><span class="kv-k">${esc(t("overview.manifest.signing"))}</span><span class="kv-v">${
                   signingSchemes.length
                     ? `${esc(signingSchemes.join(" / "))}${signing.is_debug_cert ? " " + UI.badge("DEBUG CERT", "warn") : ""}`
-                    : "Unsigned / Unknown"
+                    : esc(t("overview.manifest.unsigned"))
                 }</span></div>
-                <div class="kv-row"><span class="kv-k">Permissions</span><span class="kv-v">${perms.length} total (${dangerousPerms.length} dangerous)</span></div>
-                <div class="kv-row"><span class="kv-k">DEX / Native Libs</span><span class="kv-v">${(insp.dex_files || []).length} DEX &middot; ${(insp.native_libs || []).length} SO</span></div>
+                <div class="kv-row"><span class="kv-k">${esc(t("overview.manifest.permissions"))}</span><span class="kv-v">${esc(t("overview.manifest.perms_val", { total: perms.length, dangerous: dangerousPerms.length }))}</span></div>
+                <div class="kv-row"><span class="kv-k">${esc(t("overview.manifest.dex_native"))}</span><span class="kv-v">${(insp.dex_files || []).length} DEX &middot; ${(insp.native_libs || []).length} SO</span></div>
               </div>
             </div>
           </div>
 
           <div class="panel">
             <div class="panel-head">
-              <div class="panel-title">Security Findings</div>
+              <div class="panel-title">${esc(t("overview.findings.title"))}</div>
               ${UI.badge(String(findings.length), findings.length ? "warn" : "ok")}
             </div>
             <div class="panel-body-flush">
               ${
                 findings.length
-                  ? `<table class="data-table"><thead><tr><th>Severity</th><th>Finding</th><th>Detail</th></tr></thead><tbody>
+                  ? `<table class="data-table"><thead><tr><th>${esc(t("overview.findings.severity"))}</th><th>${esc(t("overview.findings.finding"))}</th><th>${esc(t("common.detail"))}</th></tr></thead><tbody>
                       ${findings
                         .map(
                           (f) =>
@@ -332,7 +341,7 @@
                         )
                         .join("")}
                     </tbody></table>`
-                  : `<div class="panel-body" style="color:var(--text-secondary)">No manifest or structural security issues flagged.</div>`
+                  : `<div class="panel-body" style="color:var(--text-secondary)">${esc(t("overview.findings.empty"))}</div>`
               }
             </div>
           </div>
@@ -349,7 +358,7 @@
 
   function renderInspectorView() {
     const sample = Store.activeSample;
-    if (!sample) return UI.requireSamplePrompt("APK & DEX Inspector");
+    if (!sample) return UI.requireSamplePrompt(t("nav.inspector"));
 
     const d = Store.dex;
     const dexOptions = (d.list || [])
@@ -401,7 +410,7 @@
       : "";
 
     const dis = d.disasm;
-    let disasmContent = `<div class="panel-body" style="color:var(--text-muted)">Select a class and method to inspect Dalvik bytecode disassembly.</div>`;
+    let disasmContent = `<div class="panel-body" style="color:var(--text-muted)">${esc(t("inspector.select_method_hint"))}</div>`;
     if (dis) {
       if (dis.instructions && dis.instructions.length) {
         const rows = dis.instructions
@@ -437,23 +446,23 @@
           </div>
         `;
       } else {
-        disasmContent = `<div class="panel-body" style="color:var(--text-secondary)">${esc(dis.note || "No instructions in this method body.")}</div>`;
+        disasmContent = `<div class="panel-body" style="color:var(--text-secondary)">${esc(dis.note || t("inspector.no_insns"))}</div>`;
       }
     }
 
     const stringsView = `
-      <div class="panel">
+      <div class="panel" id="tourDexLayout">
         <div class="panel-head">
-          <div class="panel-title">DEX String Pool Explorer</div>
+          <div class="panel-title">${esc(t("inspector.strings.title"))}</div>
           <div class="toolbar">
-            <input type="search" class="input input-sm" id="dexStringsInput" placeholder="Search string literals (URLs, keys, JNI)..." value="${esc(d.stringsQuery)}" style="width:280px">
-            <button class="btn btn-primary btn-sm" type="button" data-action="search-strings">Search</button>
+            <input type="search" class="input input-sm" id="dexStringsInput" placeholder="${esc(t("inspector.strings.ph"))}" value="${esc(d.stringsQuery)}" style="width:280px">
+            <button class="btn btn-primary btn-sm" type="button" data-action="search-strings">${esc(t("common.search"))}</button>
           </div>
         </div>
         <div class="panel-body-flush">
           <div class="table-wrap">
             <table class="data-table">
-              <thead><tr><th style="width:90px">Index</th><th style="width:110px">Category</th><th>Literal Value</th><th class="num" style="width:80px">Len</th></tr></thead>
+              <thead><tr><th style="width:90px">${esc(t("inspector.strings.col.index"))}</th><th style="width:110px">${esc(t("inspector.strings.col.cat"))}</th><th>${esc(t("inspector.strings.col.val"))}</th><th class="num" style="width:80px">${esc(t("inspector.strings.col.len"))}</th></tr></thead>
               <tbody>
                 ${
                   d.stringsHits && d.stringsHits.length
@@ -466,7 +475,7 @@
                           return `<tr><td class="mono" style="color:var(--text-muted)">#${idx}</td><td>${UI.badge(cat, catTone)}</td><td class="mono" style="word-break:break-all">${esc(val)}</td><td class="mono num">${s.length ?? val.length}</td></tr>`;
                         })
                         .join("")
-                    : `<tr><td colspan="4" style="color:var(--text-muted)">Enter a query or click Search to list strings from ${esc(d.selectedDex || "DEX")}.</td></tr>`
+                    : `<tr><td colspan="4" style="color:var(--text-muted)">${esc(t("inspector.strings.empty", { dex: d.selectedDex || "DEX" }))}</td></tr>`
                 }
               </tbody>
             </table>
@@ -478,15 +487,15 @@
     return `
       <div class="view-header">
         <div>
-          <h1 class="view-title">APK &amp; DEX Inspector</h1>
-          <p class="view-subtitle">Browse DEX class trees, method health states, Dalvik disassembly, and string pools.</p>
+          <h1 class="view-title">${esc(t("inspector.title"))}</h1>
+          <p class="view-subtitle">${esc(t("inspector.subtitle"))}</p>
         </div>
         <div class="view-actions">
           <select class="select select-sm mono" id="dexFileSelect" style="min-width:220px">
-            ${dexOptions || `<option value="">No DEX entries</option>`}
+            ${dexOptions || `<option value="">${esc(t("inspector.no_dex"))}</option>`}
           </select>
-          <button class="btn ${d.tab === "classes" ? "btn-primary" : "btn-subtle"} btn-sm" type="button" data-action="dex-tab" data-tab="classes">Class Browser</button>
-          <button class="btn ${d.tab === "strings" ? "btn-primary" : "btn-subtle"} btn-sm" type="button" data-action="dex-tab" data-tab="strings">String Pool</button>
+          <button class="btn ${d.tab === "classes" ? "btn-primary" : "btn-subtle"} btn-sm" type="button" data-action="dex-tab" data-tab="classes">${esc(t("inspector.tab.classes"))}</button>
+          <button class="btn ${d.tab === "strings" ? "btn-primary" : "btn-subtle"} btn-sm" type="button" data-action="dex-tab" data-tab="strings">${esc(t("inspector.tab.strings"))}</button>
         </div>
       </div>
 
@@ -494,27 +503,27 @@
         d.tab === "strings"
           ? stringsView
           : `
-        <div class="dex-layout">
+        <div class="dex-layout" id="tourDexLayout">
           <!-- Pane 1: Class Browser -->
           <div class="dex-pane">
             <div class="dex-pane-head">
               <div class="dex-pane-title">
-                <span>Classes</span>
+                <span>${esc(t("inspector.pane.classes"))}</span>
                 <span class="mono">${page ? `${classesList.length} / ${page.total}` : "0"}</span>
               </div>
-              <input type="search" class="input input-sm" id="dexClassSearch" placeholder="Filter classes..." value="${esc(d.query)}">
+              <input type="search" class="input input-sm" id="dexClassSearch" placeholder="${esc(t("inspector.filter_classes_ph"))}" value="${esc(d.query)}">
               <div class="toolbar">
                 <select class="select select-sm" id="dexHealthFilter" style="flex:1">
-                  <option value="" ${!d.health ? "selected" : ""}>All Health</option>
-                  <option value="ok" ${d.health === "ok" ? "selected" : ""}>Healthy (OK)</option>
-                  <option value="nop" ${d.health === "nop" ? "selected" : ""}>NOP-Only</option>
-                  <option value="vmp" ${d.health === "vmp" ? "selected" : ""}>VMP Stubs</option>
+                  <option value="" ${!d.health ? "selected" : ""}>${esc(t("inspector.health.all"))}</option>
+                  <option value="ok" ${d.health === "ok" ? "selected" : ""}>${esc(t("inspector.health.ok"))}</option>
+                  <option value="nop" ${d.health === "nop" ? "selected" : ""}>${esc(t("inspector.health.nop"))}</option>
+                  <option value="vmp" ${d.health === "vmp" ? "selected" : ""}>${esc(t("inspector.health.vmp"))}</option>
                 </select>
-                <button class="btn btn-subtle btn-xs" type="button" data-action="filter-classes">Apply</button>
+                <button class="btn btn-subtle btn-xs" type="button" data-action="filter-classes">${esc(t("common.apply"))}</button>
               </div>
             </div>
             <div class="dex-pane-list">
-              ${classItems || `<div style="padding:14px;color:var(--text-muted);font-size:12px">No classes matched.</div>`}
+              ${classItems || `<div style="padding:14px;color:var(--text-muted);font-size:12px">${esc(t("inspector.no_classes"))}</div>`}
             </div>
           </div>
 
@@ -522,15 +531,15 @@
           <div class="dex-pane">
             <div class="dex-pane-head">
               <div class="dex-pane-title">
-                <span>Methods</span>
+                <span>${esc(t("inspector.pane.methods"))}</span>
                 <span class="mono">${detail ? (detail.methods || []).length : 0}</span>
               </div>
               <div class="mono" style="font-size:11px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(detail ? detail.name : "")}">
-                ${esc(detail ? detail.name : "Select a class")}
+                ${esc(detail ? detail.name : t("inspector.select_class"))}
               </div>
             </div>
             <div class="dex-pane-list">
-              ${methodItems || `<div style="padding:14px;color:var(--text-muted);font-size:12px">Pick a class on the left to inspect its direct &amp; virtual methods.</div>`}
+              ${methodItems || `<div style="padding:14px;color:var(--text-muted);font-size:12px">${esc(t("inspector.select_class_hint"))}</div>`}
             </div>
           </div>
 
@@ -538,8 +547,8 @@
           <div class="dex-pane">
             <div class="dex-pane-head">
               <div class="dex-pane-title">
-                <span>Dalvik Disassembly Preview</span>
-                <span class="mono">${dis ? `${(dis.instructions || []).length} insns` : "—"}</span>
+                <span>${esc(t("inspector.pane.disasm"))}</span>
+                <span class="mono">${dis ? esc(t("inspector.insns_count", { count: (dis.instructions || []).length })) : "—"}</span>
               </div>
             </div>
             ${disasmContent}
@@ -556,7 +565,7 @@
 
   function renderRepairView() {
     const sample = Store.activeSample;
-    if (!sample) return UI.requireSamplePrompt("Repair & Verify Lab");
+    if (!sample) return UI.requireSamplePrompt(t("nav.repair"));
 
     const vSum = Store.verifySummary;
     const rep = Store.repairResult;
@@ -568,12 +577,12 @@
               (r) => `
                 <tr>
                   <td class="mono" style="font-weight:600">${esc(r.file)}</td>
-                  <td>${r.valid ? UI.badge("VALID", "ok") : UI.badge("ISSUES", "danger")}</td>
+                  <td>${r.valid ? UI.badge(t("badge.valid"), "ok") : UI.badge(t("badge.issues"), "danger")}</td>
                   <td class="mono num">${Number(r.health_score || 0).toFixed(0)}/100</td>
                   <td class="mono num">${UI.fmtNum((r.stats || {}).class_count)}</td>
                   <td class="mono num">${UI.fmtNum((r.stats || {}).nop_only_methods)}</td>
                   <td class="mono num">${Math.round(((r.stats || {}).code_coverage || 0) * 100)}%</td>
-                  <td style="font-size:12px;color:var(--text-secondary)">${esc((r.issues || []).join("; ") || "Clean DEX header & checksums")}</td>
+                  <td style="font-size:12px;color:var(--text-secondary)">${esc((r.issues || []).join("; ") || t("repair.clean_header"))}</td>
                 </tr>
               `
             )
@@ -589,35 +598,36 @@
               const delta = Number(d.health_delta || 0);
               const deltaTone = delta > 0 ? "ok" : delta < 0 ? "danger" : "muted";
               const actions = ((d.repair || {}).actions || []).join(" · ");
+              const beforeStatus = b.valid ? t("badge.valid") : `${(b.issues || []).length}`;
               return `
                 <div class="diff-card">
                   <div class="diff-head">
                     <div class="toolbar">
                       <span class="mono" style="font-weight:700">${esc(d.file)}</span>
-                      ${a.valid ? UI.badge("AFTER: VALID", "ok") : UI.badge("AFTER: WARNINGS", "warn")}
+                      ${a.valid ? UI.badge(t("repair.diff.after_valid"), "ok") : UI.badge(t("repair.diff.after_warn"), "warn")}
                       ${UI.badge(`HEALTH ${delta >= 0 ? "+" : ""}${delta}`, deltaTone)}
                     </div>
                     <div class="mono" style="font-size:11.5px;color:var(--text-secondary)">${esc(actions)}</div>
                   </div>
                   <div class="diff-cols">
                     <div class="diff-box">
-                      <h4>Before Repair (${b.valid ? "Valid" : `${(b.issues || []).length} issue(s)`})</h4>
+                      <h4>${esc(t("repair.diff.before", { status: beforeStatus }))}</h4>
                       <ul class="issue-list">
                         ${
                           (b.issues || []).length
                             ? b.issues.map((x) => `<li>${UI.badge("OLD", "danger")}<span>${esc(x)}</span></li>`).join("")
-                            : `<li style="color:var(--ok)">No structural issues detected before repair.</li>`
+                            : `<li style="color:var(--ok)">${esc(t("repair.diff.before_clean"))}</li>`
                         }
                       </ul>
                     </div>
                     <div class="diff-box">
-                      <h4>After Repair (${(d.resolved_issues || []).length} resolved &middot; ${(d.remaining_issues || []).length} remaining)</h4>
+                      <h4>${esc(t("repair.diff.after", { resolved: (d.resolved_issues || []).length, remaining: (d.remaining_issues || []).length }))}</h4>
                       <ul class="issue-list">
                         ${(d.resolved_issues || []).map((x) => `<li>${UI.badge("FIXED", "ok")}<span>${esc(x)}</span></li>`).join("")}
                         ${(d.remaining_issues || []).map((x) => `<li>${UI.badge("OPEN", "warn")}<span>${esc(x)}</span></li>`).join("")}
                         ${
                           !(d.resolved_issues || []).length && !(d.remaining_issues || []).length
-                            ? `<li style="color:var(--ok)">Verified clean — header, SHA-1, Adler32 &amp; bounds valid.</li>`
+                            ? `<li style="color:var(--ok)">${esc(t("repair.diff.after_clean"))}</li>`
                             : ""
                         }
                       </ul>
@@ -632,15 +642,15 @@
     return `
       <div class="view-header">
         <div>
-          <h1 class="view-title">Repair &amp; Verify Lab</h1>
-          <p class="view-subtitle">Validate DEX integrity, fix corrupted headers/checksums/CDEX in isolation, and inspect before/after diffs.</p>
+          <h1 class="view-title">${esc(t("repair.title"))}</h1>
+          <p class="view-subtitle">${esc(t("repair.subtitle"))}</p>
         </div>
         <div class="view-actions">
-          <button class="btn btn-subtle btn-sm" type="button" data-action="run-verify">${Store.busy.verify ? "Verifying..." : "Verify DEX Set"}</button>
-          <button class="btn btn-primary btn-sm" type="button" data-action="run-repair">${Store.busy.repair ? "Repairing..." : "Repair &amp; Diff"}</button>
+          <button class="btn btn-subtle btn-sm" type="button" data-action="run-verify">${esc(Store.busy.verify ? t("repair.btn_verifying") : t("repair.btn_verify"))}</button>
+          <button class="btn btn-primary btn-sm" type="button" data-action="run-repair">${esc(Store.busy.repair ? t("repair.btn_repairing") : t("repair.btn_repair"))}</button>
           ${
             rep && rep.artifact
-              ? `<a class="btn btn-subtle btn-sm" href="${esc(rep.artifact.download_url)}">Download Repaired ZIP</a>`
+              ? `<a class="btn btn-subtle btn-sm" href="${esc(rep.artifact.download_url)}">${esc(t("repair.btn_download"))}</a>`
               : ""
           }
         </div>
@@ -650,17 +660,17 @@
         vSum
           ? `
         <div class="kpi-strip">
-          ${UI.kpi("DEX Evaluated", vSum.total)}
-          ${UI.kpi("Valid DEX", vSum.valid_count, "", "ok")}
-          ${UI.kpi("With Issues", vSum.invalid_count, "", vSum.invalid_count ? "danger" : "ok")}
-          ${UI.kpi("Avg Health Score", `${vSum.avg_health}/100`)}
+          ${UI.kpi(t("repair.kpi.eval"), vSum.total)}
+          ${UI.kpi(t("repair.kpi.valid"), vSum.valid_count, "", "ok")}
+          ${UI.kpi(t("repair.kpi.issues"), vSum.invalid_count, "", vSum.invalid_count ? "danger" : "ok")}
+          ${UI.kpi(t("repair.kpi.health"), `${vSum.avg_health}/100`)}
         </div>
         <div class="panel">
-          <div class="panel-head"><div class="panel-title">Verification Matrix</div></div>
+          <div class="panel-head"><div class="panel-title">${esc(t("repair.matrix.title"))}</div></div>
           <div class="panel-body-flush">
             <div class="table-wrap">
               <table class="data-table">
-                <thead><tr><th>DEX</th><th>Status</th><th class="num">Health</th><th class="num">Classes</th><th class="num">NOP</th><th class="num">Coverage</th><th>Diagnostics</th></tr></thead>
+                <thead><tr><th>DEX</th><th>${esc(t("common.status"))}</th><th class="num">${esc(t("repair.matrix.health"))}</th><th class="num">${esc(t("repair.matrix.classes"))}</th><th class="num">NOP</th><th class="num">${esc(t("repair.matrix.coverage"))}</th><th>${esc(t("repair.matrix.diag"))}</th></tr></thead>
                 <tbody>${verifyRows}</tbody>
               </table>
             </div>
@@ -673,16 +683,16 @@
       ${
         diffCards
           ? `<div style="margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
-              <h2 style="font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary)">Before / After Repair Health Diff</h2>
-              ${UI.badge(`${rep.resolved_issues_total || 0} Issues Resolved`, "ok")}
+              <h2 style="font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary)">${esc(t("repair.diff.title"))}</h2>
+              ${UI.badge(t("repair.diff.resolved_badge", { count: rep.resolved_issues_total || 0 }), "ok")}
             </div>${diffCards}`
           : !vSum
           ? UI.emptyState(
-              "Ready to Verify & Repair",
-              "Run non-destructive DEX verification or generate repaired DEX artifacts with full before/after diagnostics.",
+              t("repair.empty.title"),
+              t("repair.empty.desc"),
               `<div class="toolbar" style="justify-content:center">
-                <button class="btn btn-subtle" type="button" data-action="run-verify">Verify DEX Set</button>
-                <button class="btn btn-primary" type="button" data-action="run-repair">Repair &amp; Diff</button>
+                <button class="btn btn-subtle" type="button" data-action="run-verify">${esc(t("repair.btn_verify"))}</button>
+                <button class="btn btn-primary" type="button" data-action="run-repair">${esc(t("repair.btn_repair"))}</button>
               </div>`
             )
           : ""
@@ -696,7 +706,7 @@
 
   function renderVmpView() {
     const sample = Store.activeSample;
-    if (!sample) return UI.requireSamplePrompt("VMP & Native Studio");
+    if (!sample) return UI.requireSamplePrompt(t("nav.vmp"));
 
     const vmp = sample.vmp_result;
     const insp = sample.inspect_result;
@@ -745,12 +755,12 @@
     return `
       <div class="view-header">
         <div>
-          <h1 class="view-title">VMP &amp; Native Analysis Studio</h1>
-          <p class="view-subtitle">Detect virtualized dispatcher stubs, native ELF hardening indicators, and reflection/IOC cross-references.</p>
+          <h1 class="view-title">${esc(t("vmp.title"))}</h1>
+          <p class="view-subtitle">${esc(t("vmp.subtitle"))}</p>
         </div>
         <div class="view-actions">
-          <button class="btn btn-primary btn-sm" type="button" data-action="run-vmp">${Store.busy.vmp ? "Analyzing VMP..." : "Run VMP Analysis"}</button>
-          <button class="btn btn-subtle btn-sm" type="button" data-action="run-xref">${Store.busy.xref ? "Building Xref..." : "Run Xref &amp; IOCs"}</button>
+          <button class="btn btn-primary btn-sm" type="button" data-action="run-vmp">${esc(Store.busy.vmp ? t("vmp.btn_vmp_busy") : t("vmp.btn_vmp"))}</button>
+          <button class="btn btn-subtle btn-sm" type="button" data-action="run-xref">${esc(Store.busy.xref ? t("vmp.btn_xref_busy") : t("vmp.btn_xref"))}</button>
         </div>
       </div>
 
@@ -758,17 +768,17 @@
         vmp
           ? `
         <div class="kpi-strip">
-          ${UI.kpi("Methods Analyzed", UI.fmtNum(vmp.total_methods), `${vmp.dex_analyzed || 1} DEX analyzed`)}
-          ${UI.kpi("Normal Bytecode", UI.fmtNum(vmp.normal_count), `${normPct}%`, "ok")}
-          ${UI.kpi("NOP-Only (Extracted)", UI.fmtNum(vmp.nop_count), `${nopPct}%`, vmp.nop_count ? "warn" : "ok")}
-          ${UI.kpi("VMP Stubs", UI.fmtNum(vmp.vmp_count), `${(vmp.vmp_ratio * 100).toFixed(2)}%`, vmp.vmp_count ? "danger" : "ok")}
-          ${UI.kpi("VMP Risk", `${vmp.risk_score || 0}/100`, (vmp.verdict || "clean").toUpperCase(), vmp.risk_score >= 50 ? "danger" : "ok")}
+          ${UI.kpi(t("vmp.kpi.methods"), UI.fmtNum(vmp.total_methods), t("vmp.kpi.dex_sub", { count: vmp.dex_analyzed || 1 }))}
+          ${UI.kpi(t("vmp.kpi.normal"), UI.fmtNum(vmp.normal_count), `${normPct}%`, "ok")}
+          ${UI.kpi(t("vmp.kpi.nop"), UI.fmtNum(vmp.nop_count), `${nopPct}%`, vmp.nop_count ? "warn" : "ok")}
+          ${UI.kpi(t("vmp.kpi.stubs"), UI.fmtNum(vmp.vmp_count), `${(vmp.vmp_ratio * 100).toFixed(2)}%`, vmp.vmp_count ? "danger" : "ok")}
+          ${UI.kpi(t("vmp.kpi.risk"), `${vmp.risk_score || 0}/100`, (vmp.verdict || "clean").toUpperCase(), vmp.risk_score >= 50 ? "danger" : "ok")}
         </div>
 
         <div class="panel">
           <div class="panel-body">
             <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:6px">
-              <span>Method Body Distribution</span>
+              <span>${esc(t("vmp.dist.title"))}</span>
               <span class="mono" style="color:var(--text-secondary)">Normal ${normPct}% &middot; NOP ${nopPct}% &middot; VMP ${vmpPct}%</span>
             </div>
             <div class="bar-track" style="height:10px">
@@ -783,9 +793,9 @@
       }
 
       <div class="tabs">
-        <button class="tab-btn ${tab === "stubs" ? "active" : ""}" type="button" data-action="vmp-tab" data-tab="stubs">VMP Stubs &amp; Dispatchers</button>
-        <button class="tab-btn ${tab === "native" ? "active" : ""}" type="button" data-action="vmp-tab" data-tab="native">Native ELF Libraries (${nativeLibs.length})</button>
-        <button class="tab-btn ${tab === "xref" ? "active" : ""}" type="button" data-action="vmp-tab" data-tab="xref">Xref, Reflection &amp; IOCs</button>
+        <button class="tab-btn ${tab === "stubs" ? "active" : ""}" type="button" data-action="vmp-tab" data-tab="stubs">${esc(t("vmp.tab.stubs"))}</button>
+        <button class="tab-btn ${tab === "native" ? "active" : ""}" type="button" data-action="vmp-tab" data-tab="native">${esc(t("vmp.tab.native", { count: nativeLibs.length }))}</button>
+        <button class="tab-btn ${tab === "xref" ? "active" : ""}" type="button" data-action="vmp-tab" data-tab="xref">${esc(t("vmp.tab.xref"))}</button>
       </div>
 
       ${
@@ -794,30 +804,30 @@
             ? `
           <div class="grid-2">
             <div class="panel">
-              <div class="panel-head"><div class="panel-title">Dispatcher Clusters</div></div>
+              <div class="panel-head"><div class="panel-title">${esc(t("vmp.dispatchers.title"))}</div></div>
               <div class="panel-body-flush">
                 <table class="data-table">
-                  <thead><tr><th>Target Dispatcher</th><th class="num">Calls</th></tr></thead>
+                  <thead><tr><th>${esc(t("vmp.dispatchers.col_target"))}</th><th class="num">${esc(t("vmp.dispatchers.col_calls"))}</th></tr></thead>
                   <tbody>
                     ${
                       (vmp.dispatchers || []).length
                         ? vmp.dispatchers.map((d) => `<tr><td class="mono">${esc(d.dispatcher || d.target)}</td><td class="mono num">${d.stub_count ?? d.call_count ?? 0}</td></tr>`).join("")
-                        : `<tr><td colspan="2" style="color:var(--text-muted)">No VMP dispatchers clustered.</td></tr>`
+                        : `<tr><td colspan="2" style="color:var(--text-muted)">${esc(t("vmp.dispatchers.empty"))}</td></tr>`
                     }
                   </tbody>
                 </table>
               </div>
             </div>
             <div class="panel">
-              <div class="panel-head"><div class="panel-title">High-Density VMP Classes</div></div>
+              <div class="panel-head"><div class="panel-title">${esc(t("vmp.density.title"))}</div></div>
               <div class="panel-body-flush">
                 <table class="data-table">
-                  <thead><tr><th>Class</th><th class="num">Stubs</th></tr></thead>
+                  <thead><tr><th>${esc(t("vmp.density.col_class"))}</th><th class="num">${esc(t("vmp.density.col_stubs"))}</th></tr></thead>
                   <tbody>
                     ${
                       (vmp.class_density || []).length
                         ? vmp.class_density.map((c) => `<tr><td class="mono">${esc(c.class_name || c.class)}</td><td class="mono num">${c.vmp_count ?? c.vmp_methods ?? 0}</td></tr>`).join("")
-                        : `<tr><td colspan="2" style="color:var(--text-muted)">No VMP stub classes detected.</td></tr>`
+                        : `<tr><td colspan="2" style="color:var(--text-muted)">${esc(t("vmp.density.empty"))}</td></tr>`
                     }
                   </tbody>
                 </table>
@@ -827,13 +837,13 @@
 
           <div class="panel">
             <div class="panel-head">
-              <div class="panel-title">Detected VMP Stub Methods (${filteredStubs.length})</div>
-              <input type="search" class="input input-sm" id="vmpSearchInput" style="width:220px" placeholder="Filter class or method..." value="${esc(Store.vmpSearch)}">
+              <div class="panel-title">${esc(t("vmp.stubs.title", { count: filteredStubs.length }))}</div>
+              <input type="search" class="input input-sm" id="vmpSearchInput" style="width:220px" placeholder="${esc(t("vmp.stubs.ph"))}" value="${esc(Store.vmpSearch)}">
             </div>
             <div class="panel-body-flush">
               <div class="table-wrap">
                 <table class="data-table">
-                  <thead><tr><th>DEX</th><th>Class</th><th>Method</th><th class="num">Units</th></tr></thead>
+                  <thead><tr><th>DEX</th><th>${esc(t("vmp.density.col_class"))}</th><th>${esc(t("vmp.stubs.col_method"))}</th><th class="num">${esc(t("vmp.stubs.col_units"))}</th></tr></thead>
                   <tbody>
                     ${
                       filteredStubs.length
@@ -844,7 +854,7 @@
                                 `<tr><td class="mono">${esc(m.dex || "classes.dex")}</td><td class="mono">${esc(m.class_name || m.class || "")}</td><td class="mono">${esc(m.method_name || m.method || "")}</td><td class="mono num">${m.insns_size || 0}</td></tr>`
                             )
                             .join("")
-                        : `<tr><td colspan="4" style="color:var(--text-muted)">No VMP stub methods found in analyzed DEX files.</td></tr>`
+                        : `<tr><td colspan="4" style="color:var(--text-muted)">${esc(t("vmp.stubs.empty"))}</td></tr>`
                     }
                   </tbody>
                 </table>
@@ -853,22 +863,22 @@
           </div>
         `
             : UI.emptyState(
-                "No VMP Analysis Yet",
-                "Run VMP analysis to classify every DEX method body and identify native VM dispatcher stubs.",
-                `<button class="btn btn-primary" type="button" data-action="run-vmp">Run VMP Analysis</button>`
+                t("vmp.empty.title"),
+                t("vmp.empty.desc"),
+                `<button class="btn btn-primary" type="button" data-action="run-vmp">${esc(t("vmp.btn_vmp"))}</button>`
               )
           : tab === "native"
           ? `
         <div class="panel">
           <div class="panel-head">
-            <div class="panel-title">Native SO / ELF Inventory</div>
-            ${UI.badge(`${secLibCount} Security Indicators`, secLibCount ? "warn" : "muted")}
+            <div class="panel-title">${esc(t("vmp.native.title"))}</div>
+            ${UI.badge(t("vmp.native.sec_badge", { count: secLibCount }), secLibCount ? "warn" : "muted")}
           </div>
           <div class="panel-body-flush">
             ${
               nativeLibs.length
                 ? `<div class="table-wrap"><table class="data-table">
-                    <thead><tr><th>Library</th><th>ABI</th><th>ELF / Arch</th><th>Mitigations</th><th class="num">Size</th><th>Indicators</th></tr></thead>
+                    <thead><tr><th>${esc(t("vmp.native.col_lib"))}</th><th>ABI</th><th>${esc(t("vmp.native.col_arch"))}</th><th>${esc(t("vmp.native.col_mit"))}</th><th class="num">${esc(t("common.size"))}</th><th>${esc(t("vmp.native.col_ind"))}</th></tr></thead>
                     <tbody>
                       ${nativeLibs
                         .map((n) => {
@@ -893,7 +903,7 @@
                         .join("")}
                     </tbody>
                   </table></div>`
-                : `<div class="panel-body" style="color:var(--text-secondary)">No native .so libraries found (or inspect an APK sample first).</div>`
+                : `<div class="panel-body" style="color:var(--text-secondary)">${esc(t("vmp.native.empty"))}</div>`
             }
           </div>
         </div>
@@ -901,18 +911,18 @@
           : xref
           ? `
         <div class="kpi-strip">
-          ${UI.kpi("String Refs", UI.fmtNum((xref.counts || {}).strings))}
-          ${UI.kpi("Method Targets", UI.fmtNum((xref.counts || {}).method_calls ?? (xref.counts || {}).method_targets))}
-          ${UI.kpi("Reflection Sinks", UI.fmtNum((xref.counts || {}).reflection_calls), "", (xref.counts || {}).reflection_calls ? "warn" : "ok")}
-          ${UI.kpi("Sensitive APIs", UI.fmtNum(sensitiveCount(xref)))}
+          ${UI.kpi(t("vmp.xref.kpi_strings"), UI.fmtNum((xref.counts || {}).strings))}
+          ${UI.kpi(t("vmp.xref.kpi_methods"), UI.fmtNum((xref.counts || {}).method_calls ?? (xref.counts || {}).method_targets))}
+          ${UI.kpi(t("vmp.xref.kpi_refl"), UI.fmtNum((xref.counts || {}).reflection_calls), "", (xref.counts || {}).reflection_calls ? "warn" : "ok")}
+          ${UI.kpi(t("vmp.xref.kpi_apis"), UI.fmtNum(sensitiveCount(xref)))}
         </div>
         <div class="grid-2">
           <div class="panel">
-            <div class="panel-head"><div class="panel-title">Reflection &amp; Dynamic ClassLoading</div></div>
+            <div class="panel-head"><div class="panel-title">${esc(t("vmp.xref.refl_title"))}</div></div>
             <div class="panel-body-flush">
               <div class="table-wrap">
                 <table class="data-table">
-                  <thead><tr><th>Caller</th><th>Sink Target</th></tr></thead>
+                  <thead><tr><th>${esc(t("vmp.xref.col_caller"))}</th><th>${esc(t("vmp.xref.col_sink"))}</th></tr></thead>
                   <tbody>
                     ${
                       (xref.reflection_calls || []).length
@@ -923,7 +933,7 @@
                                 `<tr><td class="mono">${esc((r.caller || {}).class || "")}→${esc((r.caller || {}).method || "")}</td><td class="mono" style="color:var(--warn)">${esc(r.target)}</td></tr>`
                             )
                             .join("")
-                        : `<tr><td colspan="2" style="color:var(--text-muted)">No reflection calls indexed.</td></tr>`
+                        : `<tr><td colspan="2" style="color:var(--text-muted)">${esc(t("vmp.xref.refl_empty"))}</td></tr>`
                     }
                   </tbody>
                 </table>
@@ -931,9 +941,9 @@
             </div>
           </div>
           <div class="panel">
-            <div class="panel-head"><div class="panel-title">Extracted IOCs (URLs &amp; IPs)</div></div>
+            <div class="panel-head"><div class="panel-title">${esc(t("vmp.xref.ioc_title"))}</div></div>
             <div class="panel-body">
-              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">URLs (${((xref.iocs || {}).urls || []).length})</div>
+              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">${esc(t("vmp.xref.urls", { count: ((xref.iocs || {}).urls || []).length }))}</div>
               <div class="mono" style="font-size:11.5px;max-height:170px;overflow:auto;background:var(--bg-inset);padding:8px;border-radius:4px;border:1px solid var(--border);margin-bottom:12px">
                 ${
                   ((xref.iocs || {}).urls || []).length
@@ -943,17 +953,17 @@
                           return `<div style="margin-bottom:3px">${esc(it.value)}${it.count !== null ? ` <span style="color:var(--text-muted)">(${it.count})</span>` : ""}</div>`;
                         })
                         .join("")
-                    : `<span style="color:var(--text-muted)">None found</span>`
+                    : `<span style="color:var(--text-muted)">${esc(t("vmp.xref.none"))}</span>`
                 }
               </div>
-              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">IP Addresses (${((xref.iocs || {}).ips || []).length})</div>
+              <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">${esc(t("vmp.xref.ips", { count: ((xref.iocs || {}).ips || []).length }))}</div>
               <div class="mono" style="font-size:11.5px;background:var(--bg-inset);padding:8px;border-radius:4px;border:1px solid var(--border)">
                 ${
                   ((xref.iocs || {}).ips || []).length
                     ? (xref.iocs || {}).ips
                         .map((raw) => UI.badge(formatIoc(raw).value, "muted"))
                         .join(" ")
-                    : `<span style="color:var(--text-muted)">None found</span>`
+                    : `<span style="color:var(--text-muted)">${esc(t("vmp.xref.none"))}</span>`
                 }
               </div>
             </div>
@@ -961,152 +971,23 @@
         </div>
       `
           : UI.emptyState(
-              "No Xref Index Yet",
-              "Build a cross-reference index to surface Java reflection, DexClassLoader sinks, sensitive APIs, and URL/IP IOCs.",
-              `<button class="btn btn-primary" type="button" data-action="run-xref">Run Xref &amp; IOCs</button>`
+              t("vmp.xref.empty_title"),
+              t("vmp.xref.empty_desc"),
+              `<button class="btn btn-primary" type="button" data-action="run-xref">${esc(t("vmp.btn_xref"))}</button>`
             )
       }
     `;
   }
 
   // =========================================================================
-  // 6. Pipeline, Repack & FART Export Center
+  // 6. Deep Pipeline Studio (Delegated to pipeline.js)
   // =========================================================================
 
   function renderPipelineView() {
-    const sample = Store.activeSample;
-    if (!sample) return UI.requireSamplePrompt("Pipeline & Repack");
-
-    const job = Store.activeJob;
-    const phases = ["scanning", "dumping", "active_invoke", "repairing", "verifying"];
-    const curIdx = job ? phases.indexOf(job.phase) : -1;
-
-    const dexSources = Store.samples
-      .filter((s) => s.kind === "dex_dir" || s.kind === "dex")
-      .map((s) => `<option value="${esc(s.id)}">${esc(s.name)} (${s.dex_count || 1} DEX)</option>`)
-      .join("");
-
-    return `
-      <div class="view-header">
-        <div>
-          <h1 class="view-title">Pipeline, Repack &amp; FART Studio</h1>
-          <p class="view-subtitle">Orchestrate end-to-end live unpacking with SSE streaming, rebuild unpacked APKs, or export FART binaries.</p>
-        </div>
-        <div class="view-actions">
-          <button class="btn btn-subtle btn-sm" type="button" data-action="open-drawer">Open Live Task Logs</button>
-        </div>
-      </div>
-
-      ${
-        sample.kind === "apk"
-          ? `
-        <div class="panel">
-          <div class="panel-head">
-            <div class="panel-title">End-to-End Unpack Pipeline (Live SSE)</div>
-            ${job ? UI.badge(job.status.toUpperCase(), job.status === "done" ? "ok" : job.status === "failed" ? "danger" : "accent") : ""}
-          </div>
-          <div class="panel-body">
-            <div class="stepper">
-              ${phases
-                .map((p, idx) => {
-                  let cls = "";
-                  if (job) {
-                    if (job.status === "done" || (curIdx > idx && job.status !== "failed")) cls = "done";
-                    else if (curIdx === idx) cls = job.status === "failed" ? "fail" : "active";
-                  }
-                  return `<div class="step-item ${cls}"><div class="step-name">${esc(p.replace("_", " "))}</div><div class="step-bar"></div></div>`;
-                })
-                .join("")}
-            </div>
-            <div class="form-grid">
-              <div class="field">
-                <label for="pipeEngine">Dump Engine</label>
-                <select class="select" id="pipeEngine">
-                  <option value="">Auto (Recommended)</option>
-                  <option value="memory">Memory (/proc/pid/mem)</option>
-                  <option value="frida">Frida Instrumentation</option>
-                  <option value="ebpf">eBPF Uprobe</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="pipeStartFrom">Pipeline Mode</label>
-                <select class="select" id="pipeStartFrom">
-                  <option value="scan_only">Static Scan Only (No Device Needed)</option>
-                  <option value="repairing">Repair &amp; Verify Existing DEXs (Offline)</option>
-                  <option value="scan">Full Pipeline (Scan → Dump → Repair → Verify)</option>
-                  <option value="dumping">Re-Dump from Device</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="pipeTimeout">Timeout (sec)</label>
-                <input type="number" class="input mono" id="pipeTimeout" value="15" min="5" max="300">
-              </div>
-              <div class="field">
-                <label class="checkbox-row"><input type="checkbox" id="pipeDeep"> Deep Active Invoke</label>
-                <label class="checkbox-row"><input type="checkbox" id="pipeAntiDetect" checked> Anti-Detection</label>
-              </div>
-              <div class="field">
-                <button class="btn btn-primary" type="button" data-action="run-pipeline">Launch Pipeline Job</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      `
-          : ""
-      }
-
-      <div class="grid-2">
-        <div class="panel">
-          <div class="panel-head"><div class="panel-title">APK Repack Center</div></div>
-          <div class="panel-body">
-            ${
-              sample.kind === "apk"
-                ? `
-              <p style="color:var(--text-secondary);font-size:12.5px;margin-bottom:12px">
-                Replace packed <code>classes*.dex</code> inside <strong>${esc(sample.name)}</strong> with repaired or dumped DEX files while preserving all resources.
-              </p>
-              <div class="field" style="margin-bottom:10px">
-                <label for="repackDexSource">DEX Source</label>
-                <select class="select" id="repackDexSource">
-                  <option value="">Use repaired/extracted DEXs from this APK</option>
-                  ${dexSources}
-                </select>
-              </div>
-              <label class="checkbox-row" style="margin-bottom:12px">
-                <input type="checkbox" id="repackStripSigs" checked> Strip stale META-INF signature entries
-              </label>
-              <div class="toolbar">
-                <button class="btn btn-primary btn-sm" type="button" data-action="run-repack">${Store.busy.repack ? "Repacking..." : "Build Unpacked APK"}</button>
-                ${
-                  Store.repackResult && Store.repackResult.artifact
-                    ? `<a class="btn btn-subtle btn-sm" href="${esc(Store.repackResult.artifact.download_url)}">Download ${esc(Store.repackResult.artifact.name)}</a>`
-                    : ""
-                }
-              </div>
-            `
-                : `<p style="color:var(--text-secondary)">Select an APK sample as the active target to repack it with dumped DEXs.</p>`
-            }
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-head"><div class="panel-title">FART Bin / Method Exporter</div></div>
-          <div class="panel-body">
-            <p style="color:var(--text-secondary);font-size:12.5px;margin-bottom:14px">
-              Export non-NOP Dalvik method bodies to FART-compatible <code>*_fart.bin</code> &amp; <code>*_fart.txt</code> files for downstream code-item recovery.
-            </p>
-            <div class="toolbar">
-              <button class="btn btn-primary btn-sm" type="button" data-action="run-fart">${Store.busy.fart ? "Exporting..." : "Generate FART Bundle"}</button>
-              ${
-                Store.fartResult && Store.fartResult.artifact
-                  ? `<a class="btn btn-subtle btn-sm" href="${esc(Store.fartResult.artifact.download_url)}">Download FART ZIP (${UI.fmtNum(Store.fartResult.total_methods)} methods)</a>`
-                  : ""
-              }
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
+    if (global.UnpackPipeline) {
+      return global.UnpackPipeline.renderWorkspace();
+    }
+    return UI.requireSamplePrompt(t("nav.pipeline"));
   }
 
   // =========================================================================
@@ -1115,68 +996,75 @@
 
   function renderReportsView() {
     const sample = Store.activeSample;
-    if (!sample) return UI.requireSamplePrompt("Reports & Export");
+    if (!sample) return UI.requireSamplePrompt(t("nav.reports"));
 
     const fmt = Store.reportFormat || "html";
     const artifacts = sample.artifacts || [];
+    const lang = global.UnpackI18n ? global.UnpackI18n.getLang() : "en";
+    const langLabel = lang === "zh" ? "中文 (ZH)" : "English (EN)";
 
     return `
       <div class="view-header">
         <div>
-          <h1 class="view-title">Commercial Report &amp; Export Center</h1>
-          <p class="view-subtitle">Generate self-contained executive audit reports (HTML, Markdown, SARIF 2.1.0, JSON) and download workspace artifacts.</p>
+          <h1 class="view-title">${esc(t("reports.title"))}</h1>
+          <p class="view-subtitle">${esc(t("reports.subtitle"))}</p>
         </div>
         <div class="view-actions">
-          <a class="btn btn-primary btn-sm" href="${esc(global.UnpackAPI.reportUrl(sample.id, "html", true))}">Download HTML</a>
-          <a class="btn btn-subtle btn-sm" href="${esc(global.UnpackAPI.reportUrl(sample.id, "markdown", true))}">Download Markdown</a>
-          <a class="btn btn-subtle btn-sm" href="${esc(global.UnpackAPI.reportUrl(sample.id, "sarif", true))}">Download SARIF 2.1.0</a>
-          <a class="btn btn-subtle btn-sm" href="${esc(global.UnpackAPI.reportUrl(sample.id, "json", true))}">Download JSON</a>
+          <a class="btn btn-primary btn-sm" href="${esc(global.UnpackAPI.reportUrl(sample.id, "html", true, lang))}">${esc(t("reports.dl_html"))}</a>
+          <a class="btn btn-subtle btn-sm" href="${esc(global.UnpackAPI.reportUrl(sample.id, "markdown", true, lang))}">${esc(t("reports.dl_md"))}</a>
+          <a class="btn btn-subtle btn-sm" href="${esc(global.UnpackAPI.reportUrl(sample.id, "sarif", true, lang))}">${esc(t("reports.dl_sarif"))}</a>
+          <a class="btn btn-subtle btn-sm" href="${esc(global.UnpackAPI.reportUrl(sample.id, "json", true, lang))}">${esc(t("reports.dl_json"))}</a>
         </div>
       </div>
 
-      <div class="panel">
-        <div class="panel-head">
-          <div class="panel-title">Live Report Preview</div>
-          <div class="toolbar">
-            ${["html", "markdown", "sarif", "json"]
-              .map(
-                (f) =>
-                  `<button class="btn ${fmt === f ? "btn-primary" : "btn-subtle"} btn-xs" type="button" data-action="preview-report" data-format="${f}">${f.toUpperCase()}</button>`
-              )
-              .join("")}
+      <div id="tourReportsPanel">
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">
+              <span>${esc(t("reports.preview.title"))}</span>
+              ${UI.badge(t("reports.preview.lang_badge", { lang: langLabel }), "accent")}
+            </div>
+            <div class="toolbar">
+              ${["html", "markdown", "sarif", "json"]
+                .map(
+                  (f) =>
+                    `<button class="btn ${fmt === f ? "btn-primary" : "btn-subtle"} btn-xs" type="button" data-action="preview-report" data-format="${f}">${f.toUpperCase()}</button>`
+                )
+                .join("")}
+            </div>
+          </div>
+          <div class="panel-body">
+            ${
+              fmt === "html"
+                ? Store.reportPreviewHtml
+                  ? `<iframe class="report-frame" sandbox="allow-scripts" id="reportPreviewFrame" title="Audit Report Preview"></iframe>`
+                  : `<div style="color:var(--text-secondary)">${esc(t("reports.preview.loading_html"))}</div>`
+                : `<pre class="mono" style="background:var(--bg-inset);border:1px solid var(--border);border-radius:6px;padding:14px;max-height:540px;overflow:auto;font-size:12px;white-space:pre-wrap">${esc(Store.reportPreviewText || t("reports.preview.loading_text"))}</pre>`
+            }
           </div>
         </div>
-        <div class="panel-body">
-          ${
-            fmt === "html"
-              ? Store.reportPreviewHtml
-                ? `<iframe class="report-frame" sandbox="allow-scripts" id="reportPreviewFrame" title="Audit Report Preview"></iframe>`
-                : `<div style="color:var(--text-secondary)">Loading HTML audit report preview...</div>`
-              : `<pre class="mono" style="background:var(--bg-inset);border:1px solid var(--border);border-radius:6px;padding:14px;max-height:540px;overflow:auto;font-size:12px;white-space:pre-wrap">${esc(Store.reportPreviewText || "Loading preview...")}</pre>`
-          }
-        </div>
-      </div>
 
-      <div class="panel">
-        <div class="panel-head">
-          <div class="panel-title">Generated Artifacts (${artifacts.length})</div>
-        </div>
-        <div class="panel-body-flush">
-          ${
-            artifacts.length
-              ? `<table class="data-table">
-                  <thead><tr><th>Filename</th><th>Type</th><th class="num">Size</th><th class="num">Download</th></tr></thead>
-                  <tbody>
-                    ${artifacts
-                      .map(
-                        (a) =>
-                          `<tr><td class="mono">${esc(a.name)}</td><td>${UI.badge(a.kind, "accent")}</td><td class="mono num">${esc(UI.fmtBytes(a.size_bytes))}</td><td class="num"><a class="btn btn-subtle btn-xs" href="${esc(a.download_url)}">Download</a></td></tr>`
-                      )
-                      .join("")}
-                  </tbody>
-                </table>`
-              : `<div class="panel-body" style="color:var(--text-secondary)">Repaired DEX ZIPs, repacked APKs, and FART bundles created for this sample appear here.</div>`
-          }
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">${esc(t("reports.artifacts.title", { count: artifacts.length }))}</div>
+          </div>
+          <div class="panel-body-flush">
+            ${
+              artifacts.length
+                ? `<table class="data-table">
+                    <thead><tr><th>${esc(t("reports.artifacts.filename"))}</th><th>${esc(t("common.type"))}</th><th class="num">${esc(t("common.size"))}</th><th class="num">${esc(t("common.download"))}</th></tr></thead>
+                    <tbody>
+                      ${artifacts
+                        .map(
+                          (a) =>
+                            `<tr><td class="mono">${esc(a.name)}</td><td>${UI.badge(a.kind, "accent")}</td><td class="mono num">${esc(UI.fmtBytes(a.size_bytes))}</td><td class="num"><a class="btn btn-subtle btn-xs" href="${esc(a.download_url)}">${esc(t("common.download"))}</a></td></tr>`
+                        )
+                        .join("")}
+                    </tbody>
+                  </table>`
+                : `<div class="panel-body" style="color:var(--text-secondary)">${esc(t("reports.artifacts.empty"))}</div>`
+            }
+          </div>
         </div>
       </div>
     `;
@@ -1194,7 +1082,7 @@
     const job = Store.activeJob;
     const runningCount = Store.jobs.filter((j) => j.status === "running").length;
     if (liveBadge) {
-      liveBadge.textContent = runningCount ? `${runningCount} RUNNING` : "IDLE";
+      liveBadge.textContent = runningCount ? t("drawer.running", { count: runningCount }) : t("drawer.idle");
       liveBadge.className = `badge mono ${runningCount ? "badge-accent" : "badge-muted"}`;
     }
 
@@ -1202,10 +1090,10 @@
       ? `
         <div class="panel" style="margin-bottom:0">
           <div class="panel-head">
-            <div class="panel-title">Active Job #${esc(job.id)}</div>
+            <div class="panel-title">${esc(t("drawer.active_job", { id: job.id }))}</div>
             <div class="toolbar">
               ${UI.badge(job.status.toUpperCase(), job.status === "done" ? "ok" : job.status === "failed" ? "danger" : "accent")}
-              ${job.status === "running" ? `<button class="btn btn-danger btn-xs" type="button" data-action="cancel-job" data-id="${esc(job.id)}">Cancel</button>` : ""}
+              ${job.status === "running" ? `<button class="btn btn-danger btn-xs" type="button" data-action="cancel-job" data-id="${esc(job.id)}">${esc(t("common.cancel"))}</button>` : ""}
             </div>
           </div>
           <div class="panel-body">
@@ -1226,13 +1114,13 @@
                           `<div class="log-line"><span class="log-ts">${esc((l.ts || "").slice(11, 19))}</span><span class="log-lvl-${esc(l.level || "info")}">[${esc(l.phase || "")}] ${esc(l.message)}</span></div>`
                       )
                       .join("")
-                  : `<div style="color:var(--text-muted)">Waiting for SSE events...</div>`
+                  : `<div style="color:var(--text-muted)">${esc(t("drawer.waiting_sse"))}</div>`
               }
             </div>
             ${
               (job.artifacts || []).length
                 ? `<div class="toolbar" style="margin-top:10px">${job.artifacts
-                    .map((a) => `<a class="btn btn-subtle btn-xs" href="${esc(a.download_url)}">Download ${esc(a.name)}</a>`)
+                    .map((a) => `<a class="btn btn-subtle btn-xs" href="${esc(a.download_url)}">${esc(t("common.download"))} ${esc(a.name)}</a>`)
                     .join("")}</div>`
                 : ""
             }
@@ -1258,9 +1146,9 @@
     body.innerHTML = `
       ${activeSection}
       <div class="panel" style="margin-bottom:0">
-        <div class="panel-head"><div class="panel-title">Job History (${Store.jobs.length})</div></div>
+        <div class="panel-head"><div class="panel-title">${esc(t("drawer.history", { count: Store.jobs.length }))}</div></div>
         <div class="panel-body" style="padding:6px">
-          ${historyRows || `<div style="padding:12px;color:var(--text-muted);font-size:12px">No background jobs yet. Launch a pipeline from Pipeline &amp; Repack.</div>`}
+          ${historyRows || `<div style="padding:12px;color:var(--text-muted);font-size:12px">${esc(t("drawer.empty"))}</div>`}
         </div>
       </div>
     `;
@@ -1270,7 +1158,7 @@
   }
 
   function renderDoctorModalHtml(doc) {
-    if (!doc) return `<div style="color:var(--text-secondary)">Loading diagnostics...</div>`;
+    if (!doc) return `<div style="color:var(--text-secondary)">${esc(t("doctor.loading"))}</div>`;
     const checkRows = (doc.checks || [])
       .map(
         (c) => `
@@ -1289,8 +1177,8 @@
         (e) => `
           <tr>
             <td class="mono" style="font-weight:600">${esc(e.name)}</td>
-            <td>${e.available ? UI.badge("READY", "ok") : UI.badge("UNAVAILABLE", "muted")}</td>
-            <td style="color:var(--text-secondary)">${esc(e.reason || "Ready for dynamic dump")}</td>
+            <td>${e.available ? UI.badge(t("badge.ready"), "ok") : UI.badge(t("badge.unavailable"), "muted")}</td>
+            <td style="color:var(--text-secondary)">${esc(e.reason || t("doctor.ready_desc"))}</td>
           </tr>
         `
       )
@@ -1301,19 +1189,19 @@
 
     return `
       <div class="kpi-strip" style="margin-bottom:14px">
-        ${UI.kpi("Overall", overall.toUpperCase(), "", overallTone)}
-        ${UI.kpi("Python", doc.python_version || "—")}
-        ${UI.kpi("ADB Devices", (doc.devices || []).length)}
-        ${UI.kpi("Engines Ready", (doc.engines || []).filter((e) => e.available).length)}
+        ${UI.kpi(t("doctor.overall"), overall.toUpperCase(), "", overallTone)}
+        ${UI.kpi(t("doctor.python"), doc.python_version || "—")}
+        ${UI.kpi(t("doctor.adb"), (doc.devices || []).length)}
+        ${UI.kpi(t("doctor.engines_ready"), (doc.engines || []).filter((e) => e.available).length)}
       </div>
-      <h4 style="font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:12px 0 6px">Dynamic Dump Engines</h4>
+      <h4 style="font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:12px 0 6px">${esc(t("doctor.sec_engines"))}</h4>
       <table class="data-table" style="margin-bottom:16px">
-        <thead><tr><th>Engine</th><th>Status</th><th>Detail</th></tr></thead>
+        <thead><tr><th>${esc(t("doctor.col_engine"))}</th><th>${esc(t("common.status"))}</th><th>${esc(t("common.detail"))}</th></tr></thead>
         <tbody>${engRows}</tbody>
       </table>
-      <h4 style="font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:12px 0 6px">Dependencies &amp; RE Toolchain</h4>
+      <h4 style="font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin:12px 0 6px">${esc(t("doctor.sec_deps"))}</h4>
       <table class="data-table">
-        <thead><tr><th>Check</th><th>Status</th><th>Detail</th><th>Remediation</th></tr></thead>
+        <thead><tr><th>${esc(t("doctor.col_check"))}</th><th>${esc(t("common.status"))}</th><th>${esc(t("common.detail"))}</th><th>${esc(t("doctor.col_remediation"))}</th></tr></thead>
         <tbody>${checkRows}</tbody>
       </table>
     `;

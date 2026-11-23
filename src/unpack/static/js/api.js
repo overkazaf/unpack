@@ -28,6 +28,10 @@
     return s ? `?${s}` : "";
   }
 
+  function currentLang() {
+    return global.UnpackI18n ? global.UnpackI18n.getLang() : "en";
+  }
+
   const API = {
     health: () => requestJSON("/api/v1/health"),
     doctor: (checkDevices = true) =>
@@ -131,18 +135,36 @@
         body: JSON.stringify(dexNames ? { dex_names: dexNames } : {}),
       }),
 
+    planPipeline: (opts) =>
+      requestJSON("/api/v1/pipeline/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lang: currentLang(), ...(opts || {}) }),
+      }),
+
+    launchPipelineJob: (opts) =>
+      requestJSON("/api/v1/jobs/pipeline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lang: currentLang(), ...(opts || {}) }),
+      }),
+
     runPipeline: (id, opts) =>
       requestJSON(`/api/v1/samples/${encodeURIComponent(id)}/pipeline`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(opts || {}),
+        body: JSON.stringify({ lang: currentLang(), ...(opts || {}) }),
       }),
 
-    reportUrl: (id, format = "html", download = false) =>
-      `/api/v1/reports/${encodeURIComponent(id)}${qs({ format, download: download ? 1 : 0 })}`,
+    reportUrl: (id, format = "html", download = false, lang) =>
+      `/api/v1/samples/${encodeURIComponent(id)}/reports${qs({
+        format,
+        download: download ? 1 : 0,
+        lang: lang || currentLang(),
+      })}`,
 
-    fetchReportText: async (id, format = "html") => {
-      const resp = await fetch(API.reportUrl(id, format, false));
+    fetchReportText: async (id, format = "html", lang) => {
+      const resp = await fetch(API.reportUrl(id, format, false, lang));
       if (!resp.ok) {
         const j = await resp.json().catch(() => ({}));
         throw new Error(j.error || `Report failed (${resp.status})`);
@@ -157,7 +179,7 @@
 
     subscribeJobEvents: (jobId, handlers) => {
       const es = new EventSource(`/api/v1/jobs/${encodeURIComponent(jobId)}/events`);
-      ["snapshot", "log", "phase", "phase_data", "artifact", "done", "failed", "cancelled"].forEach(
+      ["snapshot", "log", "phase", "phase_data", "stage", "artifact", "done", "failed", "cancelled"].forEach(
         (evt) => {
           es.addEventListener(evt, (e) => {
             try {

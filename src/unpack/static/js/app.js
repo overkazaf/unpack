@@ -1,15 +1,26 @@
 /**
- * UNPACK Studio — Application Controller, Delegated Router & Command Palette
+ * UNPACK Studio — Application Controller, Delegated Router, i18n & Command Palette
  */
 (function (global) {
   "use strict";
 
+  const I18n = global.UnpackI18n;
   const API = global.UnpackAPI;
   const Store = global.UnpackStore;
   const UI = global.UnpackUI;
   const Views = global.UnpackViews;
+  const Pipeline = global.UnpackPipeline;
+  const Onboarding = global.UnpackOnboarding;
+
+  function t(key, params) {
+    return I18n ? I18n.t(key, params) : key;
+  }
 
   function render() {
+    // Sync static shell i18n labels & theme button
+    if (I18n) I18n.applyStaticDom();
+    Store.updateThemeLabel();
+
     // Update nav active states
     document.querySelectorAll(".nav-item[data-view]").forEach((el) => {
       el.classList.toggle("active", el.dataset.view === Store.view);
@@ -22,7 +33,7 @@
     const switcher = document.getElementById("sampleSwitcher");
     if (switcher) {
       const opts = [
-        `<option value="">No sample selected</option>`,
+        `<option value="">${UI.esc(t("ctx.no_sample"))}</option>`,
         ...Store.samples.map(
           (s) =>
             `<option value="${UI.esc(s.id)}" ${s.id === Store.activeSampleId ? "selected" : ""}>${UI.esc(s.name)} [${UI.esc(s.kind.toUpperCase())}]</option>`
@@ -50,12 +61,23 @@
     if (btnScan) btnScan.disabled = !s || s.kind !== "apk";
     if (btnRep) btnRep.disabled = !s;
 
+    // Update Doctor engines meta
+    const meta = document.getElementById("doctorEnginesMeta");
+    if (meta && Store.doctor) {
+      const engs = Store.doctor.engines || [];
+      const ready = engs.filter((e) => e.available).length;
+      meta.textContent = t("nav.engines_meta", { ready, total: engs.length });
+    }
+
     // Update Jobs button
     const running = Store.jobs.filter((j) => j.status === "running").length;
     const jobBadge = document.getElementById("jobCountBadge");
     const jobPulse = document.getElementById("jobPulseDot");
     if (jobBadge) jobBadge.textContent = String(Store.jobs.length);
     if (jobPulse) jobPulse.classList.toggle("running", running > 0);
+
+    // Render Workflow Journey Stepper Strip
+    if (Onboarding) Onboarding.renderJourneyStrip();
 
     // Render active workspace
     const viewport = document.getElementById("workspaceViewport");
@@ -161,6 +183,26 @@
         }
       });
     }
+
+    // Pipeline Studio live parameter bindings
+    document.getElementById("pipeEngine")?.addEventListener("change", (e) => {
+      Pipeline?.updateParam("engine", e.target.value);
+    });
+    document.getElementById("pipeTimeout")?.addEventListener("change", (e) => {
+      Pipeline?.updateParam("timeout", Math.max(5, Math.min(300, Number(e.target.value) || 15)));
+    });
+    document.getElementById("pipeDeep")?.addEventListener("change", (e) => {
+      Pipeline?.updateParam("deep", Boolean(e.target.checked));
+    });
+    document.getElementById("pipeAntiDetect")?.addEventListener("change", (e) => {
+      Pipeline?.updateParam("antiDetect", Boolean(e.target.checked));
+    });
+    document.getElementById("pipeRepack")?.addEventListener("change", (e) => {
+      Pipeline?.updateParam("repack", Boolean(e.target.checked));
+    });
+    document.getElementById("pipeGenReport")?.addEventListener("change", (e) => {
+      Pipeline?.updateParam("generateReport", Boolean(e.target.checked));
+    });
   }
 
   // =========================================================================
@@ -177,6 +219,8 @@
       await runInspect();
     } else if (view === "inspector" && !Store.dex.list.length) {
       await loadDexList();
+    } else if (view === "pipeline" && !Store.pipeline.plan) {
+      await Pipeline?.refreshPlan();
     } else if (view === "reports" && !Store.reportPreviewHtml && !Store.reportPreviewText) {
       await loadReportPreview(Store.reportFormat || "html");
     }
@@ -197,7 +241,7 @@
       Store.localLibrary = await API.localLibrary();
       render();
     } catch (err) {
-      UI.toast(`Local library: ${err.message}`, "warn");
+      UI.toast(err.message, "warn");
     }
   }
 
@@ -212,8 +256,9 @@
         dot.className = `status-dot ${st === "healthy" || st === "pass" ? "ok" : st === "unhealthy" || st === "fail" ? "fail" : "warn"}`;
       }
       if (meta) {
-        const ready = (doc.engines || []).filter((e) => e.available).length;
-        meta.textContent = `${ready}/${(doc.engines || []).length} eng`;
+        const engs = doc.engines || [];
+        const ready = engs.filter((e) => e.available).length;
+        meta.textContent = t("nav.engines_meta", { ready, total: engs.length });
       }
       return doc;
     } catch (_) {
@@ -221,7 +266,7 @@
     }
   }
 
-  async function selectSample(id, targetView) {
+  async function selectSample(id, targetView, preservePipeline = false) {
     if (!id) {
       Store.activeSampleId = null;
       Store.activeSample = null;
@@ -231,9 +276,17 @@
     }
     try {
       const res = await API.getSample(id);
+      const sameSample = Store.activeSampleId === id;
+      const prevPipeline = sameSample && preservePipeline ? Store.pipeline : null;
+
       Store.activeSampleId = id;
       Store.activeSample = res.sample;
-      Store.resetSampleSubState();
+      if (!sameSample || !preservePipeline) {
+        Store.resetSampleSubState();
+      } else if (prevPipeline) {
+        Store.pipeline = prevPipeline;
+      }
+
       if (res.sample.verify_results) {
         const rs = res.sample.verify_results;
         Store.verifySummary = {
@@ -253,8 +306,9 @@
       }
       if (targetView) Store.view = targetView;
       render();
-      if (Store.view === "overview") await runInspect();
-      if (Store.view === "inspector") await loadDexList();
+      if (Store.view === "overview" && !Store.activeSample.inspect_result) await runInspect();
+      if (Store.view === "inspector" && !Store.dex.list.length) await loadDexList();
+      if (Store.view === "pipeline" && !Store.pipeline.plan) await Pipeline?.refreshPlan();
       if (Store.view === "reports") await loadReportPreview(Store.reportFormat || "html");
     } catch (err) {
       UI.toast(err.message, "danger");
@@ -262,13 +316,13 @@
   }
 
   async function handleUpload(files) {
-    UI.toast(`Uploading ${files.length} file(s)...`, "accent");
+    UI.toast(t("toast.uploading", { count: files.length }), "accent");
     try {
       const res = await API.uploadSamples(files, true);
       await refreshSamples();
       if (res.items && res.items.length) {
         const first = res.items[0];
-        UI.toast(`Loaded ${first.name}`, "ok");
+        UI.toast(t("toast.loaded", { name: first.name }), "ok");
         await selectSample(first.id, first.kind === "apk" ? "overview" : "inspector");
       }
       if (res.errors && res.errors.length) {
@@ -280,14 +334,26 @@
   }
 
   async function importLocal(path) {
-    UI.toast("Importing local sample...", "accent");
+    UI.toast(t("toast.importing"), "accent");
     try {
       const res = await API.importLocal(path, true);
       await refreshSamples();
-      UI.toast(`Mounted ${res.sample.name}`, "ok");
+      UI.toast(t("toast.mounted", { name: res.sample.name }), "ok");
       await selectSample(res.sample.id, res.sample.kind === "apk" ? "overview" : "inspector");
     } catch (err) {
       UI.toast(err.message, "danger");
+    }
+  }
+
+  async function importLocalSilent(path) {
+    try {
+      const res = await API.importLocal(path, true);
+      await refreshSamples();
+      await selectSample(res.sample.id);
+      return res.sample;
+    } catch (err) {
+      UI.toast(err.message, "danger");
+      return null;
     }
   }
 
@@ -300,7 +366,7 @@
         Store.resetSampleSubState();
       }
       await refreshSamples();
-      UI.toast("Sample removed from vault", "muted");
+      UI.toast(t("toast.removed"), "muted");
     } catch (err) {
       UI.toast(err.message, "danger");
     }
@@ -314,7 +380,10 @@
       const res = await API.scanSample(Store.activeSample.id);
       Store.activeSample.scan_result = res.scan;
       await refreshSamples();
-      UI.toast(res.scan.packer_name ? `Detected ${res.scan.packer_name}` : "Scan complete — no commercial packer detected", "ok");
+      UI.toast(
+        res.scan.packer_name ? t("toast.scan_hit", { packer: res.scan.packer_name }) : t("toast.scan_clean"),
+        "ok"
+      );
     } catch (err) {
       UI.toast(err.message, "danger");
     } finally {
@@ -411,7 +480,7 @@
     try {
       Store.verifySummary = await API.runVerify(Store.activeSample.id);
       Store.activeSample.verify_results = Store.verifySummary.results;
-      UI.toast(`Verified ${Store.verifySummary.total} DEX file(s)`, "ok");
+      UI.toast(t("toast.verified", { count: Store.verifySummary.total }), "ok");
     } catch (err) {
       UI.toast(err.message, "danger");
     } finally {
@@ -429,7 +498,7 @@
       Store.repairResult = res;
       Store.activeSample.repair_diffs = res.diffs;
       if (res.artifact) Store.activeSample.artifacts = [res.artifact, ...(Store.activeSample.artifacts || [])];
-      UI.toast(`Repaired ${res.total} DEX (${res.resolved_issues_total} issues resolved)`, "ok");
+      UI.toast(t("toast.repaired", { count: res.total, resolved: res.resolved_issues_total }), "ok");
     } catch (err) {
       UI.toast(err.message, "danger");
     } finally {
@@ -445,7 +514,7 @@
     try {
       const res = await API.runVmp(Store.activeSample.id);
       Store.activeSample.vmp_result = res.vmp;
-      UI.toast(`VMP scan complete: ${res.vmp.vmp_count} stub(s) in ${res.vmp.total_methods} methods`, "ok");
+      UI.toast(t("toast.vmp_done", { stubs: res.vmp.vmp_count, total: res.vmp.total_methods }), "ok");
     } catch (err) {
       UI.toast(err.message, "danger");
     } finally {
@@ -462,7 +531,7 @@
       const res = await API.runXref(Store.activeSample.id);
       Store.activeSample.xref_result = res.xref;
       Store.vmpTab = "xref";
-      UI.toast(`Xref indexed ${(res.xref.counts || {}).strings || 0} strings`, "ok");
+      UI.toast(t("toast.xref_done", { count: (res.xref.counts || {}).strings || 0 }), "ok");
     } catch (err) {
       UI.toast(err.message, "danger");
     } finally {
@@ -481,7 +550,7 @@
       const res = await API.runRepack(Store.activeSample.id, dexSrc || null, strip);
       Store.repackResult = res;
       if (res.artifact) Store.activeSample.artifacts = [res.artifact, ...(Store.activeSample.artifacts || [])];
-      UI.toast(`Built ${res.artifact.name}`, "ok");
+      UI.toast(t("toast.repack_done", { name: res.artifact.name }), "ok");
     } catch (err) {
       UI.toast(err.message, "danger");
     } finally {
@@ -498,7 +567,7 @@
       const res = await API.exportFart(Store.activeSample.id);
       Store.fartResult = res;
       if (res.artifact) Store.activeSample.artifacts = [res.artifact, ...(Store.activeSample.artifacts || [])];
-      UI.toast(`Exported ${res.total_methods} FART method bodies`, "ok");
+      UI.toast(t("toast.fart_done", { count: res.total_methods }), "ok");
     } catch (err) {
       UI.toast(err.message, "danger");
     } finally {
@@ -507,19 +576,33 @@
     }
   }
 
+  let reportReqSeq = 0;
+
   async function loadReportPreview(format) {
     if (!Store.activeSample) return;
+    const reqId = ++reportReqSeq;
+    const sampleId = Store.activeSample.id;
+    const lang = I18n ? I18n.getLang() : "en";
     Store.reportFormat = format;
     Store.reportPreviewHtml = "";
     Store.reportPreviewText = "";
     render();
     try {
-      const txt = await API.fetchReportText(Store.activeSample.id, format);
+      const txt = await API.fetchReportText(sampleId, format, lang);
+      // Guard against stale async responses after sample/language/format switches
+      if (
+        reqId !== reportReqSeq ||
+        Store.activeSampleId !== sampleId ||
+        Store.reportFormat !== format ||
+        (I18n && I18n.getLang() !== lang)
+      ) {
+        return;
+      }
       if (format === "html") Store.reportPreviewHtml = txt;
       else Store.reportPreviewText = txt;
       render();
     } catch (err) {
-      UI.toast(err.message, "danger");
+      if (reqId === reportReqSeq) UI.toast(err.message, "danger");
     }
   }
 
@@ -554,7 +637,11 @@
     Store.sseSource = API.subscribeJobEvents(jobId, {
       snapshot: (snap) => {
         Store.activeJob = snap;
+        Pipeline?.syncJobStages(snap);
         render();
+      },
+      stage: (stPayload) => {
+        Pipeline?.handleStageEvent(stPayload);
       },
       log: (entry) => {
         if (Store.activeJob) {
@@ -589,9 +676,9 @@
         }
         Store.sseSource?.close();
         Store.sseSource = null;
-        UI.toast(`Job #${jobId} completed`, "ok");
+        UI.toast(t("toast.job_done", { id: jobId }), "ok");
         refreshJobs();
-        if (Store.activeSampleId) selectSample(Store.activeSampleId);
+        if (Store.activeSampleId) selectSample(Store.activeSampleId, null, true);
       },
       failed: (p) => {
         if (Store.activeJob) {
@@ -600,7 +687,7 @@
         }
         Store.sseSource?.close();
         Store.sseSource = null;
-        UI.toast(`Job #${jobId} failed: ${p.error || "error"}`, "danger");
+        UI.toast(t("toast.job_failed", { id: jobId, error: p.error || "error" }), "danger");
         refreshJobs();
       },
       cancelled: () => {
@@ -612,33 +699,15 @@
     });
   }
 
-  async function launchPipeline() {
-    if (!Store.activeSample) return;
-    const opts = {
-      engine: document.getElementById("pipeEngine")?.value || "",
-      start_from: document.getElementById("pipeStartFrom")?.value || "scan_only",
-      timeout: Number(document.getElementById("pipeTimeout")?.value || 15),
-      deep: Boolean(document.getElementById("pipeDeep")?.checked),
-      anti_detect: Boolean(document.getElementById("pipeAntiDetect")?.checked),
-    };
-    try {
-      const res = await API.runPipeline(Store.activeSample.id, opts);
-      UI.toast(`Started job #${res.job_id}`, "accent");
-      await refreshJobs();
-      setDrawerOpen(true);
-      subscribeJob(res.job_id);
-    } catch (err) {
-      UI.toast(err.message, "danger");
-    }
-  }
-
   async function inspectJob(jobId) {
     try {
       const job = await API.getJob(jobId);
       Store.activeJobId = jobId;
       Store.activeJob = job;
+      Pipeline?.syncJobStages(job);
       if (job.status === "running") subscribeJob(jobId);
       Views.renderTaskDrawer();
+      if (Store.view === "pipeline") render();
     } catch (err) {
       UI.toast(err.message, "danger");
     }
@@ -647,7 +716,7 @@
   async function cancelJob(jobId) {
     try {
       await API.cancelJob(jobId);
-      UI.toast(`Cancelled job #${jobId}`, "warn");
+      UI.toast(t("toast.job_cancelled", { id: jobId }), "warn");
       await refreshJobs();
     } catch (err) {
       UI.toast(err.message, "danger");
@@ -662,29 +731,31 @@
 
   function buildPaletteCommands() {
     const cmds = [
-      { label: "Workspace: Samples & Intake", cat: "NAV", run: () => switchView("samples") },
-      { label: "Workspace: Scan & Packer Intelligence", cat: "NAV", run: () => switchView("overview") },
-      { label: "Workspace: APK & DEX Inspector", cat: "NAV", run: () => switchView("inspector") },
-      { label: "Workspace: Repair & Verify Lab", cat: "NAV", run: () => switchView("repair") },
-      { label: "Workspace: VMP & Native Studio", cat: "NAV", run: () => switchView("vmp") },
-      { label: "Workspace: Pipeline & Repack Center", cat: "NAV", run: () => switchView("pipeline") },
-      { label: "Workspace: Reports & Export", cat: "NAV", run: () => switchView("reports") },
-      { label: "Toggle Dark / Light Theme", cat: "UI", run: () => Store.setTheme(Store.theme === "dark" ? "light" : "dark") },
-      { label: "Open Environment Doctor", cat: "SYS", run: () => openDoctorModal() },
-      { label: "Toggle Task Manager Drawer", cat: "SYS", run: () => setDrawerOpen(!Store.drawerOpen) },
+      { label: t("palette.cmd.guide"), cat: "GUIDE", run: () => Onboarding?.openWelcomeModal() },
+      { label: t("palette.cmd.lang"), cat: "I18N", run: () => I18n?.toggleLang() },
+      { label: t("nav.samples"), cat: "NAV", run: () => switchView("samples") },
+      { label: t("nav.overview"), cat: "NAV", run: () => switchView("overview") },
+      { label: t("nav.inspector"), cat: "NAV", run: () => switchView("inspector") },
+      { label: t("nav.repair"), cat: "NAV", run: () => switchView("repair") },
+      { label: t("nav.vmp"), cat: "NAV", run: () => switchView("vmp") },
+      { label: t("nav.pipeline"), cat: "NAV", run: () => switchView("pipeline") },
+      { label: t("nav.reports"), cat: "NAV", run: () => switchView("reports") },
+      { label: t("palette.cmd.theme"), cat: "UI", run: () => Store.setTheme(Store.theme === "dark" ? "light" : "dark") },
+      { label: t("palette.cmd.doctor"), cat: "SYS", run: () => openDoctorModal() },
+      { label: t("palette.cmd.drawer"), cat: "SYS", run: () => setDrawerOpen(!Store.drawerOpen) },
     ];
     if (Store.activeSample) {
       if (Store.activeSample.kind === "apk") {
-        cmds.push({ label: `Scan ${Store.activeSample.name}`, cat: "ACTION", run: () => runScan() });
+        cmds.push({ label: `${t("overview.run_scan")}: ${Store.activeSample.name}`, cat: "ACTION", run: () => runScan() });
       }
-      cmds.push({ label: `Verify DEXs (${Store.activeSample.name})`, cat: "ACTION", run: () => { switchView("repair"); runVerify(); } });
-      cmds.push({ label: `Run VMP Analysis (${Store.activeSample.name})`, cat: "ACTION", run: () => { switchView("vmp"); runVmp(); } });
+      cmds.push({ label: `${t("repair.btn_verify")}: ${Store.activeSample.name}`, cat: "ACTION", run: () => { switchView("repair"); runVerify(); } });
+      cmds.push({ label: `${t("vmp.btn_vmp")}: ${Store.activeSample.name}`, cat: "ACTION", run: () => { switchView("vmp"); runVmp(); } });
     }
     Store.samples.forEach((s) => {
-      cmds.push({ label: `Switch Sample: ${s.name}`, cat: "VAULT", run: () => selectSample(s.id, "overview") });
+      cmds.push({ label: `${s.name} [${s.kind.toUpperCase()}]`, cat: "VAULT", run: () => selectSample(s.id, "overview") });
     });
     (Store.localLibrary.items || []).slice(0, 20).forEach((it) => {
-      cmds.push({ label: `Import Local: ${it.display_path}`, cat: "LOCAL", run: () => importLocal(it.path) });
+      cmds.push({ label: `${t("samples.local.import_btn")}: ${it.display_path}`, cat: "LOCAL", run: () => importLocal(it.path) });
     });
     return cmds;
   }
@@ -700,7 +771,7 @@
         (c, i) =>
           `<button class="palette-item ${i === 0 ? "selected" : ""}" type="button" data-palette-idx="${i}"><span>${UI.esc(c.label)}</span><span class="palette-cat">${UI.esc(c.cat)}</span></button>`
       )
-      .join("") || `<div style="padding:14px;color:var(--text-muted);text-align:center">No matching commands</div>`;
+      .join("") || `<div style="padding:14px;color:var(--text-muted);text-align:center">${UI.esc(t("palette.empty"))}</div>`;
   }
 
   function openPalette() {
@@ -719,9 +790,9 @@
   }
 
   async function openDoctorModal() {
-    UI.openModal("Environment Diagnostics", Views.renderDoctorModalHtml(Store.doctor));
+    UI.openModal(t("doctor.title"), Views.renderDoctorModalHtml(Store.doctor));
     const fresh = await loadDoctor(true);
-    if (fresh) UI.openModal("Environment Diagnostics", Views.renderDoctorModalHtml(fresh));
+    if (fresh) UI.openModal(t("doctor.title"), Views.renderDoctorModalHtml(fresh));
   }
 
   // =========================================================================
@@ -748,15 +819,62 @@
       if (!act) return;
       const action = act.dataset.action;
 
-      if (action === "nav") switchView(act.dataset.view);
-      else if (action === "trigger-upload") document.getElementById("studioFileInput")?.click();
-      else if (action === "refresh-library") refreshLocalLibrary();
-      else if (action === "select-sample") selectSample(act.dataset.id, "overview");
-      else if (action === "delete-sample") deleteSample(act.dataset.id);
-      else if (action === "import-local") importLocal(act.dataset.path);
-      else if (action === "run-scan") runScan();
-      else if (action === "run-inspect") runInspect(true);
-      else if (action === "dex-tab") {
+      if (action === "set-lang") {
+        I18n?.setLang(act.dataset.lang);
+      } else if (action === "open-welcome") {
+        Onboarding?.openWelcomeModal();
+      } else if (action === "close-welcome") {
+        Onboarding?.closeWelcomeModal();
+      } else if (action === "start-demo-tour") {
+        Onboarding?.startDemoTour();
+      } else if (action === "onboard-goal") {
+        Onboarding?.handleGoalClick(act.dataset.goal);
+      } else if (action === "tour-next") {
+        Onboarding?.nextStep();
+      } else if (action === "tour-prev") {
+        Onboarding?.prevStep();
+      } else if (action === "tour-end") {
+        Onboarding?.endTour();
+      } else if (action === "toggle-journey") {
+        Store.setJourneyVisible(!Store.journeyVisible);
+        Onboarding?.renderJourneyStrip();
+      } else if (action === "journey-next") {
+        const target = act.dataset.target || "samples";
+        switchView(target).then(() => {
+          if (target === "overview" && Store.activeSample && !Store.activeSample.scan_result && Store.activeSample.kind === "apk") {
+            runScan();
+          }
+        });
+      } else if (action === "open-doctor") {
+        openDoctorModal();
+      } else if (action === "pipe-mode") {
+        Pipeline?.setMode(act.dataset.mode);
+      } else if (action === "pipe-switch-offline") {
+        Pipeline?.setMode("offline_audit");
+        UI.toast(t("toast.switched_offline"), "ok");
+      } else if (action === "pipe-refresh-plan") {
+        Pipeline?.refreshPlan(Store.pipeline.mode, true);
+      } else if (action === "pipe-stage") {
+        Pipeline?.selectStage(act.dataset.stage);
+      } else if (action === "run-deep-pipeline") {
+        Pipeline?.launch();
+      } else if (action === "nav") {
+        switchView(act.dataset.view);
+      } else if (action === "trigger-upload") {
+        document.getElementById("studioFileInput")?.click();
+      } else if (action === "refresh-library") {
+        refreshLocalLibrary();
+      } else if (action === "select-sample") {
+        selectSample(act.dataset.id, "overview");
+      } else if (action === "delete-sample") {
+        deleteSample(act.dataset.id);
+      } else if (action === "import-local") {
+        importLocal(act.dataset.path);
+      } else if (action === "run-scan") {
+        runScan();
+      } else if (action === "run-inspect") {
+        runInspect(true);
+      } else if (action === "dex-tab") {
         Store.dex.tab = act.dataset.tab;
         render();
         if (Store.dex.tab === "strings" && !Store.dex.stringsHits.length) searchDexStrings();
@@ -764,25 +882,37 @@
         Store.dex.query = document.getElementById("dexClassSearch")?.value || "";
         Store.dex.health = document.getElementById("dexHealthFilter")?.value || "";
         loadDexClasses();
-      } else if (action === "select-class") selectClass(act.dataset.class);
-      else if (action === "select-method") selectMethod(act.dataset.class, act.dataset.method, act.dataset.idx);
-      else if (action === "search-strings") {
+      } else if (action === "select-class") {
+        selectClass(act.dataset.class);
+      } else if (action === "select-method") {
+        selectMethod(act.dataset.class, act.dataset.method, act.dataset.idx);
+      } else if (action === "search-strings") {
         Store.dex.stringsQuery = document.getElementById("dexStringsInput")?.value || "";
         searchDexStrings();
-      } else if (action === "run-verify") runVerify();
-      else if (action === "run-repair") runRepair();
-      else if (action === "run-vmp") runVmp();
-      else if (action === "run-xref") runXref();
-      else if (action === "vmp-tab") {
+      } else if (action === "run-verify") {
+        runVerify();
+      } else if (action === "run-repair") {
+        runRepair();
+      } else if (action === "run-vmp") {
+        runVmp();
+      } else if (action === "run-xref") {
+        runXref();
+      } else if (action === "vmp-tab") {
         Store.vmpTab = act.dataset.tab;
         render();
-      } else if (action === "run-pipeline") launchPipeline();
-      else if (action === "run-repack") runRepack();
-      else if (action === "run-fart") runFart();
-      else if (action === "preview-report") loadReportPreview(act.dataset.format);
-      else if (action === "open-drawer") setDrawerOpen(true);
-      else if (action === "inspect-job") inspectJob(act.dataset.id);
-      else if (action === "cancel-job") cancelJob(act.dataset.id);
+      } else if (action === "run-repack") {
+        runRepack();
+      } else if (action === "run-fart") {
+        runFart();
+      } else if (action === "preview-report") {
+        loadReportPreview(act.dataset.format);
+      } else if (action === "open-drawer") {
+        setDrawerOpen(true);
+      } else if (action === "inspect-job") {
+        inspectJob(act.dataset.id);
+      } else if (action === "cancel-job") {
+        cancelJob(act.dataset.id);
+      }
     });
 
     document.getElementById("sampleSwitcher")?.addEventListener("change", (e) => {
@@ -802,6 +932,9 @@
     document.getElementById("btnCloseModal")?.addEventListener("click", () => UI.closeModal());
     document.getElementById("modalBackdrop")?.addEventListener("click", (e) => {
       if (e.target.id === "modalBackdrop") UI.closeModal();
+    });
+    document.getElementById("onboardBackdrop")?.addEventListener("click", (e) => {
+      if (e.target.id === "onboardBackdrop") Onboarding?.closeWelcomeModal();
     });
     document.getElementById("btnThemeToggle")?.addEventListener("click", () => {
       Store.setTheme(Store.theme === "dark" ? "light" : "dark");
@@ -834,17 +967,47 @@
       if (e.key === "Escape") {
         closePalette();
         UI.closeModal();
+        if (Onboarding?.isWelcomeOpen()) Onboarding.closeWelcomeModal();
+        if (Onboarding?.isTourActive()) Onboarding.endTour();
         setDrawerOpen(false);
       }
     });
+
+    // React cleanly to language switches without losing state
+    if (I18n) {
+      I18n.onChange(() => {
+        render();
+        Onboarding?.onLangChange();
+        if (Store.activeSample && Store.view === "pipeline") {
+          Pipeline?.refreshPlan(Store.pipeline.mode);
+        }
+        if (Store.activeSample && Store.view === "reports") {
+          loadReportPreview(Store.reportFormat || "html");
+        }
+      });
+    }
   }
 
   async function boot() {
+    if (I18n) I18n.applyStaticDom();
     Store.setTheme(Store.theme);
     initEvents();
     render();
     await Promise.all([refreshSamples(), refreshLocalLibrary(), refreshJobs(), loadDoctor(false)]);
+    Onboarding?.maybeAutoOpenWelcome();
   }
+
+  global.UnpackApp = {
+    render,
+    switchView,
+    selectSample,
+    importLocal,
+    importLocalSilent,
+    refreshSamples,
+    refreshJobs,
+    subscribeJob,
+    openDoctorModal,
+  };
 
   document.addEventListener("DOMContentLoaded", boot);
 })(window);

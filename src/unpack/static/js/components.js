@@ -12,6 +12,10 @@
     "'": "&#39;",
   };
 
+  function t(key, params) {
+    return global.UnpackI18n ? global.UnpackI18n.t(key, params) : key;
+  }
+
   function esc(val) {
     if (val === null || val === undefined) return "";
     return String(val).replace(/[&<>"']/g, (ch) => ESC_MAP[ch]);
@@ -33,15 +37,17 @@
   }
 
   function protectionBadge(level) {
-    const map = {
-      vmp: ["VMP", "danger"],
-      dex2c: ["DEX2C", "violet"],
-      function_extraction: ["FUNC-EXTRACT", "warn"],
-      dex_encryption: ["DEX-ENCRYPT", "accent"],
-      none: ["UNPACKED", "ok"],
-      unknown: ["UNKNOWN", "muted"],
+    const tones = {
+      vmp: "danger",
+      dex2c: "violet",
+      function_extraction: "warn",
+      dex_encryption: "accent",
+      none: "ok",
+      unknown: "muted",
     };
-    const [label, tone] = map[level] || [String(level || "NONE").toUpperCase(), "muted"];
+    const key = String(level || "none").toLowerCase();
+    const tone = tones[key] || "muted";
+    const label = tones[key] ? t(`badge.${key}`) : String(level || "NONE").toUpperCase();
     return badge(label, tone);
   }
 
@@ -67,8 +73,10 @@
   }
 
   function kindBadge(kind) {
-    const map = { apk: ["APK", "accent"], dex: ["DEX", "violet"], dex_dir: ["DEX DIR", "ok"] };
-    const [label, tone] = map[kind] || [String(kind || "").toUpperCase(), "muted"];
+    const tones = { apk: "accent", dex: "violet", dex_dir: "ok" };
+    const k = String(kind || "").toLowerCase();
+    const tone = tones[k] || "muted";
+    const label = tones[k] ? t(`badge.${k}`) : String(kind || "").toUpperCase();
     return badge(label, tone);
   }
 
@@ -125,9 +133,9 @@
 
   function requireSamplePrompt(viewTitle) {
     return emptyState(
-      `Select a Sample for ${viewTitle}`,
-      "Upload an .apk / .dex file or import one instantly from the Local Library in Samples & Intake.",
-      `<button class="btn btn-primary" type="button" data-action="nav" data-view="samples">Go to Samples &amp; Intake</button>`
+      t("common.require_sample.title", { view: viewTitle }),
+      t("common.require_sample.desc"),
+      `<button class="btn btn-primary" type="button" data-action="nav" data-view="samples">${esc(t("common.require_sample.btn"))}</button>`
     );
   }
 
@@ -147,11 +155,11 @@
 
   function openModal(title, bodyHtml) {
     const backdrop = document.getElementById("modalBackdrop");
-    const t = document.getElementById("modalTitle");
-    const b = document.getElementById("modalBody");
-    if (!backdrop || !t || !b) return;
-    t.textContent = title;
-    b.innerHTML = bodyHtml;
+    const tEl = document.getElementById("modalTitle");
+    const bEl = document.getElementById("modalBody");
+    if (!backdrop || !tEl || !bEl) return;
+    tEl.textContent = title;
+    bEl.innerHTML = bodyHtml;
     backdrop.hidden = false;
   }
 
