@@ -40,6 +40,7 @@ from unpack.cli_format import (
     C_WARN,
     confidence_bar,
     create_console,
+    format_bytes,
     print_doctor_report,
     print_inspect_apk,
     print_inspect_dex,
@@ -55,10 +56,13 @@ from unpack.cli_format import (
     render_header,
     render_kv_card,
     render_next_steps,
+    render_pipeline_blueprint,
     render_pipeline_step,
     render_table,
+    render_wizard_step,
     safe,
 )
+from unpack.i18n import get_lang, resolve_lang, set_lang, t
 
 app = typer.Typer(
     name="unpack",
@@ -97,49 +101,65 @@ def _configure_consoles(*, no_color: bool = False, quiet: bool = False) -> None:
     err_console = create_console(stderr=True, no_color=no_color, quiet=quiet)
 
 
+def _apply_lang(lang: str | None) -> str:
+    """Apply an explicit per-command language override if provided, returning active lang."""
+    if lang is not None:
+        return set_lang(lang)
+    return get_lang()
+
+
 def _print_main_help() -> None:
+    eff = get_lang()
     console.print()
     render_header(
         console,
         "UNPACK",
-        subtitle="Android APK Unpacker & Reverse-Engineering Workbench",
+        subtitle=t("cli.subtitle", eff),
         meta=f"v{__version__}",
     )
 
     groups: list[tuple[str, list[tuple[str, str]]]] = [
         (
-            "Recon & Inspection",
+            t("cli.group.onboarding", eff),
             [
-                ("scan", "Identify packer vendor, version, protection level & evidence"),
-                ("inspect", "Deep static APK/DEX inspection (manifest, signing, classes, disasm)"),
-                ("analyze", "Generate AI-ready scan report for piping to claude -p"),
+                ("guide", t("cli.cmd.guide", eff)),
+                ("wizard", t("cli.cmd.wizard", eff)),
+                ("pipeline", t("cli.cmd.pipeline", eff)),
             ],
         ),
         (
-            "Unpack & Repair",
+            t("cli.group.recon", eff),
             [
-                ("dump", "Full pipeline: scan -> dump -> dedup -> repair -> verify"),
-                ("repair", "Fix dumped DEX headers, bounds, alignment & checksums"),
-                ("verify", "Validate DEX integrity and structural health metrics"),
-                ("rescan", "Trigger components to decrypt remaining NOP methods"),
-                ("reassemble", "Map dumped classes back to original multi-DEX layout"),
-                ("repack", "Rebuild analyzable APK from original resources + dumped DEX"),
+                ("scan", t("cli.cmd.scan", eff)),
+                ("inspect", t("cli.cmd.inspect", eff)),
+                ("analyze", t("cli.cmd.analyze", eff)),
             ],
         ),
         (
-            "Post-Unpack Analysis",
+            t("cli.group.unpack", eff),
             [
-                ("vmp", "Classify methods: normal / NOP / VMP dispatcher stubs"),
-                ("xref", "Cross-reference index: strings, calls, fields, reflection"),
-                ("export", "Export dumped DEX in alternative formats (FART)"),
+                ("dump", t("cli.cmd.dump", eff)),
+                ("repair", t("cli.cmd.repair", eff)),
+                ("verify", t("cli.cmd.verify", eff)),
+                ("rescan", t("cli.cmd.rescan", eff)),
+                ("reassemble", t("cli.cmd.reassemble", eff)),
+                ("repack", t("cli.cmd.repack", eff)),
             ],
         ),
         (
-            "Reporting & Diagnostics",
+            t("cli.group.post", eff),
             [
-                ("report", "Generate commercial HTML / Markdown / SARIF / JSON audit reports"),
-                ("doctor", "Check Python deps, RE tools, ADB devices & engine readiness"),
-                ("web", "Launch Unpack Studio web workbench"),
+                ("vmp", t("cli.cmd.vmp", eff)),
+                ("xref", t("cli.cmd.xref", eff)),
+                ("export", t("cli.cmd.export", eff)),
+            ],
+        ),
+        (
+            t("cli.group.reporting", eff),
+            [
+                ("report", t("cli.cmd.report", eff)),
+                ("doctor", t("cli.cmd.doctor", eff)),
+                ("web", t("cli.cmd.web", eff)),
             ],
         ),
     ]
@@ -155,20 +175,23 @@ def _print_main_help() -> None:
             cmd_table.add_row(f"  {name}", desc)
     console.print(cmd_table)
 
+    lang_flag = " --lang zh" if eff == "zh" else ""
     examples = [
-        ("unpack doctor", "verify tools, devices & engines"),
-        ("unpack scan app.apk -v", "detect packer with confidence breakdown"),
-        ("unpack inspect app.apk --permissions", "deep static APK inspection"),
-        ("unpack dump app.apk --deep", "full unpack with active invocation"),
-        ("unpack repair ./unpacked/ && unpack verify ./unpacked/", "repair & verify dumped DEXs"),
-        ("unpack report ./unpacked/ --apk app.apk -F html -o audit.html", "commercial HTML audit report"),
-        ("unpack web --port 8080", "open Unpack Studio in browser"),
+        (f"unpack guide{lang_flag}", t("cli.example.guide", eff)),
+        (f"unpack doctor{lang_flag}", t("cli.example.doctor", eff)),
+        (f"unpack scan app.apk -v{lang_flag}", t("cli.example.scan", eff)),
+        (f"unpack inspect app.apk --permissions{lang_flag}", t("cli.example.inspect", eff)),
+        (f"unpack pipeline app.apk{lang_flag}", t("cli.example.pipeline", eff)),
+        ("unpack dump app.apk --deep", t("cli.example.dump", eff)),
+        ("unpack repair ./unpacked/ && unpack verify ./unpacked/", t("cli.example.repair", eff)),
+        (f"unpack report ./unpacked/ --apk app.apk -F html -o audit.html{lang_flag}", t("cli.example.report", eff)),
+        ("unpack web --port 8080", t("cli.example.web", eff)),
     ]
-    console.print(f"\n[{C_LABEL}]Quickstart[/]")
+    console.print(f"\n[{C_LABEL}]{safe(t('cli.quickstart', eff))}[/]")
     for cmd, desc in examples:
         console.print(f"  [{C_INFO}]$[/] [cmd]{safe(cmd)}[/]  [{C_DIM}]# {safe(desc)}[/]")
     console.print(
-        f"\n  [{C_DIM}]Global flags: --version/-V · --no-color · --quiet/-q · Run `unpack <cmd> --help` for options.[/]\n"
+        f"\n  [{C_DIM}]{safe(t('cli.global_flags', eff))}[/]\n"
     )
 
 
@@ -185,6 +208,14 @@ def main(
             is_eager=True,
         ),
     ] = False,
+    lang: Annotated[
+        Optional[str],
+        typer.Option(
+            "--lang",
+            "-L",
+            help="Display language: en | zh | auto (default: en, or UNPACK_LANG)",
+        ),
+    ] = None,
     no_color: Annotated[
         bool,
         typer.Option("--no-color", help="Disable ANSI color output (also honors NO_COLOR)"),
@@ -194,6 +225,7 @@ def main(
         typer.Option("--quiet", "-q", help="Reduce non-essential output, spinners, and hints"),
     ] = False,
 ):
+    set_lang(lang)
     _configure_consoles(no_color=no_color, quiet=quiet)
     if ctx.invoked_subcommand is None:
         _print_main_help()
@@ -233,16 +265,17 @@ def _fail_missing(
     plain_stderr: bool = False,
     hint: str | None = None,
 ) -> None:
-    msg = f"{label} not found: {path}"
+    eff = get_lang()
+    msg = t("cli.not_found", eff, label=label, path=path)
     if json_stdout:
-        print(json.dumps({"error": msg}))
+        print(json.dumps({"error": f"{label} not found: {path}"}))
     elif plain_stderr:
         print(f"Error: {msg}", file=sys.stderr)
     else:
         render_error(
             console,
             msg,
-            hint=hint or "Check the file path and ensure the target exists.",
+            hint=hint or t("cli.not_found_hint", eff),
         )
     raise typer.Exit(EXIT_NOT_FOUND)
 
@@ -278,29 +311,35 @@ def _spinner(msg: str, show_time: bool = True, enabled: bool = True):
     if show_time:
         elapsed = _time.monotonic() - t0
         if elapsed > 0.5:
-            err_console.print(f"  [{C_DIM}]done in {elapsed:.1f}s[/]")
+            err_console.print(f"  [{C_DIM}]{safe(t('cli.done_in', get_lang(), elapsed=elapsed))}[/]")
 
 
 def _next_steps_for_scan(apk: Path, result) -> list[tuple[str, str]]:
+    eff = get_lang()
+    lf = " --lang zh" if eff == "zh" else ""
     if not result.packer_name:
         return [
-            (f"unpack inspect {apk}", "inspect manifest, signing, permissions & native libs"),
-            (f"unpack scan {apk} -v", "show low-confidence candidates & SO inventory"),
+            (f"unpack inspect {apk}{lf}", t("cli.next.inspect_apk", eff)),
+            (f"unpack pipeline {apk} --mode offline --execute{lf}", t("pipe.cmd.offline_alt", eff)),
+            (f"unpack scan {apk} -v{lf}", t("cli.next.scan_verbose", eff)),
         ]
     level = getattr(result.protection_level, "value", str(result.protection_level))
     if level == "function_extraction":
         return [
-            (f"unpack dump {apk} --deep", "dump DEX + active-invoke to recover NOP methods"),
-            (f"unpack inspect {apk}", "inspect APK security profile & native libraries"),
+            (f"unpack dump {apk} --deep --explain{lf}", t("cli.next.explain_pipeline", eff)),
+            (f"unpack dump {apk} --deep{lf}", t("cli.next.dump_deep", eff)),
+            (f"unpack inspect {apk}{lf}", t("cli.next.inspect_profile", eff)),
         ]
     if level in ("vmp", "dex2c"):
         return [
-            (f"unpack inspect {apk}", "inspect native libraries & ELF security flags"),
-            (f"unpack dump {apk}", "dump recoverable DEX skeleton for VMP stub mapping"),
+            (f"unpack inspect {apk}{lf}", t("cli.next.inspect_elf", eff)),
+            (f"unpack dump {apk} --explain{lf}", t("cli.next.explain_pipeline", eff)),
+            (f"unpack dump {apk}{lf}", t("cli.next.dump_vmp", eff)),
         ]
     return [
-        (f"unpack dump {apk}", "run full scan -> dump -> repair -> verify pipeline"),
-        (f"unpack scan {apk} -F html -o scan.html", "export standalone HTML audit report"),
+        (f"unpack dump {apk} --explain{lf}", t("cli.next.explain_pipeline", eff)),
+        (f"unpack dump {apk}{lf}", t("cli.next.dump_full", eff)),
+        (f"unpack scan {apk} -F html -o scan.html{lf}", t("cli.next.export_html", eff)),
     ]
 
 
@@ -618,10 +657,15 @@ def doctor(
         bool,
         typer.Option("--no-devices", help="Skip ADB device probing"),
     ] = False,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
 ):
     """Check Python dependencies, RE tools, connected devices, and engine readiness."""
+    eff = _apply_lang(lang)
     pipe_json = fmt.lower() == "json" or (output_json is not None and str(output_json) == "-")
-    with _spinner("Running environment diagnostics...", enabled=not pipe_json):
+    with _spinner(t("cli.spinner.doctor", eff), enabled=not pipe_json):
         report = _run_doctor_impl(check_devices=not no_devices, device_serial=device)
 
     payload = json.dumps(report, indent=2, ensure_ascii=False)
@@ -629,10 +673,10 @@ def doctor(
         print(payload)
         return
 
-    print_doctor_report(console, report)
+    print_doctor_report(console, report, lang=eff)
     if output_json:
         output_json.write_text(payload)
-        console.print(f"\n  [{C_DIM}]Saved to {safe(output_json)}[/]")
+        console.print(f"\n  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
 
 
 @app.command()
@@ -663,8 +707,13 @@ def inspect(
         Optional[Path],
         typer.Option("--out", "-o", help="Write formatted report output to file"),
     ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display/report language: en | zh | auto"),
+    ] = None,
 ):
     """Deep static inspection of an APK (manifest, signing, libs) or DEX (classes, methods, disasm)."""
+    eff = _apply_lang(lang)
     fmt_l = fmt.strip().lower()
     json_stdout = (output_json is not None and str(output_json) == "-") or (
         fmt_l == "json" and out is None
@@ -675,7 +724,7 @@ def inspect(
 
     is_dex = target.suffix.lower() in (".dex", ".cdex")
     if is_dex:
-        with _spinner(f"Inspecting DEX {target.name}...", enabled=not json_stdout and fmt_l == "table"):
+        with _spinner(t("cli.spinner.inspect_dex", eff, name=target.name), enabled=not json_stdout and fmt_l == "table"):
             data = _inspect_dex_impl(
                 target,
                 show_classes=classes,
@@ -688,7 +737,7 @@ def inspect(
             return
         if fmt_l == "json" and out:
             out.write_text(payload)
-            console.print(f"  [{C_DIM}]Saved to {safe(out)}[/]")
+            console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=out))}[/]")
             return
         print_inspect_dex(
             console,
@@ -696,14 +745,15 @@ def inspect(
             classes=data.get("classes"),
             class_detail=data.get("class_detail"),
             disasm=data.get("disasm"),
+            lang=eff,
         )
         if output_json:
             output_json.write_text(payload)
-            console.print(f"  [{C_DIM}]Saved to {safe(output_json)}[/]")
+            console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
         return
 
     # APK inspection
-    with _spinner(f"Inspecting APK {target.name}...", enabled=not json_stdout and fmt_l == "table"):
+    with _spinner(t("cli.spinner.inspect_apk", eff, name=target.name), enabled=not json_stdout and fmt_l == "table"):
         data = _inspect_apk_impl(target)
 
     payload = json.dumps(data, indent=2, ensure_ascii=False)
@@ -714,32 +764,34 @@ def inspect(
     if fmt_l in ("markdown", "md", "html", "sarif"):
         from unpack.core.reporter import ReportGenerator, Reporter
 
-        audit = Reporter().build_audit_report(target, inspect=data)
-        rendered = ReportGenerator.render(audit, fmt_l)
+        audit = Reporter().build_audit_report(target, inspect=data, lang=eff)
+        rendered = ReportGenerator.render(audit, fmt_l, lang=eff)
         if out and str(out) != "-":
             out.write_text(rendered)
-            console.print(f"  [{C_OK}]✓[/] Report written to [path]{safe(out)}[/]")
+            console.print(f"  [{C_OK}]✓[/] {safe(t('cli.report_written', eff, path=out))}")
         else:
             print(rendered)
         return
 
     if fmt_l == "json" and out:
         out.write_text(payload)
-        console.print(f"  [{C_DIM}]Saved to {safe(out)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=out))}[/]")
         return
 
-    print_inspect_apk(console, data, show_permissions=permissions)
+    print_inspect_apk(console, data, show_permissions=permissions, lang=eff)
     if output_json:
         output_json.write_text(payload)
-        console.print(f"  [{C_DIM}]Saved to {safe(output_json)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
 
     if not _QUIET:
+        lf = " --lang zh" if eff == "zh" else ""
         render_next_steps(
             console,
             [
-                (f"unpack scan {target} -v", "detect packer signatures & evidence chain"),
-                (f"unpack inspect {target} -F html -o audit.html", "export standalone HTML report"),
+                (f"unpack scan {target} -v{lf}", t("cli.next.scan_evidence", eff)),
+                (f"unpack inspect {target} -F html -o audit.html{lf}", t("cli.next.export_html", eff)),
             ],
+            lang=eff,
         )
 
 
@@ -770,6 +822,10 @@ def scan(
         Optional[Path],
         typer.Option("--out", "-o", help="Write --format report output to file"),
     ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display/report language: en | zh | auto"),
+    ] = None,
 ):
     """Identify packer type and protection level.
 
@@ -778,9 +834,10 @@ def scan(
     Covers 24 vendors (360, Tencent, Bangbang, iJiami, NetEase, Ali, etc).
     No device required. Exit code 0 if packer found, 3 if not.
     """
+    eff = _apply_lang(lang)
     if batch:
         if not apk.is_dir():
-            _fail_error("--batch requires a directory", hint=f"Pass a directory containing .apk files: unpack scan ./apks/ --batch")
+            _fail_error("--batch requires a directory", hint="Pass a directory containing .apk files: unpack scan ./apks/ --batch")
         from unpack.core.scanner import PackerScanner
 
         scanner = PackerScanner()
@@ -814,7 +871,7 @@ def scan(
 
     extra_apks = find_sibling_splits(apk)
     if extra_apks and not pipe_mode:
-        console.print(f"  [{C_DIM}]Found {len(extra_apks)} split APK(s) alongside base[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.split_apks_found', eff, count=len(extra_apks)))}[/]")
     scanner = PackerScanner()
 
     if pipe_mode:
@@ -825,8 +882,8 @@ def scan(
         elif report_fmt:
             from unpack.core.reporter import ReportGenerator, Reporter
 
-            audit = Reporter().build_audit_report(apk, scan=result_gated)
-            print(ReportGenerator.render(audit, fmt_l))
+            audit = Reporter().build_audit_report(apk, scan=result_gated, lang=eff)
+            print(ReportGenerator.render(audit, fmt_l, lang=eff))
         else:
             d = result_gated.to_verbose_dict() if verbose else result_gated.to_dict()
             print(json.dumps(d, indent=2, ensure_ascii=False))
@@ -834,7 +891,7 @@ def scan(
             raise typer.Exit(EXIT_NO_PACKER)
         return
 
-    with _spinner("Scanning APK..."):
+    with _spinner(t("cli.spinner.scan", eff)):
         result = scanner.scan(apk, verbose=verbose or report_fmt, extra_apks=extra_apks or None)
 
     result_to_show = _gate_low_confidence(result, verbose)
@@ -842,25 +899,25 @@ def scan(
     if report_fmt and out is not None:
         from unpack.core.reporter import ReportGenerator, Reporter
 
-        audit = Reporter().build_audit_report(apk, scan=result_to_show)
-        out.write_text(ReportGenerator.render(audit, fmt_l))
-        console.print(f"  [{C_OK}]✓[/] Report written to [path]{safe(out)}[/]")
+        audit = Reporter().build_audit_report(apk, scan=result_to_show, lang=eff)
+        out.write_text(ReportGenerator.render(audit, fmt_l, lang=eff))
+        console.print(f"  [{C_OK}]✓[/] {safe(t('cli.report_written', eff, path=out))}")
     else:
-        print_scan_result(console, result_to_show, apk)
+        print_scan_result(console, result_to_show, apk, lang=eff)
         if verbose:
-            print_verbose(console, result)
+            print_verbose(console, result, lang=eff)
 
     if output_json:
         d = result.to_verbose_dict() if verbose else result.to_dict()
         output_json.write_text(json.dumps(d, indent=2, ensure_ascii=False))
-        console.print(f"  [{C_DIM}]Saved to {safe(output_json)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
     elif fmt_l == "json" and out is not None:
         d = result_to_show.to_verbose_dict() if verbose else result_to_show.to_dict()
         out.write_text(json.dumps(d, indent=2, ensure_ascii=False))
-        console.print(f"  [{C_DIM}]Saved to {safe(out)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=out))}[/]")
 
     if not _QUIET and not report_fmt:
-        render_next_steps(console, _next_steps_for_scan(apk, result_to_show))
+        render_next_steps(console, _next_steps_for_scan(apk, result_to_show), lang=eff)
 
     if not result_to_show.packer_name:
         raise typer.Exit(EXIT_NO_PACKER)
@@ -945,14 +1002,47 @@ def dump(
         Optional[Path],
         typer.Option("--report-html", help="Also write a standalone commercial HTML audit report"),
     ] = None,
+    explain: Annotated[
+        bool,
+        typer.Option("--explain", "--dry-run", help="Render visual Pipeline Execution Blueprint & live preflight checks without running"),
+    ] = False,
+    no_devices: Annotated[
+        bool,
+        typer.Option("--no-devices", help="Skip live ADB device probing when using --explain"),
+    ] = False,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display/report language: en | zh | auto"),
+    ] = None,
 ):
     """Full unpack flow: scan -> dump -> repair -> verify.
 
-    Requires a connected Android device. Engine is auto-selected based on
-    packer type and device capabilities (eBPF > Frida > Memory).
+    Requires a connected Android device. Pass --explain / --dry-run to preview
+    the full stage-by-stage execution blueprint, live preflight checks, and
+    packer-aware flag recommendations without touching a device.
     """
+    eff = _apply_lang(lang)
     if not apk.exists():
         _fail_missing("APK", apk)
+
+    if explain:
+        with _spinner(t("cli.spinner.pipeline", eff)):
+            plan = build_pipeline_plan(
+                apk,
+                output=output,
+                device=device,
+                engine=engine,
+                timeout=timeout,
+                deep=deep,
+                skip_repair=skip_repair,
+                no_anti_detect=no_anti_detect,
+                report_html=report_html,
+                mode="deep" if deep else "standard",
+                check_devices=not no_devices,
+                lang=eff,
+            )
+        render_pipeline_blueprint(console, plan, lang=eff)
+        return
 
     from unpack.core.dedup import dedup_dex_files
     from unpack.core.dispatcher import Dispatcher
@@ -966,19 +1056,19 @@ def dump(
     step = 0
 
     step += 1
-    render_pipeline_step(console, step, total_phases, "Scanning packer", detail=apk.name)
+    render_pipeline_step(console, step, total_phases, t("cli.step.scan", eff), detail=apk.name, lang=eff)
     scanner = PackerScanner()
-    with _spinner("Analyzing APK structure..."):
+    with _spinner(t("cli.spinner.analyze_apk", eff)):
         scan_result = scanner.scan(apk)
-    print_scan_result(console, scan_result, apk)
+    print_scan_result(console, scan_result, apk, lang=eff)
 
     step += 1
-    render_pipeline_step(console, step, total_phases, "Dumping DEX")
+    render_pipeline_step(console, step, total_phases, t("cli.step.dump", eff), lang=eff)
     dispatcher = Dispatcher()
     wait_label = (
-        f"Injecting and waiting for DEX dump ({timeout}s)..."
+        t("cli.spinner.dump_wait", eff, timeout=timeout)
         if timeout
-        else "Injecting and waiting for DEX dump..."
+        else t("cli.spinner.dump", eff)
     )
     with _spinner(wait_label):
         dump_result = dispatcher.dispatch(
@@ -994,29 +1084,30 @@ def dump(
     if not dump_result.dex_files:
         render_error(
             console,
-            "No DEX files dumped.",
+            t("cli.dump.no_dex", eff),
             detail=dump_result.error,
-            hint="Run `unpack doctor` to check device/root/engine readiness, or try `-e memory` / `-t 30`.",
+            hint=t("cli.dump.no_dex_hint", eff),
+            lang=eff,
         )
         raise typer.Exit(EXIT_ERROR)
 
     console.print(
-        f"  [{C_OK}]✓[/] Dumped [{C_OK}]{len(dump_result.dex_files)}[/] DEX file(s) "
+        f"  [{C_OK}]✓[/] {safe(t('cli.dump.dumped_count', eff, count=len(dump_result.dex_files)))} "
         f"[{C_DIM}]({dump_result.duration_ms}ms)[/]"
     )
 
     before_count = len(list(output.glob("*.dex")))
-    with _spinner("Deduplicating DEX files...", show_time=False):
+    with _spinner(t("cli.spinner.dedup", eff), show_time=False):
         unique = dedup_dex_files(output)
     removed_count = before_count - len(unique)
     if removed_count > 0:
         console.print(
-            f"  [{C_DIM}]Removed {removed_count} duplicate(s), {len(unique)} unique DEX file(s)[/]"
+            f"  [{C_DIM}]{safe(t('cli.dump.dedup_removed', eff, removed=removed_count, unique=len(unique)))}[/]"
         )
 
     if deep:
         step += 1
-        render_pipeline_step(console, step, total_phases, "Active invocation (deep mode)")
+        render_pipeline_step(console, step, total_phases, t("cli.step.deep", eff), lang=eff)
 
         if scan_result.protection_level not in (
             ProtectionLevel.FUNCTION_EXTRACTION,
@@ -1024,7 +1115,7 @@ def dump(
             ProtectionLevel.DEX2C,
         ):
             console.print(
-                f"  [{C_WARN}]Packer is not function-extraction level, deep mode may not help[/]"
+                f"  [{C_WARN}]{safe(t('cli.dump.deep_warn', eff))}[/]"
             )
 
         invoke_result = None
@@ -1111,10 +1202,10 @@ def dump(
     repair_dicts: list[dict[str, Any]] = []
     if not skip_repair:
         step += 1
-        render_pipeline_step(console, step, total_phases, "Repairing DEX files")
+        render_pipeline_step(console, step, total_phases, t("cli.step.repair", eff), lang=eff)
         pipeline = DexRepairPipeline()
         for dex_path in dump_result.dex_files:
-            with _spinner(f"Repairing {dex_path.name}...", show_time=False):
+            with _spinner(t("cli.spinner.repair", eff, name=dex_path.name), show_time=False):
                 repair_result = pipeline.repair(dex_path)
             repair_dicts.append(
                 {
@@ -1125,18 +1216,18 @@ def dump(
                     "output": str(repair_result.output_path) if repair_result.output_path else None,
                 }
             )
-        print_repair_summary(console, repair_dicts)
+        print_repair_summary(console, repair_dicts, lang=eff)
 
     step += 1
-    render_pipeline_step(console, step, total_phases, "Verifying quality")
-    with _spinner("Analyzing DEX coverage..."):
+    render_pipeline_step(console, step, total_phases, t("cli.step.verify", eff), lang=eff)
+    with _spinner(t("cli.spinner.coverage", eff)):
         reporter = Reporter()
         quality_report = reporter.evaluate(output, scan_result)
-    print_report(console, quality_report)
+    print_report(console, quality_report, lang=eff)
 
     report_path = output / "report.json"
     report_path.write_text(json.dumps(quality_report.to_dict(), indent=2, ensure_ascii=False))
-    console.print(f"\n  [{C_DIM}]Report saved to {safe(report_path)}[/]")
+    console.print(f"\n  [{C_DIM}]{safe(t('cli.dump.report_saved', eff, path=report_path))}[/]")
 
     if report_html:
         audit = reporter.build_audit_report(
@@ -1144,18 +1235,20 @@ def dump(
             scan=scan_result,
             quality=quality_report,
             repair_results=repair_dicts,
+            lang=eff,
         )
-        report_html.write_text(render_html(audit))
-        console.print(f"  [{C_OK}]✓[/] HTML audit report saved to [path]{safe(report_html)}[/]")
+        report_html.write_text(render_html(audit, lang=eff))
+        console.print(f"  [{C_OK}]✓[/] {safe(t('cli.html_report_saved', eff, path=report_html))}")
 
     if not _QUIET:
+        lf = " --lang zh" if eff == "zh" else ""
         steps = [
-            (f"unpack repack {apk} {output}", "rebuild an analyzable APK for jadx/JEB"),
-            (f"unpack report {output} --apk {apk} -F html -o audit.html", "export commercial HTML report"),
+            (f"unpack repack {apk} {output}", t("cli.next.repack_jadx", eff)),
+            (f"unpack report {output} --apk {apk} -F html -o audit.html{lf}", t("cli.next.commercial_report", eff)),
         ]
         if quality_report.nop_methods > 0:
-            steps.insert(0, (f"unpack rescan {apk} {output} -r 5", "trigger components to decrypt remaining NOP methods"))
-        render_next_steps(console, steps)
+            steps.insert(0, (f"unpack rescan {apk} {output} -r 5", t("cli.next.rescan_nop", eff)))
+        render_next_steps(console, steps, lang=eff)
 
 
 @app.command()
@@ -1177,12 +1270,17 @@ def repair(
         Optional[Path],
         typer.Option("--out", "-o", help="Write --format report output to file"),
     ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display/report language: en | zh | auto"),
+    ] = None,
 ):
     """Repair dumped DEX files.
 
     Fixes: header fields, Adler32 checksum, SHA-1 signature, map_list
     validation, CodeItem alignment. Detects NOP-only methods.
     """
+    eff = _apply_lang(lang)
     fmt_l = fmt.strip().lower()
     json_stdout = (output_json is not None and str(output_json) == "-") or (
         fmt_l == "json" and out is None
@@ -1195,7 +1293,7 @@ def repair(
 
     paths = _discover_dex_paths(dex)
     if not paths:
-        _fail_error("No DEX files found.", json_stdout=json_stdout)
+        _fail_error(t("cli.no_dex_found", eff), json_stdout=json_stdout)
 
     from unpack.repair.dex_repair import DexRepairPipeline
 
@@ -1230,37 +1328,38 @@ def repair(
         if report_fmt:
             from unpack.core.reporter import ReportGenerator, Reporter
 
-            audit = Reporter().build_audit_report(dex, repair_results=repair_results)
-            print(ReportGenerator.render(audit, fmt_l))
+            audit = Reporter().build_audit_report(dex, repair_results=repair_results, lang=eff)
+            print(ReportGenerator.render(audit, fmt_l, lang=eff))
         else:
             print(json.dumps(repair_results, indent=2, ensure_ascii=False))
         return
 
     repair_results = []
     for p in paths:
-        with _spinner(f"Repairing {p.name}...", show_time=False):
+        with _spinner(t("cli.spinner.repair", eff, name=p.name), show_time=False):
             repair_results.append(_run_one(p))
 
     if report_fmt and out is not None:
         from unpack.core.reporter import ReportGenerator, Reporter
 
-        audit = Reporter().build_audit_report(dex, repair_results=repair_results)
-        out.write_text(ReportGenerator.render(audit, fmt_l))
-        console.print(f"  [{C_OK}]✓[/] Report written to [path]{safe(out)}[/]")
+        audit = Reporter().build_audit_report(dex, repair_results=repair_results, lang=eff)
+        out.write_text(ReportGenerator.render(audit, fmt_l, lang=eff))
+        console.print(f"  [{C_OK}]✓[/] {safe(t('cli.report_written', eff, path=out))}")
     else:
-        print_repair_summary(console, repair_results)
+        print_repair_summary(console, repair_results, lang=eff)
         ok = sum(1 for r in repair_results if r["success"])
         console.print(f"  [{C_OK}]{ok}[/]/{len(paths)} repaired")
 
     if output_json:
         output_json.write_text(json.dumps(repair_results, indent=2, ensure_ascii=False))
-        console.print(f"  [{C_DIM}]Saved to {safe(output_json)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
     elif fmt_l == "json" and out is not None:
         out.write_text(json.dumps(repair_results, indent=2, ensure_ascii=False))
-        console.print(f"  [{C_DIM}]Saved to {safe(out)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=out))}[/]")
 
     if not _QUIET and not report_fmt:
-        render_next_steps(console, [(f"unpack verify {dex}", "validate repaired DEX integrity")])
+        lf = " --lang zh" if eff == "zh" else ""
+        render_next_steps(console, [(f"unpack verify {dex}{lf}", t("cli.next.verify_repaired", eff))], lang=eff)
 
 
 @app.command()
@@ -1278,12 +1377,17 @@ def verify(
         Optional[Path],
         typer.Option("--out", "-o", help="Write --format report output to file"),
     ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display/report language: en | zh | auto"),
+    ] = None,
 ):
     """Check DEX integrity and quality metrics.
 
     Validates magic, checksum, SHA-1, file size, section bounds.
     Reports NOP-only methods from function extraction packers.
     """
+    eff = _apply_lang(lang)
     fmt_l = fmt.strip().lower()
     json_stdout = (output_json is not None and str(output_json) == "-") or (
         fmt_l == "json" and out is None
@@ -1296,7 +1400,7 @@ def verify(
 
     paths = _discover_dex_paths(path)
     if not paths:
-        _fail_error("No DEX files found.", json_stdout=json_stdout)
+        _fail_error(t("cli.no_dex_found", eff), json_stdout=json_stdout)
 
     from unpack.repair.verifier import DexVerifier
 
@@ -1310,37 +1414,42 @@ def verify(
         if report_fmt:
             from unpack.core.reporter import ReportGenerator, Reporter
 
-            audit = Reporter().build_audit_report(path, verify_results=all_results)
-            print(ReportGenerator.render(audit, fmt_l))
+            audit = Reporter().build_audit_report(path, verify_results=all_results, lang=eff)
+            print(ReportGenerator.render(audit, fmt_l, lang=eff))
         else:
             print(json.dumps(all_results, indent=2, ensure_ascii=False))
         return
 
     all_results: list[dict[str, Any]] = []
     for p in paths:
-        with _spinner(f"Checking {p.name}...", show_time=False):
+        with _spinner(t("cli.spinner.verify", eff, name=p.name), show_time=False):
             result = verifier.verify(p)
         all_results.append(_as_dict(p.name, result))
 
     if report_fmt and out is not None:
         from unpack.core.reporter import ReportGenerator, Reporter
 
-        audit = Reporter().build_audit_report(path, verify_results=all_results)
-        out.write_text(ReportGenerator.render(audit, fmt_l))
-        console.print(f"  [{C_OK}]✓[/] Report written to [path]{safe(out)}[/]")
+        audit = Reporter().build_audit_report(path, verify_results=all_results, lang=eff)
+        out.write_text(ReportGenerator.render(audit, fmt_l, lang=eff))
+        console.print(f"  [{C_OK}]✓[/] {safe(t('cli.report_written', eff, path=out))}")
     else:
-        print_verify_summary(console, all_results)
+        print_verify_summary(console, all_results, lang=eff)
 
     if output_json:
         output_json.write_text(json.dumps(all_results, indent=2, ensure_ascii=False))
-        console.print(f"  [{C_DIM}]Saved to {safe(output_json)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
     elif fmt_l == "json" and out is not None:
         out.write_text(json.dumps(all_results, indent=2, ensure_ascii=False))
-        console.print(f"  [{C_DIM}]Saved to {safe(out)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=out))}[/]")
 
     failed = [r for r in all_results if not r["valid"]]
     if not _QUIET and not report_fmt and failed:
-        render_next_steps(console, [(f"unpack repair {path}", f"repair {len(failed)} failing DEX file(s)")])
+        lf = " --lang zh" if eff == "zh" else ""
+        render_next_steps(
+            console,
+            [(f"unpack repair {path}{lf}", t("cli.next.repair_failing", eff, count=len(failed)))],
+            lang=eff,
+        )
 
 
 @app.command()
@@ -1660,8 +1769,13 @@ def vmp(
         Optional[Path],
         typer.Option("--out", "-o", help="Write --format report output to file"),
     ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display/report language: en | zh | auto"),
+    ] = None,
 ):
     """Classify methods as normal / NOP / VMP-stub."""
+    eff = _apply_lang(lang)
     fmt_l = fmt.strip().lower()
     json_stdout = (output_json is not None and str(output_json) == "-") or (
         fmt_l == "json" and out is None
@@ -1674,7 +1788,7 @@ def vmp(
 
     paths = _discover_dex_paths(dex_dir)
     if not paths:
-        _fail_error("No DEX files found.", json_stdout=json_stdout)
+        _fail_error(t("cli.no_dex_found", eff), json_stdout=json_stdout)
 
     from unpack.analysis.vmp import VmpDetector
 
@@ -1684,7 +1798,7 @@ def vmp(
     per_dex: list[dict[str, Any]] = []
     total = normal = nop = vmp_total = 0
 
-    with _spinner(f"Classifying methods across {len(paths)} DEX file(s)...", enabled=not pipe_mode):
+    with _spinner(t("cli.spinner.vmp", eff, count=len(paths)), enabled=not pipe_mode):
         for p in paths:
             report = detector.analyze_dex(p.read_bytes())
             total += report.total_methods
@@ -1717,8 +1831,8 @@ def vmp(
         if report_fmt:
             from unpack.core.reporter import ReportGenerator, Reporter
 
-            audit = Reporter().build_audit_report(dex_dir, vmp=data)
-            print(ReportGenerator.render(audit, fmt_l))
+            audit = Reporter().build_audit_report(dex_dir, vmp=data, lang=eff)
+            print(ReportGenerator.render(audit, fmt_l, lang=eff))
         else:
             print(json.dumps(data, indent=2, ensure_ascii=False))
         return
@@ -1726,23 +1840,24 @@ def vmp(
     if report_fmt and out is not None:
         from unpack.core.reporter import ReportGenerator, Reporter
 
-        audit = Reporter().build_audit_report(dex_dir, vmp=data)
-        out.write_text(ReportGenerator.render(audit, fmt_l))
-        console.print(f"  [{C_OK}]✓[/] Report written to [path]{safe(out)}[/]")
+        audit = Reporter().build_audit_report(dex_dir, vmp=data, lang=eff)
+        out.write_text(ReportGenerator.render(audit, fmt_l, lang=eff))
+        console.print(f"  [{C_OK}]✓[/] {safe(t('cli.report_written', eff, path=out))}")
     else:
         print_vmp_summary(
             console,
             per_dex,
             {"total_methods": total, "normal_count": normal, "nop_count": nop, "vmp_count": vmp_total},
             vmp_methods=all_vmp_methods,
+            lang=eff,
         )
 
     if output_json:
         output_json.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-        console.print(f"  [{C_DIM}]Saved to {safe(output_json)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
     elif fmt_l == "json" and out is not None:
         out.write_text(json.dumps(data, indent=2, ensure_ascii=False))
-        console.print(f"  [{C_DIM}]Saved to {safe(out)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=out))}[/]")
 
 
 @app.command()
@@ -1764,10 +1879,15 @@ def xref(
         Optional[Path],
         typer.Option("--out", "-o", help="Write --format report output to file"),
     ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display/report language: en | zh | auto"),
+    ] = None,
 ):
     """Build a cross-reference index: strings, method calls, fields, reflection."""
     from unpack.analysis.xref import XrefBuilder
 
+    eff = _apply_lang(lang)
     fmt_l = fmt.strip().lower()
     json_stdout = (output_json is not None and str(output_json) == "-") or (
         fmt_l == "json" and out is None
@@ -1780,10 +1900,10 @@ def xref(
 
     paths = _discover_dex_paths(dex_dir)
     if not paths:
-        _fail_error("No DEX files found.", json_stdout=json_stdout)
+        _fail_error(t("cli.no_dex_found", eff), json_stdout=json_stdout)
 
     builder = XrefBuilder()
-    with _spinner(f"Building cross-reference index for {len(paths)} DEX file(s)...", enabled=not pipe_mode):
+    with _spinner(t("cli.spinner.xref", eff, count=len(paths)), enabled=not pipe_mode):
         reports = [builder.build_file(p) for p in paths]
         merged = XrefBuilder.merge(reports)
 
@@ -1791,8 +1911,8 @@ def xref(
         if report_fmt:
             from unpack.core.reporter import ReportGenerator, Reporter
 
-            audit = Reporter().build_audit_report(dex_dir, xref=merged)
-            print(ReportGenerator.render(audit, fmt_l))
+            audit = Reporter().build_audit_report(dex_dir, xref=merged, lang=eff)
+            print(ReportGenerator.render(audit, fmt_l, lang=eff))
         else:
             print(json.dumps(merged.to_dict(), indent=2, ensure_ascii=False))
         return
@@ -1800,18 +1920,18 @@ def xref(
     if report_fmt and out is not None:
         from unpack.core.reporter import ReportGenerator, Reporter
 
-        audit = Reporter().build_audit_report(dex_dir, xref=merged)
-        out.write_text(ReportGenerator.render(audit, fmt_l))
-        console.print(f"  [{C_OK}]✓[/] Report written to [path]{safe(out)}[/]")
+        audit = Reporter().build_audit_report(dex_dir, xref=merged, lang=eff)
+        out.write_text(ReportGenerator.render(audit, fmt_l, lang=eff))
+        console.print(f"  [{C_OK}]✓[/] {safe(t('cli.report_written', eff, path=out))}")
     else:
-        print_xref_summary(console, merged, file_count=len(paths), search=search)
+        print_xref_summary(console, merged, file_count=len(paths), search=search, lang=eff)
 
     if output_json:
         output_json.write_text(json.dumps(merged.to_dict(), indent=2, ensure_ascii=False))
-        console.print(f"  [{C_DIM}]Saved to {safe(output_json)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
     elif fmt_l == "json" and out is not None:
         out.write_text(json.dumps(merged.to_dict(), indent=2, ensure_ascii=False))
-        console.print(f"  [{C_DIM}]Saved to {safe(out)}[/]")
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=out))}[/]")
 
 
 @app.command()
@@ -1844,8 +1964,13 @@ def report(
         bool,
         typer.Option("--xref/--no-xref", help="Include cross-reference reflection scan for DEX targets"),
     ] = False,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Report & display language: en | zh | auto"),
+    ] = None,
 ):
     """Generate a commercial audit report (HTML5 / Markdown / SARIF 2.1.0 / JSON)."""
+    eff = _apply_lang(lang)
     fmt_l = fmt.strip().lower()
     if fmt_l not in ("html", "markdown", "md", "sarif", "json"):
         _fail_error(
@@ -1871,7 +1996,7 @@ def report(
 
     source_apk = apk if apk is not None else (target if target.is_file() and target.suffix.lower() == ".apk" else None)
 
-    with _spinner("Collecting audit evidence...", enabled=not to_stdout):
+    with _spinner(t("cli.spinner.evidence", eff), enabled=not to_stdout):
         if source_apk is not None:
             from unpack.core.scanner import PackerScanner
 
@@ -1933,8 +2058,9 @@ def report(
         vmp=vmp_data,
         xref=xref_data,
         title=title,
+        lang=eff,
     )
-    rendered = ReportGenerator.render(audit, fmt_l)
+    rendered = ReportGenerator.render(audit, fmt_l, lang=eff)
 
     if to_stdout:
         print(rendered)
@@ -1944,15 +2070,1317 @@ def report(
     out.write_text(rendered)
     render_kv_card(
         console,
-        "AUDIT REPORT GENERATED",
+        t("cli.report.generated", eff),
         [
-            ("Format", f"[{C_INFO}]{safe(fmt_l.upper())}[/]"),
-            ("Output", f"[path]{safe(out)}[/]"),
-            ("Grade", f"[{C_OK if audit.grade in ('A', 'B') else C_WARN}]{audit.grade}[/] ({audit.risk_score}/100)"),
-            ("Findings", f"{len(audit.findings)}"),
+            (t("fmt.col.format", eff), f"[{C_INFO}]{safe(fmt_l.upper())}[/]"),
+            (t("fmt.col.output", eff), f"[path]{safe(out)}[/]"),
+            (t("fmt.col.grade", eff), f"[{C_OK if audit.grade in ('A', 'B') else C_WARN}]{audit.grade}[/] ({audit.risk_score}/100)"),
+            (t("fmt.col.findings", eff), f"{len(audit.findings)}"),
         ],
         border_style=C_OK,
         title_style=f"bold {C_OK}",
+    )
+
+
+# ── Deep Pipeline Planner & Runner ───────────────────────────────────────────
+
+
+def build_pipeline_plan(
+    apk: Path,
+    *,
+    output: Path = Path("./unpacked"),
+    device: str | None = None,
+    engine: str | None = None,
+    timeout: int = 0,
+    deep: bool = False,
+    skip_repair: bool = False,
+    no_anti_detect: bool = False,
+    repack: bool = False,
+    report_html: Path | None = None,
+    mode: str = "auto",
+    check_devices: bool = True,
+    lang: str | None = None,
+) -> dict[str, Any]:
+    """Build a structured, packer-aware Pipeline Execution Blueprint with live preflight checks."""
+    eff = resolve_lang(lang) if lang is not None else get_lang()
+
+    # 1. Static scan & archive probe
+    apk_valid = False
+    apk_size = 0
+    dex_entries = 0
+    so_entries = 0
+    scan_result = None
+    if apk.exists() and apk.is_file():
+        apk_size = apk.stat().st_size
+        try:
+            with zipfile.ZipFile(apk, "r") as zf:
+                names = zf.namelist()
+                apk_valid = True
+                dex_entries = sum(1 for n in names if n.endswith(".dex") and "/" not in n)
+                so_entries = sum(1 for n in names if n.startswith("lib/") and n.endswith(".so"))
+        except zipfile.BadZipFile:
+            apk_valid = False
+
+    if apk_valid:
+        from unpack.core.scanner import PackerScanner
+
+        scan_result = PackerScanner().scan(apk, verbose=True)
+
+    # 2. Live doctor probe
+    doc = _run_doctor_impl(check_devices=check_devices, device_serial=device)
+    devices = doc.get("devices") or []
+    rooted_cnt = sum(1 for d in devices if d.get("rooted") or d.get("root"))
+    engines_map = {str(e.get("name", "")).lower(): e for e in (doc.get("engines") or [])}
+    checks_map = {str(c.get("name", "")).lower(): c for c in (doc.get("checks") or [])}
+
+    packer_name = getattr(scan_result, "packer_name", None) if scan_result else None
+    packer_version = getattr(scan_result, "packer_version", None) if scan_result else None
+    confidence = float(getattr(scan_result, "confidence", 0.0) or 0.0) if scan_result else 0.0
+    prot_obj = getattr(scan_result, "protection_level", None) if scan_result else None
+    prot_level = getattr(prot_obj, "value", str(prot_obj or "none")) if prot_obj else "none"
+
+    # 3. Resolve mode & recommendations from PackerScanner intelligence
+    norm_mode = (mode or "auto").strip().lower()
+    if norm_mode == "auto":
+        if not packer_name:
+            effective_mode = "offline"
+        elif prot_level == "function_extraction":
+            effective_mode = "deep"
+        else:
+            effective_mode = "standard"
+    elif norm_mode in ("offline", "standard", "deep"):
+        effective_mode = norm_mode
+    else:
+        effective_mode = "deep" if deep else "standard"
+
+    use_deep = deep or effective_mode == "deep"
+    is_offline = effective_mode == "offline"
+
+    rec_engine = engine or (getattr(scan_result, "recommended_engine", None) if scan_result else None) or "memory"
+    if is_offline:
+        rec_engine_display = "offline"
+    else:
+        rec_engine_display = rec_engine
+
+    rec_flags: list[str] = list(getattr(scan_result, "recommended_flags", None) or []) if scan_result else []
+    if use_deep and "--deep" not in rec_flags:
+        rec_flags.append("--deep")
+    if is_offline:
+        rec_flags = ["--mode", "offline", "--execute"]
+
+    if not packer_name:
+        why = t("pipe.why.clean", eff)
+    elif prot_level in ("vmp", "dex2c"):
+        why = t("pipe.why.vmp", eff)
+    elif prot_level == "function_extraction":
+        why = t("pipe.why.func", eff)
+    elif prot_level == "dex_encryption":
+        why = t("pipe.why.dex_enc", eff)
+    else:
+        why = t("pipe.why.unknown", eff)
+
+    # 4. Live Preflight Checks
+    preflight: list[dict[str, Any]] = []
+    if apk_valid:
+        preflight.append(
+            {
+                "id": "apk",
+                "name": t("pipe.preflight.apk", eff),
+                "status": "pass",
+                "detail": t(
+                    "pipe.preflight.apk_ok",
+                    eff,
+                    size=format_bytes(apk_size),
+                    dex=dex_entries,
+                    so=so_entries,
+                ),
+                "remediation": "",
+            }
+        )
+    else:
+        preflight.append(
+            {
+                "id": "apk",
+                "name": t("pipe.preflight.apk", eff),
+                "status": "block",
+                "detail": t("pipe.preflight.apk_bad", eff),
+                "remediation": t("pipe.preflight.apk_fix", eff),
+            }
+        )
+
+    adb_chk = checks_map.get("adb")
+    adb_path = (adb_chk or {}).get("version") or shutil.which("adb")
+    if not is_offline:
+        if adb_path:
+            preflight.append(
+                {
+                    "id": "adb",
+                    "name": t("pipe.preflight.adb", eff),
+                    "status": "pass",
+                    "detail": t("pipe.preflight.adb_ok", eff, path=adb_path),
+                    "remediation": "",
+                }
+            )
+        else:
+            preflight.append(
+                {
+                    "id": "adb",
+                    "name": t("pipe.preflight.adb", eff),
+                    "status": "block",
+                    "detail": t("pipe.preflight.adb_miss", eff),
+                    "remediation": t("pipe.preflight.adb_fix", eff),
+                }
+            )
+
+        if devices and rooted_cnt > 0:
+            preflight.append(
+                {
+                    "id": "device",
+                    "name": t("pipe.preflight.device", eff),
+                    "status": "pass",
+                    "detail": t("pipe.preflight.device_ok", eff, count=len(devices), rooted=rooted_cnt),
+                    "remediation": "",
+                }
+            )
+        elif devices:
+            preflight.append(
+                {
+                    "id": "device",
+                    "name": t("pipe.preflight.device", eff),
+                    "status": "warn",
+                    "detail": t("pipe.preflight.device_unrooted", eff, count=len(devices)),
+                    "remediation": t("pipe.preflight.device_fix", eff),
+                }
+            )
+        else:
+            preflight.append(
+                {
+                    "id": "device",
+                    "name": t("pipe.preflight.device", eff),
+                    "status": "block",
+                    "detail": t("pipe.preflight.device_miss", eff),
+                    "remediation": t("pipe.preflight.device_fix", eff),
+                }
+            )
+
+        eng_info = engines_map.get(rec_engine.lower()) or {"available": False, "reason": "unknown engine"}
+        if eng_info.get("available"):
+            preflight.append(
+                {
+                    "id": "engine",
+                    "name": t("pipe.preflight.engine", eff, engine=rec_engine),
+                    "status": "pass",
+                    "detail": t("pipe.preflight.engine_ok", eff, engine=rec_engine),
+                    "remediation": "",
+                }
+            )
+        else:
+            preflight.append(
+                {
+                    "id": "engine",
+                    "name": t("pipe.preflight.engine", eff, engine=rec_engine),
+                    "status": "block",
+                    "detail": t(
+                        "pipe.preflight.engine_miss",
+                        eff,
+                        engine=rec_engine,
+                        reason=eng_info.get("reason") or "requirements not met",
+                    ),
+                    "remediation": t("pipe.preflight.engine_fix", eff),
+                }
+            )
+
+        if use_deep:
+            frida_ready = bool((engines_map.get("frida") or {}).get("available"))
+            preflight.append(
+                {
+                    "id": "deep",
+                    "name": t("pipe.preflight.deep", eff),
+                    "status": "pass" if frida_ready else "warn",
+                    "detail": t("pipe.preflight.deep_ok", eff) if frida_ready else t("pipe.preflight.deep_warn", eff),
+                    "remediation": "" if frida_ready else "pip install -e '.[frida]'",
+                }
+            )
+
+    preflight.append(
+        {
+            "id": "output",
+            "name": t("pipe.preflight.output", eff),
+            "status": "pass",
+            "detail": t("pipe.preflight.output_ok", eff, path=output),
+            "remediation": "",
+        }
+    )
+
+    device_blocked = any(p["status"] == "block" for p in preflight if p["id"] in ("adb", "device", "engine"))
+    can_execute = not any(p["status"] == "block" for p in preflight)
+
+    # 5. Stage-by-stage Execution Blueprint
+    stages: list[dict[str, Any]] = []
+    if is_offline:
+        order = 1
+        stages.append(
+            {
+                "order": order,
+                "id": "scan",
+                "title": t("pipe.stage.scan.title", eff),
+                "what_it_does": t("pipe.stage.scan.desc", eff),
+                "prerequisites": t("pipe.stage.scan.prereq", eff),
+                "readiness": "ready" if apk_valid else "blocked",
+                "inputs": apk.name,
+                "outputs": "ScanResult (packer, confidence, evidence)",
+                "will_run": True,
+                "skip_reason": None,
+            }
+        )
+        order += 1
+        stages.append(
+            {
+                "order": order,
+                "id": "inspect",
+                "title": t("pipe.stage.inspect.title", eff),
+                "what_it_does": t("pipe.stage.inspect.desc", eff),
+                "prerequisites": t("pipe.stage.inspect.prereq", eff),
+                "readiness": "ready" if apk_valid else "blocked",
+                "inputs": apk.name,
+                "outputs": "ApkInspectResult (manifest, signing, ELF, risk)",
+                "will_run": True,
+                "skip_reason": None,
+            }
+        )
+        order += 1
+        stages.append(
+            {
+                "order": order,
+                "id": "extract_dex",
+                "title": t("pipe.stage.extract_dex.title", eff),
+                "what_it_does": t("pipe.stage.extract_dex.desc", eff),
+                "prerequisites": t("pipe.stage.extract_dex.prereq", eff),
+                "readiness": "ready" if dex_entries > 0 else "warn",
+                "inputs": f"{apk.name} ({dex_entries} DEX)",
+                "outputs": f"{output}/*.dex",
+                "will_run": dex_entries > 0,
+                "skip_reason": None if dex_entries > 0 else "no root classes*.dex",
+            }
+        )
+        order += 1
+        stages.append(
+            {
+                "order": order,
+                "id": "repair",
+                "title": f"{order}. {t('pipe.stage.repair.title', eff)}",
+                "what_it_does": t("pipe.stage.repair.desc", eff),
+                "prerequisites": t("pipe.stage.repair.prereq", eff),
+                "readiness": "skipped" if (skip_repair or dex_entries == 0) else "ready",
+                "inputs": f"{output}/*.dex",
+                "outputs": f"{output}/*_repaired.dex",
+                "will_run": not skip_repair and dex_entries > 0,
+                "skip_reason": "--skip-repair" if skip_repair else (None if dex_entries > 0 else "no DEX"),
+            }
+        )
+        order += 1
+        stages.append(
+            {
+                "order": order,
+                "id": "verify",
+                "title": f"{order}. {t('pipe.stage.verify.title', eff)}",
+                "what_it_does": t("pipe.stage.verify.desc", eff),
+                "prerequisites": t("pipe.stage.verify.prereq", eff),
+                "readiness": "ready" if dex_entries > 0 else "skipped",
+                "inputs": f"{output}/*.dex",
+                "outputs": f"{output}/report.json",
+                "will_run": dex_entries > 0,
+                "skip_reason": None if dex_entries > 0 else "no DEX",
+            }
+        )
+        order += 1
+        stages.append(
+            {
+                "order": order,
+                "id": "vmp",
+                "title": f"{order}. {t('pipe.stage.vmp.title', eff)}",
+                "what_it_does": t("pipe.stage.vmp.desc", eff),
+                "prerequisites": t("pipe.stage.vmp.prereq", eff),
+                "readiness": "ready" if dex_entries > 0 else "skipped",
+                "inputs": f"{output}/*.dex",
+                "outputs": "VmpReport (normal / NOP / VMP stubs)",
+                "will_run": dex_entries > 0,
+                "skip_reason": None if dex_entries > 0 else "no DEX",
+            }
+        )
+        if repack:
+            order += 1
+            stages.append(
+                {
+                    "order": order,
+                    "id": "repack",
+                    "title": f"{order}. {t('pipe.stage.repack.title', eff)}",
+                    "what_it_does": t("pipe.stage.repack.desc", eff),
+                    "prerequisites": t("pipe.stage.repack.prereq", eff),
+                    "readiness": "ready" if dex_entries > 0 else "skipped",
+                    "inputs": f"{apk.name} + {output}/*.dex",
+                    "outputs": f"{output}/repacked/*.apk",
+                    "will_run": dex_entries > 0,
+                    "skip_reason": None if dex_entries > 0 else "no DEX",
+                }
+            )
+        order += 1
+        report_target = report_html or (output / "audit_report.html")
+        stages.append(
+            {
+                "order": order,
+                "id": "report",
+                "title": f"{order}. {t('pipe.stage.report.title', eff)}",
+                "what_it_does": t("pipe.stage.report.desc", eff),
+                "prerequisites": t("pipe.stage.report.prereq", eff),
+                "readiness": "ready" if apk_valid else "blocked",
+                "inputs": "All stage results",
+                "outputs": str(report_target),
+                "will_run": True,
+                "skip_reason": None,
+            }
+        )
+    else:
+        order = 1
+        stages.append(
+            {
+                "order": order,
+                "id": "scan",
+                "title": t("pipe.stage.scan.title", eff),
+                "what_it_does": t("pipe.stage.scan.desc", eff),
+                "prerequisites": t("pipe.stage.scan.prereq", eff),
+                "readiness": "ready" if apk_valid else "blocked",
+                "inputs": apk.name,
+                "outputs": "ScanResult (packer, level, strategy)",
+                "will_run": True,
+                "skip_reason": None,
+            }
+        )
+        order += 1
+        stages.append(
+            {
+                "order": order,
+                "id": "dump",
+                "title": t("pipe.stage.dump.title", eff),
+                "what_it_does": t("pipe.stage.dump.desc", eff, engine=rec_engine),
+                "prerequisites": t("pipe.stage.dump.prereq", eff, engine=rec_engine),
+                "readiness": "blocked" if device_blocked else "ready",
+                "inputs": apk.name,
+                "outputs": f"{output}/classes_*.dex",
+                "will_run": True,
+                "skip_reason": None,
+            }
+        )
+        order += 1
+        stages.append(
+            {
+                "order": order,
+                "id": "dedup",
+                "title": t("pipe.stage.dedup.title", eff),
+                "what_it_does": t("pipe.stage.dedup.desc", eff),
+                "prerequisites": t("pipe.stage.dedup.prereq", eff),
+                "readiness": "blocked" if device_blocked else "ready",
+                "inputs": f"{output}/*.dex",
+                "outputs": "Unique DEX set",
+                "will_run": True,
+                "skip_reason": None,
+            }
+        )
+        order += 1
+        deep_readiness = (
+            "skipped"
+            if not use_deep
+            else ("blocked" if device_blocked else ("ready" if (engines_map.get("frida") or {}).get("available") else "warn"))
+        )
+        stages.append(
+            {
+                "order": order,
+                "id": "deep_invoke",
+                "title": t("pipe.stage.deep.title", eff),
+                "what_it_does": t("pipe.stage.deep.desc", eff),
+                "prerequisites": t("pipe.stage.deep.prereq", eff),
+                "readiness": deep_readiness,
+                "inputs": f"{apk.name} + {output}/*.dex",
+                "outputs": "Merged CodeItems (recovered NOPs)",
+                "will_run": use_deep,
+                "skip_reason": None if use_deep else "pass --deep to enable",
+            }
+        )
+        order += 1
+        stages.append(
+            {
+                "order": order,
+                "id": "repair",
+                "title": f"{order}. {t('pipe.stage.repair.title', eff)}",
+                "what_it_does": t("pipe.stage.repair.desc", eff),
+                "prerequisites": t("pipe.stage.repair.prereq", eff),
+                "readiness": "skipped" if skip_repair else ("blocked" if device_blocked else "ready"),
+                "inputs": f"{output}/*.dex",
+                "outputs": f"{output}/*_repaired.dex",
+                "will_run": not skip_repair,
+                "skip_reason": "--skip-repair" if skip_repair else None,
+            }
+        )
+        order += 1
+        stages.append(
+            {
+                "order": order,
+                "id": "verify",
+                "title": f"{order}. {t('pipe.stage.verify.title', eff)}",
+                "what_it_does": t("pipe.stage.verify.desc", eff),
+                "prerequisites": t("pipe.stage.verify.prereq", eff),
+                "readiness": "blocked" if device_blocked else "ready",
+                "inputs": f"{output}/*.dex",
+                "outputs": f"{output}/report.json",
+                "will_run": True,
+                "skip_reason": None,
+            }
+        )
+        if report_html is not None:
+            order += 1
+            stages.append(
+                {
+                    "order": order,
+                    "id": "report",
+                    "title": f"{order}. {t('pipe.stage.report.title', eff)}",
+                    "what_it_does": t("pipe.stage.report.desc", eff),
+                    "prerequisites": t("pipe.stage.report.prereq", eff),
+                    "readiness": "blocked" if device_blocked else "ready",
+                    "inputs": "Scan + Quality + Repair",
+                    "outputs": str(report_html),
+                    "will_run": True,
+                    "skip_reason": None,
+                }
+            )
+
+    # 6. Copyable Commands
+    lf = " --lang zh" if eff == "zh" else ""
+    if is_offline:
+        rec_cmd = f"unpack pipeline {apk} --mode offline -o {output} --execute{lf}"
+    else:
+        cmd_parts = [f"unpack dump {apk}", f"-o {output}"]
+        if engine:
+            cmd_parts.append(f"-e {engine}")
+        if use_deep:
+            cmd_parts.append("--deep")
+        if timeout > 0:
+            cmd_parts.append(f"-t {timeout}")
+        if skip_repair:
+            cmd_parts.append("--skip-repair")
+        if no_anti_detect:
+            cmd_parts.append("--no-anti-detect")
+        if report_html:
+            cmd_parts.append(f"--report-html {report_html}")
+        if eff == "zh":
+            cmd_parts.append("--lang zh")
+        rec_cmd = " ".join(cmd_parts)
+
+    offline_alt_cmd = f"unpack pipeline {apk} --mode offline -o {output} --execute{lf}"
+
+    return {
+        "target": str(apk),
+        "output": str(output),
+        "mode": effective_mode,
+        "mode_label": t(f"pipe.mode.{effective_mode}", eff),
+        "lang": eff,
+        "packer_name": packer_name,
+        "packer_version": packer_version,
+        "confidence": round(confidence, 3),
+        "protection_level": prot_level,
+        "recommended_engine": rec_engine_display,
+        "recommended_flags": rec_flags,
+        "strategy_reason": why,
+        "can_execute": can_execute,
+        "preflight_checks": preflight,
+        "stages": stages,
+        "recommended_cmd": rec_cmd,
+        "offline_alternative_cmd": offline_alt_cmd,
+    }
+
+
+def _run_offline_pipeline(
+    apk: Path,
+    *,
+    output: Path,
+    skip_repair: bool = False,
+    repack: bool = False,
+    report_html: Path | None = None,
+    lang: str = "en",
+) -> dict[str, Any]:
+    """Execute the zero-device Offline Audit & Repair Pipeline end-to-end."""
+    from unpack.analysis.vmp import VmpDetector
+    from unpack.core.reporter import ReportGenerator, Reporter
+    from unpack.core.scanner import PackerScanner
+    from unpack.repair.dex_repair import DexRepairPipeline
+    from unpack.repair.verifier import DexVerifier
+
+    output.mkdir(parents=True, exist_ok=True)
+    total_steps = 6 + (1 if repack else 0)
+    step = 0
+
+    # 1. Scan
+    step += 1
+    render_pipeline_step(console, step, total_steps, t("pipe.stage.scan.title", lang), detail=apk.name, lang=lang)
+    scan_res = PackerScanner().scan(apk, verbose=True)
+    print_scan_result(console, scan_res, apk, lang=lang)
+
+    # 2. Static APK Inspection
+    step += 1
+    render_pipeline_step(console, step, total_steps, t("pipe.stage.inspect.title", lang), detail=apk.name, lang=lang)
+    inspect_data = _inspect_apk_impl(apk)
+    print_inspect_apk(console, inspect_data, lang=lang)
+
+    # 3. Extract embedded DEX files
+    step += 1
+    render_pipeline_step(console, step, total_steps, t("pipe.stage.extract_dex.title", lang), lang=lang)
+    extracted: list[Path] = []
+    with zipfile.ZipFile(apk, "r") as zf:
+        for info in zf.infolist():
+            if info.filename.endswith(".dex") and "/" not in info.filename:
+                dest = output / Path(info.filename).name
+                dest.write_bytes(zf.read(info.filename))
+                extracted.append(dest)
+    if extracted:
+        console.print(f"  [{C_OK}]✓[/] {safe(t('pipe.offline_exec.extracted', lang, count=len(extracted)))}")
+    else:
+        console.print(f"  [{C_WARN}]![/] {safe(t('pipe.offline_exec.no_dex', lang))}")
+
+    # 4. Repair & Verify
+    step += 1
+    render_pipeline_step(console, step, total_steps, t("pipe.stage.repair.title", lang), lang=lang)
+    repair_dicts: list[dict[str, Any]] = []
+    verify_list: list[dict[str, Any]] = []
+    if extracted and not skip_repair:
+        rp = DexRepairPipeline()
+        for p in extracted:
+            rr = rp.repair(p)
+            repair_dicts.append(
+                {
+                    "file": p.name,
+                    "success": rr.success,
+                    "actions": rr.actions,
+                    "nop_methods": rr.nop_method_count,
+                    "output": str(rr.output_path) if rr.output_path else None,
+                }
+            )
+        print_repair_summary(console, repair_dicts, lang=lang)
+
+    verifier = DexVerifier()
+    for p in extracted:
+        vr = verifier.verify(p)
+        verify_list.append({"file": p.name, "valid": vr.valid, "issues": vr.issues, "stats": vr.stats})
+    if verify_list:
+        print_verify_summary(console, verify_list, lang=lang)
+
+    # 5. VMP & Quality
+    step += 1
+    render_pipeline_step(console, step, total_steps, t("pipe.stage.vmp.title", lang), lang=lang)
+    reporter = Reporter()
+    quality_report = reporter.evaluate(output, scan_res) if extracted else None
+    vmp_data: dict[str, Any] | None = None
+    if extracted:
+        det = VmpDetector()
+        tot = norm = nops = vmps = 0
+        v_methods: list[dict[str, Any]] = []
+        c_graph: list[dict[str, Any]] = []
+        per_dex: list[dict[str, Any]] = []
+        for p in extracted:
+            vr_vmp = det.analyze_dex(p.read_bytes())
+            tot += vr_vmp.total_methods
+            norm += vr_vmp.normal_count
+            nops += vr_vmp.nop_count
+            vmps += vr_vmp.vmp_count
+            v_methods.extend({**m, "dex_file": p.name} for m in vr_vmp.vmp_methods)
+            c_graph.extend({**c, "dex_file": p.name} for c in vr_vmp.call_graph)
+            per_dex.append({"file": p.name, "normal": vr_vmp.normal_count, "nop": vr_vmp.nop_count, "vmp": vr_vmp.vmp_count})
+        vmp_data = {
+            "total_methods": tot,
+            "normal_count": norm,
+            "nop_count": nops,
+            "vmp_count": vmps,
+            "vmp_methods": v_methods,
+            "call_graph": c_graph,
+        }
+        print_vmp_summary(console, per_dex, vmp_data, vmp_methods=v_methods, lang=lang)
+        (output / "report.json").write_text(json.dumps(quality_report.to_dict(), indent=2, ensure_ascii=False))
+
+    # Optional Repack
+    repacked_path: Path | None = None
+    if repack and extracted:
+        step += 1
+        render_pipeline_step(console, step, total_steps, t("pipe.stage.repack.title", lang), lang=lang)
+        from unpack.repack.repacker import Repacker
+
+        rep_res = Repacker().repack(apk, output, output / "repacked")
+        if rep_res.success:
+            repacked_path = rep_res.output_path
+            console.print(f"  [{C_OK}]✓[/] {safe(rep_res.output_path)}")
+
+    # 6. Commercial Audit Report
+    step += 1
+    render_pipeline_step(console, step, total_steps, t("pipe.stage.report.title", lang), lang=lang)
+    audit = reporter.build_audit_report(
+        apk,
+        scan=scan_res,
+        inspect=inspect_data,
+        quality=quality_report,
+        verify_results=verify_list,
+        repair_results=repair_dicts,
+        vmp=vmp_data,
+        lang=lang,
+    )
+    html_dest = report_html or (output / "audit_report.html")
+    html_dest.parent.mkdir(parents=True, exist_ok=True)
+    html_dest.write_text(ReportGenerator.render(audit, "html", lang=lang))
+
+    render_kv_card(
+        console,
+        t("pipe.offline_exec.title", lang),
+        [
+            (t("fmt.target", lang), f"[path]{safe(apk.name)}[/]"),
+            (t("fmt.col.grade", lang), f"[{C_OK if audit.grade in ('A', 'B') else C_WARN}]{audit.grade}[/] ({audit.risk_score}/100)"),
+            (t("fmt.col.findings", lang), f"{len(audit.findings)}"),
+            (t("fmt.col.output", lang), f"[path]{safe(html_dest)}[/]"),
+        ],
+        border_style=C_OK,
+        title_style=f"bold {C_OK}",
+    )
+    return {
+        "target": str(apk),
+        "mode": "offline",
+        "grade": audit.grade,
+        "risk_score": audit.risk_score,
+        "findings": len(audit.findings),
+        "extracted_dex": [p.name for p in extracted],
+        "report_html": str(html_dest),
+        "repacked": str(repacked_path) if repacked_path else None,
+    }
+
+
+@app.command()
+def pipeline(
+    apk: Annotated[Path, typer.Argument(help="Path to APK file")],
+    mode: Annotated[
+        str,
+        typer.Option("--mode", "-m", help="Pipeline mode: auto | offline | standard | deep"),
+    ] = "auto",
+    output: Annotated[
+        Path,
+        typer.Option("--output", "-o", help="Output directory for pipeline artifacts"),
+    ] = Path("./unpacked"),
+    device: Annotated[
+        Optional[str],
+        typer.Option("--device", "-d", help="ADB device serial (device modes)"),
+    ] = None,
+    engine: Annotated[
+        Optional[str],
+        typer.Option("--engine", "-e", help="Force engine: frida | ebpf | memory"),
+    ] = None,
+    timeout: Annotated[
+        int,
+        typer.Option("--timeout", "-t", help="Seconds to wait for packer to unpack (default: auto)"),
+    ] = 0,
+    deep: Annotated[
+        bool,
+        typer.Option("--deep", help="Enable active invocation in device mode"),
+    ] = False,
+    skip_repair: Annotated[
+        bool,
+        typer.Option("--skip-repair", help="Skip DEX repair stage"),
+    ] = False,
+    repack: Annotated[
+        bool,
+        typer.Option("--repack", help="Repack analyzable APK at the end (offline mode)"),
+    ] = False,
+    report_html: Annotated[
+        Optional[Path],
+        typer.Option("--report-html", help="Path to write HTML audit report"),
+    ] = None,
+    explain: Annotated[
+        bool,
+        typer.Option("--explain", "--dry-run", help="Render execution blueprint only (default unless --execute is passed)"),
+    ] = False,
+    execute: Annotated[
+        bool,
+        typer.Option("--execute", "-x", help="Execute the planned pipeline immediately"),
+    ] = False,
+    no_devices: Annotated[
+        bool,
+        typer.Option("--no-devices", help="Skip live ADB device probing during preflight"),
+    ] = False,
+    fmt: Annotated[
+        str,
+        typer.Option("--format", "-F", help="Output format: table | json"),
+    ] = "table",
+    output_json: Annotated[
+        Optional[Path],
+        typer.Option("--json", "-j", help="Save blueprint as JSON (use - for stdout)"),
+    ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display/report language: en | zh | auto"),
+    ] = None,
+):
+    """Guided Pipeline Planner & Runner: live preflight blueprint + zero-device offline or device execution."""
+    eff = _apply_lang(lang)
+    json_stdout = fmt.strip().lower() == "json" or (output_json is not None and str(output_json) == "-")
+    if not apk.exists():
+        _fail_missing("APK", apk, json_stdout=json_stdout)
+
+    with _spinner(t("cli.spinner.pipeline", eff), enabled=not json_stdout):
+        plan = build_pipeline_plan(
+            apk,
+            output=output,
+            device=device,
+            engine=engine,
+            timeout=timeout,
+            deep=deep,
+            skip_repair=skip_repair,
+            repack=repack,
+            report_html=report_html,
+            mode=mode,
+            check_devices=not no_devices,
+            lang=eff,
+        )
+
+    if json_stdout:
+        print(json.dumps(plan, indent=2, ensure_ascii=False))
+        return
+
+    render_pipeline_blueprint(console, plan, lang=eff)
+
+    if output_json:
+        output_json.write_text(json.dumps(plan, indent=2, ensure_ascii=False))
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
+
+    if execute and not explain:
+        if plan["mode"] == "offline":
+            _run_offline_pipeline(
+                apk,
+                output=output,
+                skip_repair=skip_repair,
+                repack=repack,
+                report_html=report_html,
+                lang=eff,
+            )
+        else:
+            dump(
+                apk=apk,
+                output=output,
+                device=device,
+                engine=engine,
+                timeout=timeout,
+                deep=deep or plan["mode"] == "deep",
+                skip_repair=skip_repair,
+                no_anti_detect=False,
+                report_html=report_html,
+                explain=False,
+                no_devices=no_devices,
+                lang=eff,
+            )
+
+
+# ── Interactive Onboarding & Guided Wizard (`guide` / `wizard`) ──────────────
+
+_GUIDE_SCENARIOS: tuple[str, ...] = ("audit", "dex", "repair", "pipeline", "web")
+
+
+def _discover_local_samples(scenario: str) -> list[dict[str, Any]]:
+    """Auto-discover local APK/DEX samples in test_apks/, e2e_test/, and workspace."""
+    found: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    roots = [Path("test_apks"), Path("e2e_test"), Path(".")]
+
+    want_ext = (".apk",)
+    if scenario == "dex":
+        want_ext = (".dex", ".apk")
+    elif scenario == "repair":
+        want_ext = (".dex",)
+
+    for root in roots:
+        if not root.exists():
+            continue
+        if scenario == "repair" and root.is_dir():
+            for cand_dir in (root / "unpacked", root / "dex"):
+                if cand_dir.is_dir() and list(cand_dir.glob("*.dex")):
+                    res = cand_dir.resolve()
+                    if res not in seen:
+                        seen.add(res)
+                        found.append({"path": cand_dir, "type": "DEX dir", "size": None})
+        pattern_iter = sorted(root.iterdir()) if root == Path(".") else sorted(root.rglob("*"))
+        for p in pattern_iter:
+            if not p.is_file():
+                continue
+            if p.suffix.lower() not in want_ext:
+                continue
+            if any(part.startswith(".") for part in p.parts):
+                continue
+            res = p.resolve()
+            if res in seen:
+                continue
+            seen.add(res)
+            found.append(
+                {
+                    "path": p,
+                    "type": p.suffix.lstrip(".").upper(),
+                    "size": p.stat().st_size,
+                }
+            )
+            if len(found) >= 8:
+                return found
+    return found
+
+
+def _build_guide_plan(
+    scenario: str,
+    target: Path,
+    *,
+    lang: str,
+    has_device: bool,
+) -> tuple[list[dict[str, str]], list[str]]:
+    """Return plain-language stages and copyable CLI commands for a wizard goal."""
+    lf = " --lang zh" if lang == "zh" else ""
+    if scenario == "audit":
+        stages = [
+            {
+                "stage": t("pipe.stage.scan.title", lang),
+                "purpose": t("pipe.stage.scan.desc", lang),
+                "prereq": t("pipe.stage.scan.prereq", lang),
+                "output": "Packer verdict + evidence chain",
+            },
+            {
+                "stage": t("pipe.stage.inspect.title", lang),
+                "purpose": t("pipe.stage.inspect.desc", lang),
+                "prereq": t("pipe.stage.inspect.prereq", lang),
+                "output": "Manifest, signing, permissions & ELF report",
+            },
+            {
+                "stage": f"3. {t('pipe.stage.report.title', lang)}",
+                "purpose": t("pipe.stage.report.desc", lang),
+                "prereq": t("pipe.stage.report.prereq", lang),
+                "output": "audit.html",
+            },
+        ]
+        cmds = [
+            f"unpack scan {target} -v{lf}",
+            f"unpack inspect {target} --permissions{lf}",
+            f"unpack report {target} -F html -o audit.html{lf}",
+        ]
+        return stages, cmds
+
+    if scenario == "dex":
+        stages = [
+            {
+                "stage": "1. DEX Overview & Classes" if lang == "en" else "1. DEX 概览与类目录浏览",
+                "purpose": "Inspect DEX header, class/method counts & NOP health" if lang == "en" else "查看 DEX 文件头、类与方法数量以及 NOP 抽取健康度",
+                "prereq": t("pipe.stage.scan.prereq", lang),
+                "output": "Classes & health table",
+            },
+            {
+                "stage": "2. Method & Dalvik Disassembly" if lang == "en" else "2. 方法列表与 Dalvik 反汇编",
+                "purpose": "Drill into a target class and disassemble Dalvik instructions" if lang == "en" else "展开指定类的方法清单，并对目标方法进行 Dalvik 字节码反汇编",
+                "prereq": t("pipe.stage.scan.prereq", lang),
+                "output": "Instruction listing",
+            },
+        ]
+        cmds = [
+            f"unpack inspect {target} --classes{lf}",
+            f"unpack inspect {target} --methods com.example.MainActivity{lf}",
+            f"unpack inspect {target} --disasm com.example.MainActivity::onCreate{lf}",
+        ]
+        return stages, cmds
+
+    if scenario == "repair":
+        stages = [
+            {
+                "stage": f"1. {t('pipe.stage.repair.title', lang)}",
+                "purpose": t("pipe.stage.repair.desc", lang),
+                "prereq": t("pipe.stage.repair.prereq", lang),
+                "output": "*_repaired.dex",
+            },
+            {
+                "stage": f"2. {t('pipe.stage.verify.title', lang)}",
+                "purpose": t("pipe.stage.verify.desc", lang),
+                "prereq": t("pipe.stage.verify.prereq", lang),
+                "output": "PASS / FAIL integrity table",
+            },
+        ]
+        cmds = [
+            f"unpack repair {target}{lf}",
+            f"unpack verify {target}{lf}",
+        ]
+        return stages, cmds
+
+    if scenario == "pipeline":
+        stages = [
+            {
+                "stage": t("pipe.stage.scan.title", lang),
+                "purpose": t("pipe.stage.scan.desc", lang),
+                "prereq": t("pipe.stage.scan.prereq", lang),
+                "output": "Packer & recommended flags",
+            },
+            {
+                "stage": t("pipe.stage.dump.title", lang),
+                "purpose": t("pipe.stage.dump.desc", lang, engine="auto"),
+                "prereq": t("pipe.stage.dump.prereq", lang, engine="auto"),
+                "output": "./unpacked/*.dex",
+            },
+            {
+                "stage": f"3. {t('pipe.stage.repair.title', lang)} & {t('pipe.stage.verify.title', lang)}",
+                "purpose": t("pipe.stage.verify.desc", lang),
+                "prereq": t("pipe.stage.verify.prereq", lang),
+                "output": "./unpacked/report.json",
+            },
+        ]
+        cmds = [f"unpack dump {target} --explain{lf}"]
+        if has_device:
+            cmds.append(f"unpack dump {target} --deep -o ./unpacked --report-html audit.html{lf}")
+        else:
+            cmds.append(f"unpack pipeline {target} --mode offline -o ./unpacked --execute{lf}")
+        return stages, cmds
+
+    # web
+    stages = [
+        {
+            "stage": "1. Launch Unpack Studio" if lang == "en" else "1. 启动 Unpack Studio 本地服务",
+            "purpose": t("guide.goal.web.desc", lang),
+            "prereq": "Python Flask (`pip install -e '.[web]'`)" if lang == "en" else "需安装 Flask（`pip install -e '.[web]'`）",
+            "output": "http://127.0.0.1:8080",
+        }
+    ]
+    cmds = ["unpack web --port 8080"]
+    return stages, cmds
+
+
+def _run_guide(
+    *,
+    scenario: str | None = None,
+    target: Path | None = None,
+    non_interactive: bool = False,
+    execute: bool = False,
+    no_devices: bool = False,
+    lang: str | None = None,
+) -> None:
+    eff = _apply_lang(lang)
+    console.print()
+    render_header(
+        console,
+        t("guide.title", eff),
+        subtitle=t("guide.subtitle", eff),
+        meta=f"v{__version__}",
+    )
+
+    # ── Step 1: Environment Readiness Check ──
+    render_wizard_step(console, 1, 5, t("guide.step1.title", eff), t("guide.step1.sub", eff), lang=eff)
+    with _spinner(t("cli.spinner.doctor", eff)):
+        doc = _run_doctor_impl(check_devices=not no_devices)
+    checks = doc.get("checks") or []
+    passed = sum(1 for c in checks if str(c.get("status", "")).lower() == "pass")
+    warned = sum(1 for c in checks if str(c.get("status", "")).lower() == "warn")
+    failed = sum(1 for c in checks if str(c.get("status", "")).lower() == "fail")
+    devices = doc.get("devices") or []
+    rooted = sum(1 for d in devices if d.get("rooted") or d.get("root"))
+    ready_engines = [str(e["name"]) for e in (doc.get("engines") or []) if e.get("available")]
+
+    if devices:
+        dev_summary = f"[{C_OK}]{safe(t('guide.env.device_ready', eff, count=len(devices), rooted=rooted, engines=', '.join(ready_engines) or 'none'))}[/]"
+    else:
+        dev_summary = f"[{C_WARN}]{safe(t('guide.env.device_none', eff))}[/]"
+
+    render_kv_card(
+        console,
+        t("fmt.title.doctor", eff),
+        [
+            (t("guide.env.offline_label", eff), f"[{C_OK}]{safe(t('guide.env.offline_ready', eff))}[/]"),
+            (t("guide.env.device_label", eff), dev_summary),
+            (t("guide.env.checks_summary", eff), t("guide.env.checks_detail", eff, passed=passed, warn=warned, fail=failed)),
+        ],
+        border_style=C_INFO,
+        title_style=f"bold {C_INFO}",
+    )
+
+    # ── Step 2: Goal Picker ──
+    render_wizard_step(console, 2, 5, t("guide.step2.title", eff), t("guide.step2.sub", eff), lang=eff)
+    goal_rows = []
+    for idx, key in enumerate(_GUIDE_SCENARIOS, start=1):
+        goal_rows.append(
+            [
+                f"[{C_INFO}]{idx}[/]",
+                f"[{C_LABEL}]{safe(t(f'guide.goal.{key}.name', eff))}[/] [{C_DIM}]({key})[/]",
+                f"[{C_OK if key in ('audit', 'dex', 'repair') else C_ACCENT}]{safe(t(f'guide.goal.{key}.tag', eff))}[/]",
+                safe(t(f"guide.goal.{key}.desc", eff)),
+            ]
+        )
+    render_table(
+        console,
+        [
+            (t("guide.col.num", eff), {"width": 3, "justify": "right"}),
+            (t("guide.col.goal", eff), {}),
+            (t("guide.col.mode", eff), {"width": 18}),
+            (t("guide.col.what", eff), {}),
+        ],
+        goal_rows,
+    )
+
+    chosen_scenario: str
+    if scenario:
+        norm_s = scenario.strip().lower()
+        if norm_s.isdigit() and 1 <= int(norm_s) <= len(_GUIDE_SCENARIOS):
+            chosen_scenario = _GUIDE_SCENARIOS[int(norm_s) - 1]
+        elif norm_s in _GUIDE_SCENARIOS:
+            chosen_scenario = norm_s
+        else:
+            _fail_error(
+                f"Unknown scenario: {scenario}",
+                hint=f"Valid scenarios: {', '.join(_GUIDE_SCENARIOS)}",
+            )
+    elif non_interactive:
+        chosen_scenario = "audit"
+    else:
+        raw_choice = typer.prompt(t("guide.prompt.goal", eff), default="1").strip().lower()
+        if raw_choice.isdigit() and 1 <= int(raw_choice) <= len(_GUIDE_SCENARIOS):
+            chosen_scenario = _GUIDE_SCENARIOS[int(raw_choice) - 1]
+        elif raw_choice in _GUIDE_SCENARIOS:
+            chosen_scenario = raw_choice
+        else:
+            chosen_scenario = "audit"
+
+    # ── Step 3: Target Selection ──
+    render_wizard_step(console, 3, 5, t("guide.step3.title", eff), t("guide.step3.sub", eff), lang=eff)
+    chosen_target: Path
+    if chosen_scenario == "web":
+        chosen_target = Path("http://127.0.0.1:8080")
+    else:
+        discovered = _discover_local_samples(chosen_scenario)
+        if discovered:
+            s_rows = [
+                [
+                    f"[{C_INFO}]{idx}[/]",
+                    f"[path]{safe(item['path'])}[/]",
+                    safe(item["type"]),
+                    format_bytes(item["size"]),
+                ]
+                for idx, item in enumerate(discovered, start=1)
+            ]
+            render_table(
+                console,
+                [
+                    (t("guide.col.num", eff), {"width": 3, "justify": "right"}),
+                    (t("guide.col.sample", eff), {}),
+                    (t("guide.col.type", eff), {"width": 8}),
+                    (t("guide.col.size", eff), {"justify": "right"}),
+                ],
+                s_rows,
+                title=t("guide.discovered_title", eff, count=len(discovered)),
+            )
+        else:
+            console.print(f"  [{C_DIM}]{safe(t('guide.no_local_targets', eff))}[/]")
+
+        default_placeholder = Path("./unpacked") if chosen_scenario == "repair" else Path("sample.apk")
+        if target is not None:
+            chosen_target = target
+        elif non_interactive:
+            chosen_target = discovered[0]["path"] if discovered else default_placeholder
+        else:
+            default_in = "1" if discovered else str(default_placeholder)
+            raw_t = typer.prompt(t("guide.prompt.target", eff), default=default_in).strip()
+            if raw_t.isdigit() and 1 <= int(raw_t) <= len(discovered):
+                chosen_target = discovered[int(raw_t) - 1]["path"]
+            else:
+                chosen_target = Path(raw_t)
+
+        console.print(f"  [{C_OK}]▸[/] {safe(t('guide.selected_target', eff, target=chosen_target))}")
+        if chosen_target.exists() and chosen_target.is_file() and chosen_target.suffix.lower() == ".apk":
+            try:
+                from unpack.core.scanner import PackerScanner
+
+                preview = PackerScanner().scan(chosen_target, verbose=False)
+                if preview.packer_name:
+                    console.print(
+                        f"  [{C_INFO}]ℹ[/] {safe(t('guide.preview_packer', eff, packer=preview.packer_name, level=preview.protection_level.value, conf=preview.confidence))}"
+                    )
+                else:
+                    console.print(f"  [{C_DIM}]ℹ {safe(t('guide.preview_clean', eff))}[/]")
+            except Exception:
+                pass
+
+    # ── Step 4: Plain-Language Execution Plan Preview ──
+    render_wizard_step(console, 4, 5, t("guide.step4.title", eff), t("guide.step4.sub", eff), lang=eff)
+    plan_stages, plan_cmds = _build_guide_plan(
+        chosen_scenario,
+        chosen_target,
+        lang=eff,
+        has_device=bool(devices),
+    )
+    goal_name = t(f"guide.goal.{chosen_scenario}.name", eff)
+    render_table(
+        console,
+        [
+            (t("guide.col.stage", eff), {}),
+            (t("guide.col.purpose", eff), {}),
+            (t("guide.col.prereq", eff), {}),
+            (t("guide.col.output", eff), {}),
+        ],
+        [
+            [
+                f"[{C_LABEL}]{safe(s['stage'])}[/]",
+                safe(s["purpose"]),
+                f"[{C_DIM}]{safe(s['prereq'])}[/]",
+                f"[{C_INFO}]{safe(s['output'])}[/]",
+            ]
+            for s in plan_stages
+        ],
+        title=t("guide.plan_title", eff, goal=goal_name),
+    )
+
+    console.print(f"\n[{C_LABEL}]{safe(t('guide.commands_title', eff))}[/]")
+    for cmd in plan_cmds:
+        console.print(f"  [{C_INFO}]$[/] [cmd]{safe(cmd)}[/]")
+
+    # ── Step 5: Optional Immediate Execution ──
+    render_wizard_step(console, 5, 5, t("guide.step5.title", eff), t("guide.step5.sub", eff), lang=eff)
+    should_run = execute
+    if not non_interactive and not execute:
+        ans = typer.prompt(t("guide.prompt.execute", eff), default="n").strip().lower()
+        should_run = ans in ("y", "yes", "是")
+
+    if not should_run:
+        note = t("guide.non_interactive_note", eff) if non_interactive else t("guide.exec_cancelled", eff)
+        console.print(f"  [{C_DIM}]{safe(note)}[/]")
+        return
+
+    if chosen_scenario != "web" and not chosen_target.exists():
+        console.print(f"  [{C_WARN}]![/] {safe(t('guide.exec_skipped_missing', eff, target=chosen_target))}")
+        return
+
+    console.print(f"  [{C_INFO}]▸[/] {safe(t('guide.exec_starting', eff))}")
+    if chosen_scenario == "audit":
+        from unpack.core.scanner import PackerScanner
+
+        res = PackerScanner().scan(chosen_target, verbose=True)
+        print_scan_result(console, res, chosen_target, lang=eff)
+        data = _inspect_apk_impl(chosen_target)
+        print_inspect_apk(console, data, lang=eff)
+    elif chosen_scenario == "dex":
+        if chosen_target.suffix.lower() in (".dex", ".cdex"):
+            data = _inspect_dex_impl(chosen_target, show_classes=True)
+            print_inspect_dex(console, data.get("overview") or {}, classes=data.get("classes"), lang=eff)
+        else:
+            data = _inspect_apk_impl(chosen_target)
+            print_inspect_apk(console, data, lang=eff)
+    elif chosen_scenario == "repair":
+        dex_paths = _discover_dex_paths(chosen_target)
+        if not dex_paths:
+            _fail_error(t("cli.no_dex_found", eff))
+        from unpack.repair.dex_repair import DexRepairPipeline
+        from unpack.repair.verifier import DexVerifier
+
+        rp = DexRepairPipeline()
+        rep_items = []
+        for p in dex_paths:
+            rr = rp.repair(p)
+            rep_items.append(
+                {
+                    "file": p.name,
+                    "success": rr.success,
+                    "actions": rr.actions,
+                    "nop_methods": rr.nop_method_count,
+                }
+            )
+        print_repair_summary(console, rep_items, lang=eff)
+        ver = DexVerifier()
+        ver_items = [
+            {"file": p.name, "valid": (vr := ver.verify(p)).valid, "issues": vr.issues, "stats": vr.stats}
+            for p in dex_paths
+        ]
+        print_verify_summary(console, ver_items, lang=eff)
+    elif chosen_scenario == "pipeline":
+        plan = build_pipeline_plan(
+            chosen_target,
+            mode="auto",
+            check_devices=not no_devices,
+            lang=eff,
+        )
+        render_pipeline_blueprint(console, plan, lang=eff)
+    elif chosen_scenario == "web":
+        web(port=8080, host="127.0.0.1")
+
+    console.print(f"  [{C_OK}]✓[/] {safe(t('guide.exec_done', eff))}")
+
+
+@app.command()
+def guide(
+    scenario: Annotated[
+        Optional[str],
+        typer.Option("--scenario", "-s", help="Goal preset: audit | dex | repair | pipeline | web"),
+    ] = None,
+    target: Annotated[
+        Optional[Path],
+        typer.Option("--target", "-t", help="Target APK, DEX, or directory path"),
+    ] = None,
+    non_interactive: Annotated[
+        bool,
+        typer.Option("--non-interactive", "-y", help="Run without interactive prompts (ideal for scripts & CI)"),
+    ] = False,
+    execute: Annotated[
+        bool,
+        typer.Option("--execute", "-x", help="Execute the generated workflow immediately"),
+    ] = False,
+    no_devices: Annotated[
+        bool,
+        typer.Option("--no-devices", help="Skip live ADB device probing during environment check"),
+    ] = False,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
+):
+    """Interactive onboarding wizard: check environment, pick a goal, preview & run."""
+    _run_guide(
+        scenario=scenario,
+        target=target,
+        non_interactive=non_interactive,
+        execute=execute,
+        no_devices=no_devices,
+        lang=lang,
+    )
+
+
+@app.command()
+def wizard(
+    scenario: Annotated[
+        Optional[str],
+        typer.Option("--scenario", "-s", help="Goal preset: audit | dex | repair | pipeline | web"),
+    ] = None,
+    target: Annotated[
+        Optional[Path],
+        typer.Option("--target", "-t", help="Target APK, DEX, or directory path"),
+    ] = None,
+    non_interactive: Annotated[
+        bool,
+        typer.Option("--non-interactive", "-y", help="Run without interactive prompts (ideal for scripts & CI)"),
+    ] = False,
+    execute: Annotated[
+        bool,
+        typer.Option("--execute", "-x", help="Execute the generated workflow immediately"),
+    ] = False,
+    no_devices: Annotated[
+        bool,
+        typer.Option("--no-devices", help="Skip live ADB device probing during environment check"),
+    ] = False,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
+):
+    """Alias for `guide` — interactive step-by-step onboarding wizard."""
+    _run_guide(
+        scenario=scenario,
+        target=target,
+        non_interactive=non_interactive,
+        execute=execute,
+        no_devices=no_devices,
+        lang=lang,
     )
 
 
@@ -1966,13 +3394,15 @@ def web(
     Opens a browser-based interface for scan, inspect, dump, repair, and verify.
     Requires flask: pip install -e '.[web]'
     """
+    eff = get_lang()
     try:
         from unpack.web import create_app
     except ImportError:
         render_error(
             console,
-            "Flask not installed.",
-            hint="Install web extras with: pip install -e '.[web]'",
+            t("cli.web.no_flask", eff),
+            hint=t("cli.web.no_flask_hint", eff),
+            lang=eff,
         )
         raise typer.Exit(EXIT_ERROR)
 

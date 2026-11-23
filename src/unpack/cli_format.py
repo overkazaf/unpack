@@ -21,6 +21,8 @@ from rich.table import Table
 from rich.theme import Theme
 from rich.tree import Tree
 
+from unpack.i18n import get_lang, resolve_lang, t
+
 # ── Semantic Color Tokens (safe on both dark & light terminals) ──────────────
 C_OK = "green"
 C_FAIL = "red"
@@ -212,16 +214,40 @@ def render_tree(console: Console, root_label: str, items: list[dict[str, Any]]) 
     console.print(tree)
 
 
+def _eff_lang(lang: str | None) -> str:
+    return resolve_lang(lang) if lang is not None else get_lang()
+
+
 def render_pipeline_step(
     console: Console,
     step: int,
     total: int,
     label: str,
     detail: str | None = None,
+    *,
+    lang: str | None = None,
 ) -> None:
     """Render a clean numbered pipeline phase header."""
+    eff = _eff_lang(lang)
+    prefix = t("fmt.step_prefix", eff, step=step, total=total)
     suffix = f"  [{C_DIM}]{safe(detail)}[/]" if detail else ""
-    console.print(f"\n[{C_INFO}]▸[/] [{C_HEADER}]Step {step}/{total}[/]  [{C_LABEL}]{safe(label)}[/]{suffix}")
+    console.print(f"\n[{C_INFO}]▸[/] [{C_HEADER}]{safe(prefix)}[/]  [{C_LABEL}]{safe(label)}[/]{suffix}")
+
+
+def render_wizard_step(
+    console: Console,
+    step: int,
+    total: int,
+    title: str,
+    subtitle: str | None = None,
+    *,
+    lang: str | None = None,
+) -> None:
+    """Render a step header for the interactive onboarding wizard."""
+    eff = _eff_lang(lang)
+    prefix = t("fmt.step_prefix", eff, step=step, total=total)
+    console.print()
+    render_header(console, f"{prefix} · {title}", subtitle=subtitle)
 
 
 def render_error(
@@ -229,21 +255,30 @@ def render_error(
     title: str,
     detail: str | None = None,
     hint: str | None = None,
+    *,
+    lang: str | None = None,
 ) -> None:
     """Render an actionable commercial error callout."""
+    eff = _eff_lang(lang)
     lines = [f"[{C_FAIL}]✗ {safe(title)}[/]"]
     if detail:
         lines.append(f"  {safe(detail)}")
     if hint:
-        lines.append(f"  [{C_INFO}]Hint:[/] {safe(hint)}")
+        lines.append(f"  [{C_INFO}]{safe(t('fmt.hint_label', eff))}[/] {safe(hint)}")
     console.print("\n".join(lines))
 
 
-def render_next_steps(console: Console, steps: list[tuple[str, str]]) -> None:
+def render_next_steps(
+    console: Console,
+    steps: list[tuple[str, str]],
+    *,
+    lang: str | None = None,
+) -> None:
     """Render concise, runnable next-step command hints."""
     if not steps:
         return
-    console.print(f"\n[{C_DIM}]Next steps:[/]")
+    eff = _eff_lang(lang)
+    console.print(f"\n[{C_DIM}]{safe(t('fmt.next_steps', eff))}[/]")
     for cmd, desc in steps:
         console.print(f"  [{C_INFO}]$[/] [cmd]{safe(cmd)}[/]  [{C_DIM}]# {safe(desc)}[/]")
 
@@ -251,12 +286,19 @@ def render_next_steps(console: Console, steps: list[tuple[str, str]]) -> None:
 # ── Domain Renderers (backward-compatible + commercial polish) ───────────────
 
 
-def print_scan_result(console: Console, result, apk_path: Path | None = None) -> None:
+def print_scan_result(
+    console: Console,
+    result,
+    apk_path: Path | None = None,
+    *,
+    lang: str | None = None,
+) -> None:
     """Render primary packer detection summary card.
 
     Preserves status tokens ``DETECTED``, ``POSSIBLE``, and ``NO PACKER``
-    for backward compatibility with scripts and tests.
+    in English mode for backward compatibility with scripts and tests.
     """
+    eff = _eff_lang(lang)
     if result.packer_name:
         level_val = getattr(result.protection_level, "value", str(result.protection_level))
         level_color = {
@@ -270,24 +312,24 @@ def print_scan_result(console: Console, result, apk_path: Path | None = None) ->
 
         rows: list[tuple[str, str]] = []
         if apk_path:
-            rows.append(("Target", f"[path]{safe(apk_path.name)}[/]"))
+            rows.append((t("fmt.target", eff), f"[path]{safe(apk_path.name)}[/]"))
         packer_display = f"[{C_ACCENT} bold]{safe(result.packer_name)}[/]"
         if getattr(result, "packer_version", None):
             packer_display += f"  [{C_INFO}]{safe(result.packer_version)}[/]"
-        rows.append(("Packer", packer_display))
-        rows.append(("Protection", f"[{level_color} bold]{safe(level_val)}[/]"))
-        rows.append(("Confidence", f"{confidence_bar(result.confidence)}  {result.confidence:.0%}"))
+        rows.append((t("fmt.packer", eff), packer_display))
+        rows.append((t("fmt.protection", eff), f"[{level_color} bold]{safe(level_val)}[/]"))
+        rows.append((t("fmt.confidence", eff), f"{confidence_bar(result.confidence)}  {result.confidence:.0%}"))
 
         if getattr(result, "risk_score", None) is not None:
             r_score = int(result.risk_score)
             r_color = C_FAIL if r_score >= 60 else C_WARN if r_score >= 30 else C_OK
-            rows.append(("Risk Score", f"[{r_color}]{r_score}/100[/]"))
+            rows.append((t("fmt.risk_score", eff), f"[{r_color}]{r_score}/100[/]"))
 
         if result.matched_signatures:
             sigs = f" [{C_DIM}]·[/] ".join(
                 f"[{C_INFO}]{safe(s)}[/]" for s in result.matched_signatures
             )
-            rows.append(("Signatures", sigs))
+            rows.append((t("fmt.signatures", eff), sigs))
 
         rec_engine = getattr(result, "recommended_engine", None)
         rec_flags = getattr(result, "recommended_flags", None) or []
@@ -295,14 +337,14 @@ def print_scan_result(console: Console, result, apk_path: Path | None = None) ->
             strat = f"[{C_OK}]{safe(rec_engine)}[/]"
             if rec_flags:
                 strat += f" [{C_DIM}]({safe(' '.join(rec_flags))})[/]"
-            rows.append(("Strategy", strat))
+            rows.append((t("fmt.strategy", eff), strat))
 
         if result.confidence >= 0.2:
-            title = "DETECTED"
+            title = t("fmt.detected", eff)
             border = C_OK
             title_style = f"bold {C_OK}"
         else:
-            title = "POSSIBLE"
+            title = t("fmt.possible", eff)
             border = C_WARN
             title_style = f"bold {C_WARN}"
 
@@ -310,13 +352,17 @@ def print_scan_result(console: Console, result, apk_path: Path | None = None) ->
     else:
         rows = []
         if apk_path:
-            rows.append(("Target", f"[path]{safe(apk_path.name)}[/]"))
-        rows.append(("Status", f"[{C_DIM}]{safe(result.details or 'No known packer detected')}[/]"))
-        render_kv_card(console, "NO PACKER", rows, border_style=C_DIM, title_style=C_DIM)
+            rows.append((t("fmt.target", eff), f"[path]{safe(apk_path.name)}[/]"))
+        status_txt = result.details or t("fmt.no_packer_default", eff)
+        if eff == "zh" and status_txt == "No known packer detected":
+            status_txt = t("fmt.no_packer_default", "zh")
+        rows.append((t("fmt.status", eff), f"[{C_DIM}]{safe(status_txt)}[/]"))
+        render_kv_card(console, t("fmt.no_packer", eff), rows, border_style=C_DIM, title_style=C_DIM)
 
 
-def print_verbose(console: Console, result) -> None:
+def print_verbose(console: Console, result, *, lang: str | None = None) -> None:
     """Render detailed scan breakdown: confidence weights, evidence, SOs, DEXs, candidates."""
+    eff = _eff_lang(lang)
     if result.score_breakdown:
         rows: list[list[str]] = []
         for b in result.score_breakdown:
@@ -337,7 +383,7 @@ def print_verbose(console: Console, result) -> None:
         rows.append(
             [
                 "",
-                f"[{C_LABEL}]Total[/]",
+                f"[{C_LABEL}]{safe(t('fmt.total', eff))}[/]",
                 confidence_bar(total / total_max if total_max else 0.0, width=10),
                 f"[{C_LABEL}]{total:.1f}[/][{C_DIM}]/{total_max:.1f}[/]",
             ]
@@ -345,13 +391,13 @@ def print_verbose(console: Console, result) -> None:
         render_table(
             console,
             [
-                ("Hit", {"width": 4}),
-                ("Dimension", {}),
-                ("Weight", {"width": 12}),
-                ("Score", {"justify": "right"}),
+                (t("fmt.col.hit", eff), {"width": 4}),
+                (t("fmt.col.dimension", eff), {}),
+                (t("fmt.col.weight", eff), {"width": 12}),
+                (t("fmt.col.score", eff), {"justify": "right"}),
             ],
             rows,
-            title="Confidence Breakdown",
+            title=t("fmt.title.confidence", eff),
         )
 
     evidence = getattr(result, "evidence", None) or []
@@ -370,13 +416,13 @@ def print_verbose(console: Console, result) -> None:
         render_table(
             console,
             [
-                ("Dimension", {}),
-                ("Indicator", {}),
-                ("Weight", {"justify": "right"}),
-                ("Detail", {}),
+                (t("fmt.col.dimension", eff), {}),
+                (t("fmt.col.indicator", eff), {}),
+                (t("fmt.col.weight", eff), {"justify": "right"}),
+                (t("fmt.col.detail", eff), {}),
             ],
             ev_rows,
-            title=f"Evidence Chain ({len(evidence)})",
+            title=t("fmt.title.evidence", eff, count=len(evidence)),
         )
 
     if result.all_so_files:
@@ -392,15 +438,15 @@ def print_verbose(console: Console, result) -> None:
             style = C_WARN if is_susp else C_DIM
             so_rows.append([badge, f"[{style}]{safe(so)}[/]"])
         caption = (
-            f"Showing 30 of {len(result.all_so_files)} native libraries"
+            t("fmt.showing_n_of", eff, shown=30, total=len(result.all_so_files))
             if len(result.all_so_files) > 30
             else None
         )
         render_table(
             console,
-            [("Flag", {"width": 9}), ("Library Path", {})],
+            [(t("fmt.col.flag", eff), {"width": 9}), (t("fmt.col.library_path", eff), {})],
             so_rows,
-            title=f"Native Libraries ({len(result.all_so_files)})",
+            title=t("fmt.title.native_libs", eff, count=len(result.all_so_files)),
             caption=caption,
         )
 
@@ -422,26 +468,26 @@ def print_verbose(console: Console, result) -> None:
         render_table(
             console,
             [
-                ("DEX", {}),
-                ("Size", {"justify": "right"}),
-                ("Classes", {"justify": "right"}),
-                ("Note", {"width": 8}),
+                (t("fmt.col.dex", eff), {}),
+                (t("fmt.col.size", eff), {"justify": "right"}),
+                (t("fmt.col.classes", eff), {"justify": "right"}),
+                (t("fmt.col.note", eff), {"width": 8}),
             ],
             dex_rows,
-            title=f"DEX Files ({len(result.all_dex_info)})",
+            title=t("fmt.title.dex_files", eff, count=len(result.all_dex_info)),
         )
 
     if result.suspicious_assets:
         asset_rows = [[f"[{C_WARN}]▸[/]", f"[{C_WARN}]{safe(a)}[/]"] for a in result.suspicious_assets[:20]]
         render_table(
             console,
-            [("", {"width": 2}), ("Asset Path", {})],
+            [("", {"width": 2}), (t("fmt.col.asset_path", eff), {})],
             asset_rows,
-            title=f"Suspicious Assets ({len(result.suspicious_assets)})",
+            title=t("fmt.title.suspicious_assets", eff, count=len(result.suspicious_assets)),
         )
 
     if result.app_class:
-        console.print(f"  [{C_LABEL}]Application class:[/] [{C_INFO}]{safe(result.app_class)}[/]")
+        console.print(f"  [{C_LABEL}]{safe(t('fmt.app_class', eff))}[/] [{C_INFO}]{safe(result.app_class)}[/]")
 
     anomalies = getattr(result, "heuristic_anomalies", None) or []
     if anomalies:
@@ -459,31 +505,47 @@ def print_verbose(console: Console, result) -> None:
         ]
         render_table(
             console,
-            [("Candidate", {}), ("Score", {"justify": "right"}), ("Signatures", {})],
+            [
+                (t("fmt.col.candidate", eff), {}),
+                (t("fmt.col.score", eff), {"justify": "right"}),
+                (t("fmt.col.signatures", eff), {}),
+            ],
             cand_rows,
-            title="All Candidates",
+            title=t("fmt.title.all_candidates", eff),
         )
 
 
-def print_report(console: Console, report) -> None:
+def print_report(console: Console, report, *, lang: str | None = None) -> None:
     """Render DEX quality report card and optional per-DEX table."""
+    eff = _eff_lang(lang)
     cov = float(report.code_coverage)
     sc = float(report.score)
     cov_color = C_OK if cov > 0.8 else C_WARN if cov > 0.5 else C_FAIL
     sc_color = C_OK if sc > 0.8 else C_WARN if sc > 0.5 else C_FAIL
 
     rows: list[tuple[str, str]] = [
-        ("DEX files", f"[{C_INFO}]{report.dex_count}[/]"),
-        ("Classes", f"[{C_INFO}]{report.total_classes:,}[/]"),
-        ("Methods", f"[{C_INFO}]{report.total_methods:,}[/]"),
-        ("With code", f"[{C_OK}]{report.methods_with_code:,}[/]"),
+        (t("fmt.dex_files", eff), f"[{C_INFO}]{report.dex_count}[/]"),
+        (t("fmt.col.classes", eff), f"[{C_INFO}]{report.total_classes:,}[/]"),
+        (t("fmt.col.methods", eff), f"[{C_INFO}]{report.total_methods:,}[/]"),
+        (t("fmt.with_code", eff), f"[{C_OK}]{report.methods_with_code:,}[/]"),
     ]
     if report.nop_methods > 0:
-        rows.append(("NOP-only", f"[{C_FAIL}]{report.nop_methods:,}[/] [{C_DIM}](still encrypted)[/]"))
-    rows.append(("Coverage", f"{confidence_bar(cov)}  [{cov_color}]{cov:.1%}[/]"))
-    rows.append(("Score", f"{confidence_bar(sc)}  [{sc_color}]{sc:.1%}[/]"))
+        rows.append(
+            (
+                t("fmt.nop_only", eff),
+                f"[{C_FAIL}]{report.nop_methods:,}[/] [{C_DIM}]{safe(t('fmt.still_encrypted', eff))}[/]",
+            )
+        )
+    rows.append((t("fmt.coverage", eff), f"{confidence_bar(cov)}  [{cov_color}]{cov:.1%}[/]"))
+    rows.append((t("fmt.col.score", eff), f"{confidence_bar(sc)}  [{sc_color}]{sc:.1%}[/]"))
 
-    render_kv_card(console, "QUALITY REPORT", rows, border_style=C_INFO, title_style=f"bold {C_INFO}")
+    render_kv_card(
+        console,
+        t("fmt.title.quality_report", eff),
+        rows,
+        border_style=C_INFO,
+        title_style=f"bold {C_INFO}",
+    )
 
     per_dex = getattr(report, "per_dex", None) or []
     if per_dex:
@@ -498,19 +560,23 @@ def print_report(console: Console, report) -> None:
             ]
             for d in per_dex[:20]
         ]
-        caption = f"Showing 20 of {len(per_dex)} DEX files" if len(per_dex) > 20 else None
+        caption = (
+            t("fmt.showing_n_of", eff, shown=20, total=len(per_dex))
+            if len(per_dex) > 20
+            else None
+        )
         render_table(
             console,
             [
-                ("DEX File", {}),
-                ("Size", {"justify": "right"}),
-                ("Classes", {"justify": "right"}),
-                ("Methods", {"justify": "right"}),
-                ("Code", {"justify": "right"}),
-                ("NOP", {"justify": "right"}),
+                (t("fmt.col.dex_file", eff), {}),
+                (t("fmt.col.size", eff), {"justify": "right"}),
+                (t("fmt.col.classes", eff), {"justify": "right"}),
+                (t("fmt.col.methods", eff), {"justify": "right"}),
+                (t("fmt.col.code", eff), {"justify": "right"}),
+                (t("fmt.col.nop", eff), {"justify": "right"}),
             ],
             dex_rows,
-            title="Per-DEX Breakdown",
+            title=t("fmt.title.per_dex", eff),
             caption=caption,
         )
 
@@ -525,8 +591,14 @@ def print_verify_result(console: Console, name: str, result) -> None:
             console.print(f"    [{C_WARN}]▸[/] {safe(issue)}")
 
 
-def print_verify_summary(console: Console, items: list[dict[str, Any]]) -> None:
+def print_verify_summary(
+    console: Console,
+    items: list[dict[str, Any]],
+    *,
+    lang: str | None = None,
+) -> None:
     """Render tabular summary for one or more DEX verification results."""
+    eff = _eff_lang(lang)
     rows: list[list[str]] = []
     passed = 0
     for item in items:
@@ -553,20 +625,26 @@ def print_verify_summary(console: Console, items: list[dict[str, Any]]) -> None:
     render_table(
         console,
         [
-            ("DEX File", {}),
-            ("Status", {"width": 6}),
-            ("Size", {"justify": "right"}),
-            ("Classes", {"justify": "right"}),
-            ("Methods", {"justify": "right"}),
-            ("Issues", {}),
+            (t("fmt.col.dex_file", eff), {}),
+            (t("fmt.col.status", eff), {"width": 6}),
+            (t("fmt.col.size", eff), {"justify": "right"}),
+            (t("fmt.col.classes", eff), {"justify": "right"}),
+            (t("fmt.col.methods", eff), {"justify": "right"}),
+            (t("fmt.col.issues", eff), {}),
         ],
         rows,
-        title=f"DEX Verification ({passed}/{len(items)} PASS)",
+        title=t("fmt.title.dex_verify", eff, passed=passed, total=len(items)),
     )
 
 
-def print_repair_summary(console: Console, items: list[dict[str, Any]]) -> None:
+def print_repair_summary(
+    console: Console,
+    items: list[dict[str, Any]],
+    *,
+    lang: str | None = None,
+) -> None:
     """Render tabular summary for DEX repair results (with optional health delta)."""
+    eff = _eff_lang(lang)
     rows: list[list[str]] = []
     ok_count = 0
     for item in items:
@@ -588,25 +666,31 @@ def print_repair_summary(console: Console, items: list[dict[str, Any]]) -> None:
     render_table(
         console,
         [
-            ("DEX File", {}),
-            ("Status", {"width": 6}),
-            ("Actions", {}),
-            ("NOP", {"justify": "right"}),
-            ("Delta", {"justify": "right"}),
+            (t("fmt.col.dex_file", eff), {}),
+            (t("fmt.col.status", eff), {"width": 6}),
+            (t("fmt.col.actions", eff), {}),
+            (t("fmt.col.nop", eff), {"justify": "right"}),
+            (t("fmt.col.delta", eff), {"justify": "right"}),
         ],
         rows,
-        title=f"DEX Repair ({ok_count}/{len(items)} repaired)",
+        title=t("fmt.title.dex_repair", eff, ok=ok_count, total=len(items)),
     )
 
 
-def print_doctor_report(console: Console, report: dict[str, Any]) -> None:
+def print_doctor_report(
+    console: Console,
+    report: dict[str, Any],
+    *,
+    lang: str | None = None,
+) -> None:
     """Render environment & device diagnostics."""
+    eff = _eff_lang(lang)
     overall = str(report.get("overall_status") or "ok")
     render_header(
         console,
-        "UNPACK Doctor",
+        t("fmt.title.doctor", eff),
         subtitle=f"v{report.get('unpack_version', '?')} · Python {report.get('python_version', '?')}",
-        meta=f"status: {overall.upper()}",
+        meta=t("fmt.doctor.status_meta", eff, status=overall.upper()),
     )
 
     checks = report.get("checks") or []
@@ -630,62 +714,71 @@ def print_doctor_report(console: Console, report: dict[str, Any]) -> None:
         render_table(
             console,
             [
-                ("Status", {"width": 6}),
-                ("Category", {}),
-                ("Check", {}),
-                ("Version", {}),
-                ("Details", {}),
+                (t("fmt.col.status", eff), {"width": 6}),
+                (t("fmt.col.category", eff), {}),
+                (t("fmt.col.check", eff), {}),
+                (t("fmt.col.version", eff), {}),
+                (t("fmt.col.details", eff), {}),
             ],
             rows,
-            title="Environment Checks",
+            title=t("fmt.title.env_checks", eff),
         )
         if hints:
-            console.print(f"\n[{C_LABEL}]Remediation:[/]")
+            console.print(f"\n[{C_LABEL}]{safe(t('fmt.title.remediation', eff))}[/]")
             for h in hints:
                 console.print(f"  [{C_INFO}]▸[/] {safe(h)}")
 
     devices = report.get("devices") or []
     if devices:
+        yes_str = t("fmt.yes", eff)
+        no_str = t("fmt.no", eff)
+        ready_str = t("fmt.ready", eff)
         dev_rows = [
             [
                 safe(d.get("serial", "")),
                 safe(d.get("model") or "—"),
                 safe(d.get("android_version") or d.get("api_level") or "—"),
-                f"[{C_OK}]yes[/]" if d.get("rooted") or d.get("root") else f"[{C_DIM}]no[/]",
-                f"[{C_OK}]ready[/]" if (d.get("frida_server_running") or d.get("frida_server")) else f"[{C_DIM}]—[/]",
+                f"[{C_OK}]{safe(yes_str)}[/]" if d.get("rooted") or d.get("root") else f"[{C_DIM}]{safe(no_str)}[/]",
+                f"[{C_OK}]{safe(ready_str)}[/]" if (d.get("frida_server_running") or d.get("frida_server")) else f"[{C_DIM}]—[/]",
             ]
             for d in devices
         ]
         render_table(
             console,
             [
-                ("Serial", {}),
-                ("Model", {}),
-                ("Android", {}),
-                ("Root", {"width": 6}),
-                ("Frida", {"width": 7}),
+                (t("fmt.col.serial", eff), {}),
+                (t("fmt.col.model", eff), {}),
+                (t("fmt.col.android", eff), {}),
+                (t("fmt.col.root", eff), {"width": 6}),
+                (t("fmt.col.frida", eff), {"width": 7}),
             ],
             dev_rows,
-            title=f"Connected ADB Devices ({len(devices)})",
+            title=t("fmt.title.adb_devices", eff, count=len(devices)),
         )
     else:
-        console.print(f"\n  [{C_DIM}]No ADB devices connected (offline commands: scan, inspect, repair, verify, vmp, xref, report).[/]")
+        console.print(f"\n  [{C_DIM}]{safe(t('fmt.doctor.no_devices', eff))}[/]")
 
     engines = report.get("engines") or []
     if engines:
+        eng_ready = t("fmt.engine_ready", eff)
+        eng_unavail = t("fmt.engine_unavail", eff)
         eng_rows = [
             [
                 f"[{C_LABEL}]{safe(e.get('name', ''))}[/]",
-                f"[{C_OK}]READY[/]" if e.get("available") else f"[{C_WARN}]UNAVAILABLE[/]",
-                safe(e.get("reason") or "ready"),
+                f"[{C_OK}]{safe(eng_ready)}[/]" if e.get("available") else f"[{C_WARN}]{safe(eng_unavail)}[/]",
+                safe(e.get("reason") or t("fmt.ready", eff)),
             ]
             for e in engines
         ]
         render_table(
             console,
-            [("Engine", {"width": 10}), ("State", {"width": 13}), ("Notes", {})],
+            [
+                (t("fmt.col.engine", eff), {"width": 10}),
+                (t("fmt.col.state", eff), {"width": 13}),
+                (t("fmt.col.notes", eff), {}),
+            ],
             eng_rows,
-            title="Unpacking Engines",
+            title=t("fmt.title.engines", eff),
         )
 
 
@@ -694,8 +787,10 @@ def print_inspect_apk(
     data: dict[str, Any],
     *,
     show_permissions: bool = False,
+    lang: str | None = None,
 ) -> None:
     """Render deep APK static inspection report."""
+    eff = _eff_lang(lang)
     manifest = data.get("manifest") or {}
     signing = data.get("signing") or {}
     perms = data.get("permissions") or []
@@ -710,27 +805,27 @@ def print_inspect_apk(
 
     pkg_val = manifest.get("package") or manifest.get("package_name") or "—"
     rows: list[tuple[str, str]] = [
-        ("File", f"[path]{safe(data.get('file', ''))}[/]  [{C_DIM}]({format_bytes(data.get('size_bytes'))})[/]"),
+        (t("fmt.file", eff), f"[path]{safe(data.get('file', ''))}[/]  [{C_DIM}]({format_bytes(data.get('size_bytes'))})[/]"),
         ("SHA-256", f"[{C_DIM}]{safe(data.get('sha256') or '—')}[/]"),
-        ("Package", f"[{C_INFO}]{safe(pkg_val)}[/]"),
-        ("Version", f"{safe(manifest.get('version_name') or '—')} [{C_DIM}](code {safe(manifest.get('version_code') or '—')})[/]"),
+        (t("fmt.package", eff), f"[{C_INFO}]{safe(pkg_val)}[/]"),
+        (t("fmt.version", eff), f"{safe(manifest.get('version_name') or '—')} [{C_DIM}](code {safe(manifest.get('version_code') or '—')})[/]"),
         ("SDK", f"min {safe(manifest.get('min_sdk') or '—')} · target {safe(manifest.get('target_sdk') or '—')}"),
         ("Application", f"[{C_INFO}]{safe(manifest.get('application_class') or '—')}[/]"),
         (
-            "Flags",
+            t("fmt.flags", eff),
             f"debuggable={safe(manifest.get('debuggable'))} · "
             f"backup={safe(manifest.get('allow_backup'))} · "
             f"cleartext={safe(manifest.get('uses_cleartext_traffic'))}",
         ),
-        ("Risk Grade", f"[{C_WARN if grade in ('D', 'F') else C_OK if grade in ('A', 'B') else C_INFO}]{safe(risk_str)}[/]"),
+        (t("fmt.risk_grade", eff), f"[{C_WARN if grade in ('D', 'F') else C_OK if grade in ('A', 'B') else C_INFO}]{safe(risk_str)}[/]"),
     ]
     if signing:
         schemes = ", ".join(signing.get("schemes") or []) or "unknown"
         certs = signing.get("certificates") or []
         cert_subj = certs[0].get("subject") if certs and isinstance(certs[0], dict) else None
         subj = signing.get("subject") or cert_subj or "—"
-        rows.append(("Signing", f"{safe(schemes)}  [{C_DIM}]{safe(subj)}[/]"))
-    render_kv_card(console, "APK OVERVIEW", rows, border_style=C_INFO)
+        rows.append((t("fmt.signing", eff), f"{safe(schemes)}  [{C_DIM}]{safe(subj)}[/]"))
+    render_kv_card(console, t("fmt.title.apk_overview", eff), rows, border_style=C_INFO)
 
     if findings:
         f_rows = [
@@ -743,9 +838,13 @@ def print_inspect_apk(
         ]
         render_table(
             console,
-            [("Sev", {"width": 6}), ("Rule", {}), ("Finding", {})],
+            [
+                (t("fmt.col.sev", eff), {"width": 6}),
+                (t("fmt.col.rule", eff), {}),
+                (t("fmt.col.finding", eff), {}),
+            ],
             f_rows,
-            title=f"Security Findings ({len(findings)})",
+            title=t("fmt.title.findings", eff, count=len(findings)),
         )
 
     if show_permissions and perms:
@@ -765,10 +864,10 @@ def print_inspect_apk(
                 p_rows.append([f"[{C_DIM}]perm[/]", safe(p)])
         render_table(
             console,
-            [("Tier", {"width": 10}), ("Permission", {})],
+            [(t("fmt.col.tier", eff), {"width": 10}), (t("fmt.col.permission", eff), {})],
             p_rows,
-            title=f"Permissions ({len(perms)})",
-            caption=f"Showing 40 of {len(perms)}" if len(perms) > 40 else None,
+            title=t("fmt.title.permissions", eff, count=len(perms)),
+            caption=t("fmt.showing_n_of", eff, shown=40, total=len(perms)) if len(perms) > 40 else None,
         )
 
     if isinstance(components, dict) and any(components.values()):
@@ -779,9 +878,13 @@ def print_inspect_apk(
             comp_rows.append([ctype.capitalize(), f"{len(entries):,}", f"[{C_WARN if exported else C_DIM}]{exported:,}[/]"])
         render_table(
             console,
-            [("Component Type", {}), ("Total", {"justify": "right"}), ("Exported", {"justify": "right"})],
+            [
+                (t("fmt.col.comp_type", eff), {}),
+                (t("fmt.col.total", eff), {"justify": "right"}),
+                (t("fmt.col.exported", eff), {"justify": "right"}),
+            ],
             comp_rows,
-            title="Components",
+            title=t("fmt.title.components", eff),
         )
 
     if native_libs:
@@ -808,14 +911,14 @@ def print_inspect_apk(
         render_table(
             console,
             [
-                ("Native Library", {}),
-                ("ABI", {}),
-                ("Size", {"justify": "right"}),
-                ("ELF Flags", {}),
+                (t("fmt.col.native_lib", eff), {}),
+                (t("fmt.col.abi", eff), {}),
+                (t("fmt.col.size", eff), {"justify": "right"}),
+                (t("fmt.col.elf_flags", eff), {}),
             ],
             lib_rows,
-            title=f"Native Libraries ({len(native_libs)})",
-            caption=f"Showing 20 of {len(native_libs)}" if len(native_libs) > 20 else None,
+            title=t("fmt.title.native_libs", eff, count=len(native_libs)),
+            caption=t("fmt.showing_n_of", eff, shown=20, total=len(native_libs)) if len(native_libs) > 20 else None,
         )
 
     if dex_files:
@@ -831,13 +934,13 @@ def print_inspect_apk(
         render_table(
             console,
             [
-                ("DEX", {}),
-                ("Size", {"justify": "right"}),
-                ("Classes", {"justify": "right"}),
-                ("Methods", {"justify": "right"}),
+                (t("fmt.col.dex", eff), {}),
+                (t("fmt.col.size", eff), {"justify": "right"}),
+                (t("fmt.col.classes", eff), {"justify": "right"}),
+                (t("fmt.col.methods", eff), {"justify": "right"}),
             ],
             dex_rows,
-            title=f"Embedded DEX ({len(dex_files)})",
+            title=t("fmt.title.embedded_dex", eff, count=len(dex_files)),
         )
 
 
@@ -848,15 +951,17 @@ def print_inspect_dex(
     classes: list[dict[str, Any]] | None = None,
     class_detail: dict[str, Any] | None = None,
     disasm: dict[str, Any] | None = None,
+    lang: str | None = None,
 ) -> None:
     """Render static DEX inspection overview, classes, methods, or disassembly."""
+    eff = _eff_lang(lang)
     rows: list[tuple[str, str]] = [
         ("DEX", f"[path]{safe(overview.get('name') or overview.get('file') or 'classes.dex')}[/]"),
-        ("Size", format_bytes(overview.get("size_bytes") or overview.get("file_size"))),
-        ("Version", safe(overview.get("dex_version") or overview.get("version") or overview.get("magic") or "—")),
-        ("Classes", f"[{C_INFO}]{int(overview.get('class_count') or overview.get('classes') or 0):,}[/]"),
-        ("Methods", f"[{C_INFO}]{int(overview.get('method_count') or overview.get('methods') or 0):,}[/]"),
-        ("Strings", f"[{C_DIM}]{int(overview.get('string_count') or overview.get('strings') or 0):,}[/]"),
+        (t("fmt.col.size", eff), format_bytes(overview.get("size_bytes") or overview.get("file_size"))),
+        (t("fmt.version", eff), safe(overview.get("dex_version") or overview.get("version") or overview.get("magic") or "—")),
+        (t("fmt.col.classes", eff), f"[{C_INFO}]{int(overview.get('class_count') or overview.get('classes') or 0):,}[/]"),
+        (t("fmt.col.methods", eff), f"[{C_INFO}]{int(overview.get('method_count') or overview.get('methods') or 0):,}[/]"),
+        (t("fmt.strings", eff), f"[{C_DIM}]{int(overview.get('string_count') or overview.get('strings') or 0):,}[/]"),
     ]
     nop_val = (
         overview["nop_method_count"]
@@ -864,8 +969,8 @@ def print_inspect_dex(
         else overview.get("nop_methods")
     )
     if nop_val is not None:
-        rows.append(("NOP methods", f"[{C_WARN if nop_val else C_DIM}]{int(nop_val):,}[/]"))
-    render_kv_card(console, "DEX OVERVIEW", rows, border_style=C_INFO)
+        rows.append((t("fmt.nop_methods", eff), f"[{C_WARN if nop_val else C_DIM}]{int(nop_val):,}[/]"))
+    render_kv_card(console, t("fmt.title.dex_overview", eff), rows, border_style=C_INFO)
 
     if classes:
         cls_rows = [
@@ -880,14 +985,14 @@ def print_inspect_dex(
         render_table(
             console,
             [
-                ("Class", {}),
-                ("Methods", {"justify": "right"}),
-                ("NOP", {"justify": "right"}),
-                ("Health", {"width": 10}),
+                (t("fmt.col.class", eff), {}),
+                (t("fmt.col.methods", eff), {"justify": "right"}),
+                (t("fmt.col.nop", eff), {"justify": "right"}),
+                (t("fmt.col.health", eff), {"width": 10}),
             ],
             cls_rows,
-            title=f"Classes ({len(classes)})",
-            caption=f"Showing 40 of {len(classes)}" if len(classes) > 40 else None,
+            title=t("fmt.title.classes", eff, count=len(classes)),
+            caption=t("fmt.showing_n_of", eff, shown=40, total=len(classes)) if len(classes) > 40 else None,
         )
 
     if class_detail:
@@ -910,13 +1015,13 @@ def print_inspect_dex(
         render_table(
             console,
             [
-                ("Method", {}),
-                ("Signature", {}),
-                ("Health", {"width": 10}),
-                ("Units", {"justify": "right"}),
+                (t("fmt.col.method", eff), {}),
+                (t("fmt.col.signature", eff), {}),
+                (t("fmt.col.health", eff), {"width": 10}),
+                (t("fmt.col.units", eff), {"justify": "right"}),
             ],
             m_rows,
-            title=f"Class Methods: {cls_title}",
+            title=t("fmt.title.class_methods", eff, name=cls_title),
         )
 
     if disasm:
@@ -931,10 +1036,19 @@ def print_inspect_dex(
         ]
         render_table(
             console,
-            [("Offset", {"width": 7}), ("Opcode", {"width": 22}), ("Operands", {})],
+            [
+                (t("fmt.col.offset", eff), {"width": 7}),
+                (t("fmt.col.opcode", eff), {"width": 22}),
+                (t("fmt.col.operands", eff), {}),
+            ],
             i_rows,
-            title=f"Disassembly: {disasm.get('class_name', '')}->{disasm.get('method_name', '')}",
-            caption=f"Showing {min(len(insns), 120)} of {len(insns)} instructions" if len(insns) > 120 else None,
+            title=t(
+                "fmt.title.disasm",
+                eff,
+                cls=disasm.get("class_name", ""),
+                method=disasm.get("method_name", ""),
+            ),
+            caption=t("fmt.showing_insns", eff, shown=min(len(insns), 120), total=len(insns)) if len(insns) > 120 else None,
         )
 
 
@@ -944,8 +1058,10 @@ def print_vmp_summary(
     totals: dict[str, int],
     *,
     vmp_methods: list[dict[str, Any]] | None = None,
+    lang: str | None = None,
 ) -> None:
     """Render VMP method classification table and summary card."""
+    eff = _eff_lang(lang)
     if per_dex:
         rows = [
             [
@@ -959,13 +1075,13 @@ def print_vmp_summary(
         render_table(
             console,
             [
-                ("DEX File", {}),
-                ("Normal", {"justify": "right"}),
-                ("NOP", {"justify": "right"}),
-                ("VMP Stub", {"justify": "right"}),
+                (t("fmt.col.dex_file", eff), {}),
+                (t("fmt.col.normal", eff), {"justify": "right"}),
+                (t("fmt.col.nop", eff), {"justify": "right"}),
+                (t("fmt.col.vmp_stub", eff), {"justify": "right"}),
             ],
             rows,
-            title="VMP Per-DEX Classification",
+            title=t("fmt.title.vmp_per_dex", eff),
         )
 
     total = totals["total_methods"]
@@ -976,12 +1092,18 @@ def print_vmp_summary(
     vmp_ratio = (vmp_total / total) if total else 0.0
 
     card_rows = [
-        ("Total", f"[{C_INFO}]{total:,}[/]"),
-        ("Normal", f"[{C_OK}]{normal:,}[/]"),
-        ("NOP", f"[{C_WARN if nop else C_DIM}]{nop:,}[/]"),
-        ("VMP stub", f"[{vmp_color}]{vmp_total:,}[/] [{C_DIM}]({vmp_ratio:.1%})[/]"),
+        (t("fmt.total", eff), f"[{C_INFO}]{total:,}[/]"),
+        (t("fmt.col.normal", eff), f"[{C_OK}]{normal:,}[/]"),
+        (t("fmt.col.nop", eff), f"[{C_WARN if nop else C_DIM}]{nop:,}[/]"),
+        (t("fmt.col.vmp_stub", eff), f"[{vmp_color}]{vmp_total:,}[/] [{C_DIM}]({vmp_ratio:.1%})[/]"),
     ]
-    render_kv_card(console, "VMP CLASSIFICATION", card_rows, border_style=C_INFO, title_style=f"bold {C_INFO}")
+    render_kv_card(
+        console,
+        t("fmt.title.vmp_card", eff),
+        card_rows,
+        border_style=C_INFO,
+        title_style=f"bold {C_INFO}",
+    )
 
     if vmp_methods:
         stub_rows = [
@@ -995,10 +1117,15 @@ def print_vmp_summary(
         ]
         render_table(
             console,
-            [("DEX", {}), ("Class", {}), ("Method", {}), ("Dispatcher Target", {})],
+            [
+                (t("fmt.col.dex", eff), {}),
+                (t("fmt.col.class", eff), {}),
+                (t("fmt.col.method", eff), {}),
+                (t("fmt.col.dispatcher", eff), {}),
+            ],
             stub_rows,
-            title=f"Top VMP Stubs ({len(vmp_methods)} total)",
-            caption=f"Showing 15 of {len(vmp_methods)}" if len(vmp_methods) > 15 else None,
+            title=t("fmt.title.vmp_stubs", eff, count=len(vmp_methods)),
+            caption=t("fmt.showing_n_of", eff, shown=15, total=len(vmp_methods)) if len(vmp_methods) > 15 else None,
         )
 
 
@@ -1008,9 +1135,11 @@ def print_xref_summary(
     *,
     file_count: int = 1,
     search: str | None = None,
+    lang: str | None = None,
 ) -> None:
     """Render cross-reference index summary and reflection/dynamic-loading highlights."""
-    console.print(f"  [{C_DIM}]Analyzed {file_count} DEX file(s)[/]")
+    eff = _eff_lang(lang)
+    console.print(f"  [{C_DIM}]{safe(t('fmt.analyzed_dex', eff, count=file_count))}[/]")
     refl = merged.reflection_calls
     if search:
         q = search.lower()
@@ -1022,12 +1151,18 @@ def print_xref_summary(
         ]
 
     card_rows = [
-        ("Strings referenced", f"[{C_INFO}]{len(merged.string_refs):,}[/]"),
-        ("Methods called", f"[{C_INFO}]{len(merged.method_calls):,}[/]"),
-        ("Fields referenced", f"[{C_INFO}]{len(merged.field_refs):,}[/]"),
-        ("Reflection calls", f"[{C_WARN if refl else C_DIM}]{len(refl):,}[/]"),
+        (t("fmt.strings_ref", eff), f"[{C_INFO}]{len(merged.string_refs):,}[/]"),
+        (t("fmt.methods_called", eff), f"[{C_INFO}]{len(merged.method_calls):,}[/]"),
+        (t("fmt.fields_ref", eff), f"[{C_INFO}]{len(merged.field_refs):,}[/]"),
+        (t("fmt.reflection_calls", eff), f"[{C_WARN if refl else C_DIM}]{len(refl):,}[/]"),
     ]
-    render_kv_card(console, "XREF SUMMARY", card_rows, border_style=C_INFO, title_style=f"bold {C_INFO}")
+    render_kv_card(
+        console,
+        t("fmt.title.xref_card", eff),
+        card_rows,
+        border_style=C_INFO,
+        title_style=f"bold {C_INFO}",
+    )
 
     if refl:
         refl_rows = [
@@ -1040,8 +1175,163 @@ def print_xref_summary(
         ]
         render_table(
             console,
-            [("Caller Class", {}), ("Method", {}), ("Dynamic Target", {})],
+            [
+                (t("fmt.col.caller_class", eff), {}),
+                (t("fmt.col.method", eff), {}),
+                (t("fmt.col.dynamic_target", eff), {}),
+            ],
             refl_rows,
-            title=f"Reflection / Dynamic Loading ({len(refl)})",
-            caption=f"Showing 30 of {len(refl)}" if len(refl) > 30 else None,
+            title=t("fmt.title.reflection", eff, count=len(refl)),
+            caption=t("fmt.showing_n_of", eff, shown=30, total=len(refl)) if len(refl) > 30 else None,
         )
+
+
+def render_pipeline_blueprint(
+    console: Console,
+    plan: dict[str, Any],
+    *,
+    lang: str | None = None,
+) -> None:
+    """Render a rich visual Pipeline Execution Blueprint with live preflight & remediation."""
+    eff = _eff_lang(lang)
+    console.print()
+    render_header(
+        console,
+        t("pipe.title", eff),
+        subtitle=t("pipe.subtitle", eff),
+        meta=plan.get("mode_label") or plan.get("mode") or "",
+    )
+
+    # 1. Strategy Summary Card
+    packer_name = plan.get("packer_name") or t("fmt.no_packer", eff)
+    if plan.get("packer_version"):
+        packer_name = f"{packer_name} ({plan['packer_version']})"
+    conf = plan.get("confidence")
+    if plan.get("packer_name") and conf is not None:
+        packer_display = f"[{C_ACCENT} bold]{safe(packer_name)}[/]  [{C_DIM}]({float(conf):.0%})[/]"
+    else:
+        packer_display = f"[{C_DIM}]{safe(packer_name)}[/]"
+
+    prot = str(plan.get("protection_level") or "none")
+    rec_flags = " ".join(plan.get("recommended_flags") or []) or "—"
+    ready_ok = bool(plan.get("can_execute"))
+    ready_txt = (
+        f"[{C_OK} bold]{safe(t('pipe.state.ready', eff))}[/]"
+        if ready_ok
+        else f"[{C_WARN} bold]{safe(t('pipe.state.blocked', eff))}[/]"
+    )
+
+    summary_rows: list[tuple[str, str]] = [
+        (t("pipe.kv.target", eff), f"[path]{safe(plan.get('target', ''))}[/]"),
+        (t("pipe.kv.mode", eff), f"[{C_INFO}]{safe(plan.get('mode_label', ''))}[/]"),
+        (t("pipe.kv.packer", eff), packer_display),
+        (t("pipe.kv.protection", eff), f"[{C_WARN if prot in ('vmp', 'dex2c', 'function_extraction') else C_INFO}]{safe(prot)}[/]"),
+        (t("pipe.kv.rec_engine", eff), f"[{C_OK}]{safe(plan.get('recommended_engine') or 'offline')}[/]"),
+        (t("pipe.kv.rec_flags", eff), f"[{C_INFO}]{safe(rec_flags)}[/]"),
+        (t("pipe.kv.why", eff), safe(plan.get("strategy_reason") or "")),
+        (t("pipe.kv.readiness", eff), ready_txt),
+    ]
+    render_kv_card(
+        console,
+        t("pipe.card.summary", eff),
+        summary_rows,
+        border_style=C_OK if ready_ok else C_WARN,
+        title_style=f"bold {C_OK if ready_ok else C_WARN}",
+    )
+
+    # 2. Live Preflight Checks Table
+    preflight = plan.get("preflight_checks") or []
+    blocked_items: list[dict[str, Any]] = []
+    if preflight:
+        pf_rows: list[list[str]] = []
+        for item in preflight:
+            st = str(item.get("status") or "pass").lower()
+            if st == "block":
+                badge = f"[{C_FAIL} bold]{safe(t('pipe.state.blocked', eff))}[/]"
+                blocked_items.append(item)
+            elif st == "warn":
+                badge = f"[{C_WARN} bold]{safe(t('pipe.state.warn', eff))}[/]"
+            else:
+                badge = f"[{C_OK} bold]{safe(t('pipe.state.ready', eff))}[/]"
+            pf_rows.append(
+                [
+                    badge,
+                    f"[{C_LABEL}]{safe(item.get('name', ''))}[/]",
+                    safe(item.get("detail", "")),
+                    f"[{C_DIM}]{safe(item.get('remediation') or '—')}[/]",
+                ]
+            )
+        render_table(
+            console,
+            [
+                (t("pipe.preflight.col.status", eff), {"width": 9}),
+                (t("pipe.preflight.col.check", eff), {}),
+                (t("pipe.preflight.col.detail", eff), {}),
+                (t("pipe.preflight.col.fix", eff), {}),
+            ],
+            pf_rows,
+            title=t("pipe.preflight.title", eff),
+        )
+
+    # 3. Stage-by-Stage Execution Blueprint Table
+    stages = plan.get("stages") or []
+    active_cnt = sum(1 for s in stages if s.get("will_run"))
+    if stages:
+        st_rows: list[list[str]] = []
+        for s in stages:
+            rd = str(s.get("readiness") or "ready").lower()
+            if not s.get("will_run") or rd == "skipped":
+                rd_badge = f"[{C_DIM}]{safe(t('pipe.state.skipped', eff))}[/]"
+            elif rd == "blocked":
+                rd_badge = f"[{C_FAIL} bold]{safe(t('pipe.state.blocked', eff))}[/]"
+            elif rd == "warn":
+                rd_badge = f"[{C_WARN} bold]{safe(t('pipe.state.warn', eff))}[/]"
+            else:
+                rd_badge = f"[{C_OK} bold]{safe(t('pipe.state.ready', eff))}[/]"
+
+            purpose = str(s.get("what_it_does") or "")
+            if s.get("skip_reason"):
+                purpose = f"{purpose} [{s['skip_reason']}]"
+            io_str = f"{s.get('inputs', '—')} → {s.get('outputs', '—')}"
+            st_rows.append(
+                [
+                    str(s.get("order", "")),
+                    f"[{C_LABEL}]{safe(s.get('title', ''))}[/]",
+                    rd_badge,
+                    safe(purpose),
+                    f"[{C_INFO}]{safe(io_str)}[/]",
+                    f"[{C_DIM}]{safe(s.get('prerequisites', ''))}[/]",
+                ]
+            )
+        render_table(
+            console,
+            [
+                (t("pipe.col.step", eff), {"width": 3, "justify": "right"}),
+                (t("pipe.col.stage", eff), {}),
+                (t("pipe.col.state", eff), {"width": 9}),
+                (t("pipe.col.purpose", eff), {}),
+                (t("pipe.col.io", eff), {}),
+                (t("pipe.col.prereq", eff), {}),
+            ],
+            st_rows,
+            title=t("pipe.stages.title", eff, active=active_cnt, total=len(stages)),
+        )
+
+    # 4. Remediation Callout if blocked
+    if blocked_items:
+        console.print(f"\n[{C_WARN} bold]⚠ {safe(t('pipe.remediation.header', eff))}[/]")
+        for b in blocked_items:
+            if b.get("remediation"):
+                console.print(f"  [{C_WARN}]▸[/] [{C_LABEL}]{safe(b.get('name', ''))}:[/] {safe(b['remediation'])}")
+        if plan.get("offline_alternative_cmd"):
+            console.print(f"\n  [{C_INFO}]{safe(t('pipe.remediation.offline_tip', eff))}[/]")
+            console.print(f"    [{C_INFO}]$[/] [cmd]{safe(plan['offline_alternative_cmd'])}[/]")
+
+    # 5. Copyable commands
+    cmd_steps: list[tuple[str, str]] = []
+    if plan.get("recommended_cmd"):
+        cmd_steps.append((plan["recommended_cmd"], t("pipe.cmd.recommended", eff)))
+    if plan.get("offline_alternative_cmd") and plan.get("offline_alternative_cmd") != plan.get("recommended_cmd"):
+        cmd_steps.append((plan["offline_alternative_cmd"], t("pipe.cmd.offline_alt", eff)))
+    if cmd_steps:
+        render_next_steps(console, cmd_steps, lang=eff)

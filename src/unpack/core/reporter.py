@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from unpack import __version__
+from unpack.i18n import resolve_lang, t
 from unpack.repair.dex_parser import _uleb128
 
 DEX_MAGIC = b"dex\n"
@@ -356,6 +357,7 @@ class Reporter:
         vmp: Any = None,
         xref: Any = None,
         title: str | None = None,
+        lang: str = "en",
     ) -> AuditReport:
         """Assemble a complete commercial ``AuditReport`` from any subset of stage outputs.
 
@@ -688,17 +690,19 @@ class Reporter:
         else:
             risk_score = computed_risk
 
+        eff_lang = resolve_lang(lang)
         grade = _score_to_grade(risk_score)
         exec_summary = _build_executive_summary(
-            target_str, scan_d, quality_d, verify_l, vmp_d, findings, grade, risk_score
+            target_str, scan_d, quality_d, verify_l, vmp_d, findings, grade, risk_score, lang=eff_lang
         )
 
         if not recommendations:
-            recommendations.append("No immediate remediation required; artifact passed automated checks.")
+            recommendations.append(t("report.default_rec", eff_lang))
 
+        default_title = t("report.default_title", eff_lang, target=target_str)
         return AuditReport(
             target=target_str,
-            title=title or f"UNPACK Audit Report — {target_str}",
+            title=title or default_title,
             target_sha256=target_sha256,
             grade=grade,
             risk_score=risk_score,
@@ -724,32 +728,88 @@ def _build_executive_summary(
     findings: list[AuditFinding],
     grade: str,
     risk_score: int,
+    *,
+    lang: str = "en",
 ) -> str:
-    parts: list[str] = [f"Automated security & unpacking assessment for {target} (Grade {grade}, Risk {risk_score}/100)."]
+    eff = resolve_lang(lang)
+    parts: list[str] = [
+        t("report.exec.intro", eff, target=target, grade=grade, risk=risk_score)
+    ]
     if isinstance(scan_d, dict):
         if scan_d.get("packer_name"):
             ver = f" {scan_d['packer_version']}" if scan_d.get("packer_version") else ""
             parts.append(
-                f"Identified {scan_d['packer_name']}{ver} "
-                f"({scan_d.get('protection_level', 'unknown')}, {float(scan_d.get('confidence', 0)):.0%} confidence)."
+                t(
+                    "report.exec.packer_hit",
+                    eff,
+                    packer=scan_d["packer_name"],
+                    ver=ver,
+                    level=scan_d.get("protection_level", "unknown"),
+                    conf=float(scan_d.get("confidence", 0)),
+                )
             )
         else:
-            parts.append("No commercial packer signature matched.")
+            parts.append(t("report.exec.packer_none", eff))
     if isinstance(quality_d, dict) and quality_d.get("dex_count", 0) > 0:
         parts.append(
-            f"Evaluated {quality_d['dex_count']} DEX file(s) with "
-            f"{float(quality_d.get('code_coverage', 0)):.1%} code coverage "
-            f"and {int(quality_d.get('nop_methods', 0)):,} NOP method(s)."
+            t(
+                "report.exec.quality",
+                eff,
+                dex_count=quality_d["dex_count"],
+                cov=float(quality_d.get("code_coverage", 0)),
+                nop=int(quality_d.get("nop_methods", 0)),
+            )
         )
     if verify_l:
         passed = sum(1 for v in verify_l if v.get("valid"))
-        parts.append(f"DEX integrity verification: {passed}/{len(verify_l)} passed.")
+        parts.append(t("report.exec.verify", eff, passed=passed, total=len(verify_l)))
     if isinstance(vmp_d, dict) and vmp_d.get("total_methods", 0) > 0:
-        parts.append(f"VMP analysis flagged {int(vmp_d.get('vmp_count', 0)):,} stub method(s).")
+        parts.append(t("report.exec.vmp", eff, vmp=int(vmp_d.get("vmp_count", 0))))
     if findings:
         high_plus = sum(1 for f in findings if f.severity in ("critical", "high"))
-        parts.append(f"Total findings: {len(findings)} ({high_plus} critical/high).")
-    return " ".join(parts)
+        parts.append(t("report.exec.findings", eff, total=len(findings), high_plus=high_plus))
+    sep = "" if eff == "zh" else " "
+    return sep.join(parts)
+
+
+def _localized_report_title(audit: AuditReport, lang: str) -> str:
+    en_default = f"UNPACK Audit Report — {audit.target}"
+    if lang == "zh" and audit.title in (en_default, "UNPACK Mobile Security & Unpacking Audit"):
+        return t("report.default_title", "zh", target=audit.target)
+    return audit.title
+
+
+def _localized_exec_summary(audit: AuditReport, lang: str) -> str:
+    if lang == "zh" and audit.executive_summary.startswith("Automated security & unpacking assessment"):
+        return _build_executive_summary(
+            audit.target,
+            audit.scan,
+            audit.quality,
+            audit.verify_results,
+            audit.vmp,
+            audit.findings,
+            audit.grade,
+            audit.risk_score,
+            lang="zh",
+        )
+    return audit.executive_summary
+
+
+def _localized_recommendations(audit: AuditReport, lang: str) -> list[str]:
+    en_default = t("report.default_rec", "en")
+    if lang == "zh":
+        return [
+            t("report.default_rec", "zh") if r == en_default else r
+            for r in audit.recommendations
+        ]
+    return list(audit.recommendations)
+
+
+def _sev_label(sev: str, lang: str) -> str:
+    key = f"report.sev.{(sev or 'info').lower()}"
+    if lang == "zh":
+        return t(key, "zh")
+    return (sev or "info").upper()
 
 
 # ── Pure Renderers (JSON, Markdown, SARIF 2.1.0, HTML5) ──────────────────────
@@ -851,82 +911,98 @@ def render_sarif_json(audit: AuditReport) -> str:
     return json.dumps(render_sarif(audit), indent=2, ensure_ascii=False)
 
 
-def render_markdown(audit: AuditReport) -> str:
-    """Render an ``AuditReport`` as GitHub-Flavored Markdown."""
+def render_markdown(audit: AuditReport, lang: str = "en") -> str:
+    """Render an ``AuditReport`` as GitHub-Flavored Markdown in English or Simplified Chinese."""
+    eff = resolve_lang(lang)
+    title_str = _localized_report_title(audit, eff)
+    summary_str = _localized_exec_summary(audit, eff)
+    recs = _localized_recommendations(audit, eff)
+
     lines: list[str] = []
-    lines.append(f"# {audit.title}")
+    lines.append(f"# {title_str}")
     lines.append("")
-    lines.append(f"> {audit.executive_summary}")
+    lines.append(f"> {summary_str}")
     lines.append("")
-    lines.append("## Assessment Metadata")
+    lines.append(f"## {t('report.sec.metadata', eff)}")
     lines.append("")
-    lines.append("| Field | Value |")
+    lines.append(f"| {t('report.col.field', eff)} | {t('report.col.value', eff)} |")
     lines.append("| --- | --- |")
-    lines.append(f"| Target | `{audit.target}` |")
+    lines.append(f"| {t('report.meta.target', eff)} | `{audit.target}` |")
     if audit.target_sha256:
         lines.append(f"| SHA-256 | `{audit.target_sha256}` |")
-    lines.append(f"| Grade / Risk Score | **{audit.grade}** ({audit.risk_score}/100) |")
-    lines.append(f"| Generated | {audit.generated_at} |")
-    lines.append(f"| Tool | UNPACK v{audit.tool_version} |")
+    lines.append(f"| {t('report.meta.grade_risk', eff)} | **{audit.grade}** ({audit.risk_score}/100) |")
+    lines.append(f"| {t('report.meta.generated', eff)} | {audit.generated_at} |")
+    lines.append(f"| {t('report.meta.tool', eff)} | UNPACK v{audit.tool_version} |")
     lines.append("")
 
     # Findings summary
     counts = audit.severity_counts()
-    lines.append("## Security & Unpacking Findings")
+    lines.append(f"## {t('report.sec.findings_md', eff)}")
     lines.append("")
     lines.append(
-        f"Critical: **{counts['critical']}** · High: **{counts['high']}** · "
-        f"Medium: **{counts['medium']}** · Low: **{counts['low']}** · Info: **{counts['info']}**"
+        f"{t('report.sev.critical', eff)}: **{counts['critical']}** · "
+        f"{t('report.sev.high', eff)}: **{counts['high']}** · "
+        f"{t('report.sev.medium', eff)}: **{counts['medium']}** · "
+        f"{t('report.sev.low', eff)}: **{counts['low']}** · "
+        f"{t('report.sev.info', eff)}: **{counts['info']}**"
     )
     lines.append("")
     if audit.findings:
-        lines.append("| ID | Severity | Rule | Finding | Location |")
+        lines.append(
+            f"| {t('report.col.id', eff)} | {t('report.col.severity', eff)} | "
+            f"{t('report.col.rule', eff)} | {t('report.col.finding', eff)} | {t('report.col.location', eff)} |"
+        )
         lines.append("| --- | --- | --- | --- | --- |")
         for f in audit.findings:
+            sev_txt = _sev_label(f.severity, eff)
             lines.append(
-                f"| `{f.id}` | **{f.severity.upper()}** | `{f.rule_id}` | "
+                f"| `{f.id}` | **{sev_txt}** | `{f.rule_id}` | "
                 f"{f.title} | `{f.location or audit.target}` |"
             )
         lines.append("")
         for f in audit.findings:
-            lines.append(f"### {f.id} · [{f.severity.upper()}] {f.title}")
+            sev_txt = _sev_label(f.severity, eff)
+            lines.append(f"### {f.id} · [{sev_txt}] {f.title}")
             lines.append("")
             if f.description:
                 lines.append(f.description)
                 lines.append("")
             if f.evidence:
-                lines.append("**Evidence:**")
+                lines.append(f"**{t('report.evidence', eff)}:**")
                 for ev in f.evidence[:15]:
                     lines.append(f"- `{ev}`")
                 lines.append("")
             if f.remediation:
-                lines.append(f"**Remediation:** {f.remediation}")
+                lines.append(f"**{t('report.remediation', eff)}:** {f.remediation}")
                 lines.append("")
     else:
-        lines.append("_No findings reported._")
+        lines.append(t("report.no_findings_md", eff))
         lines.append("")
 
     # Packer Intelligence
     if audit.scan:
-        lines.append("## Packer Intelligence")
+        lines.append(f"## {t('report.sec.packer', eff)}")
         lines.append("")
-        packer = audit.scan.get("packer_name") or "None detected"
+        packer = audit.scan.get("packer_name") or t("report.kpi.packer_none", eff)
         ver = audit.scan.get("packer_version") or "—"
         level = audit.scan.get("protection_level") or "none"
         conf = float(audit.scan.get("confidence") or 0.0)
-        lines.append("| Metric | Value |")
+        lines.append(f"| {t('report.col.metric', eff)} | {t('report.col.value', eff)} |")
         lines.append("| --- | --- |")
-        lines.append(f"| Packer | **{packer}** |")
-        lines.append(f"| Version | {ver} |")
-        lines.append(f"| Protection Level | `{level}` |")
-        lines.append(f"| Confidence | {conf:.0%} |")
+        lines.append(f"| {t('report.kv.packer', eff)} | **{packer}** |")
+        lines.append(f"| {t('report.kv.version', eff)} | {ver} |")
+        lines.append(f"| {t('report.kv.protection', eff)} | `{level}` |")
+        lines.append(f"| {t('report.kv.confidence', eff)} | {conf:.0%} |")
         sigs = audit.scan.get("matched_signatures") or []
         if sigs:
-            lines.append(f"| Signatures | {', '.join(f'`{s}`' for s in sigs)} |")
+            lines.append(f"| {t('report.kv.signatures', eff)} | {', '.join(f'`{s}`' for s in sigs)} |")
         lines.append("")
         breakdown = audit.scan.get("score_breakdown") or []
         if breakdown:
-            lines.append("| Dimension | Score | Max | Status |")
+            lines.append(
+                f"| {t('report.col.dimension', eff)} | {t('report.col.score', eff)} | "
+                f"{t('report.col.max', eff)} | {t('report.col.status', eff)} |"
+            )
             lines.append("| --- | ---: | ---: | --- |")
             for b in breakdown:
                 st = "HIT" if b.get("matched") else "—"
@@ -939,32 +1015,35 @@ def render_markdown(audit: AuditReport) -> str:
     # APK Inspection
     if audit.inspect:
         manifest = audit.inspect.get("manifest") or {}
-        lines.append("## APK Static Inspection")
+        lines.append(f"## {t('report.sec.apk_md', eff)}")
         lines.append("")
         if manifest:
-            lines.append("| Attribute | Value |")
+            lines.append(f"| {t('report.col.attribute', eff)} | {t('report.col.value', eff)} |")
             lines.append("| --- | --- |")
             pkg_val = manifest.get("package") or manifest.get("package_name")
             if pkg_val:
-                lines.append(f"| Package | `{pkg_val}` |")
-            for key, label in (
-                ("version_name", "Version Name"),
-                ("version_code", "Version Code"),
-                ("min_sdk", "Min SDK"),
-                ("target_sdk", "Target SDK"),
-                ("application_class", "Application Class"),
-                ("debuggable", "Debuggable"),
-                ("allow_backup", "Allow Backup"),
+                lines.append(f"| {t('report.kv.package', eff)} | `{pkg_val}` |")
+            for key, label_key in (
+                ("version_name", "report.kv.version_name"),
+                ("version_code", "report.kv.version_code"),
+                ("min_sdk", "report.kv.min_sdk"),
+                ("target_sdk", "report.kv.target_sdk"),
+                ("application_class", "report.kv.app_class"),
+                ("debuggable", "report.kv.debuggable"),
+                ("allow_backup", "report.kv.allow_backup"),
             ):
                 if key in manifest and manifest[key] is not None and manifest[key] != "":
-                    lines.append(f"| {label} | `{manifest[key]}` |")
+                    lines.append(f"| {t(label_key, eff)} | `{manifest[key]}` |")
             lines.append("")
 
         native_libs = audit.inspect.get("native_libs") or []
         if native_libs:
-            lines.append(f"### Native Libraries ({len(native_libs)})")
+            lines.append(f"### {t('report.sec.native_libs', eff, count=len(native_libs))}")
             lines.append("")
-            lines.append("| Library | ABI | Size | Flags |")
+            lines.append(
+                f"| {t('report.col.library', eff)} | {t('report.col.abi', eff)} | "
+                f"{t('report.col.size', eff)} | {t('report.col.flags', eff)} |"
+            )
             lines.append("| --- | --- | ---: | --- |")
             for lib in native_libs[:25]:
                 flags = []
@@ -987,21 +1066,25 @@ def render_markdown(audit: AuditReport) -> str:
     # DEX Quality
     if audit.quality:
         q = audit.quality
-        lines.append("## DEX Quality & Coverage")
+        lines.append(f"## {t('report.sec.quality_md', eff)}")
         lines.append("")
-        lines.append("| Metric | Value |")
+        lines.append(f"| {t('report.col.metric', eff)} | {t('report.col.value', eff)} |")
         lines.append("| --- | ---: |")
-        lines.append(f"| DEX Files | {int(q.get('dex_count', 0)):,} |")
-        lines.append(f"| Total Classes | {int(q.get('total_classes', 0)):,} |")
-        lines.append(f"| Total Methods | {int(q.get('total_methods', 0)):,} |")
-        lines.append(f"| Methods with Code | {int(q.get('methods_with_code', 0)):,} |")
-        lines.append(f"| NOP-only Methods | {int(q.get('nop_methods', 0)):,} |")
-        lines.append(f"| Code Coverage | {float(q.get('code_coverage', 0)):.1%} |")
-        lines.append(f"| Quality Score | {float(q.get('score', 0)):.1%} |")
+        lines.append(f"| {t('report.kv.dex_files', eff)} | {int(q.get('dex_count', 0)):,} |")
+        lines.append(f"| {t('report.kv.total_classes', eff)} | {int(q.get('total_classes', 0)):,} |")
+        lines.append(f"| {t('report.kv.total_methods', eff)} | {int(q.get('total_methods', 0)):,} |")
+        lines.append(f"| {t('report.kv.methods_with_code', eff)} | {int(q.get('methods_with_code', 0)):,} |")
+        lines.append(f"| {t('report.kv.nop_methods', eff)} | {int(q.get('nop_methods', 0)):,} |")
+        lines.append(f"| {t('report.kv.code_coverage', eff)} | {float(q.get('code_coverage', 0)):.1%} |")
+        lines.append(f"| {t('report.kv.quality_score', eff)} | {float(q.get('score', 0)):.1%} |")
         lines.append("")
         per_dex = q.get("per_dex") or []
         if per_dex:
-            lines.append("| File | Size | Classes | Methods | With Code | NOP |")
+            lines.append(
+                f"| {t('report.col.file', eff)} | {t('report.col.size', eff)} | "
+                f"{t('report.col.classes', eff)} | {t('report.col.methods', eff)} | "
+                f"{t('report.col.with_code', eff)} | {t('report.col.nop', eff)} |"
+            )
             lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
             for d in per_dex:
                 lines.append(
@@ -1013,9 +1096,11 @@ def render_markdown(audit: AuditReport) -> str:
 
     # Verification
     if audit.verify_results:
-        lines.append("## DEX Integrity Verification")
+        lines.append(f"## {t('report.sec.verify_md', eff)}")
         lines.append("")
-        lines.append("| File | Status | Issues |")
+        lines.append(
+            f"| {t('report.col.file', eff)} | {t('report.col.status', eff)} | {t('report.col.issues', eff)} |"
+        )
         lines.append("| --- | --- | --- |")
         for v in audit.verify_results:
             st = "PASS" if v.get("valid") else "FAIL"
@@ -1025,13 +1110,17 @@ def render_markdown(audit: AuditReport) -> str:
 
     # VMP
     if audit.vmp:
-        lines.append("## VMP Method Classification")
+        lines.append(f"## {t('report.sec.vmp_md', eff)}")
         lines.append("")
         lines.append(
-            f"- Total: **{int(audit.vmp.get('total_methods', 0)):,}** · "
-            f"Normal: **{int(audit.vmp.get('normal_count', 0)):,}** · "
-            f"NOP: **{int(audit.vmp.get('nop_count', 0)):,}** · "
-            f"VMP Stubs: **{int(audit.vmp.get('vmp_count', 0)):,}**"
+            t(
+                "report.vmp.line",
+                eff,
+                total=int(audit.vmp.get("total_methods", 0)),
+                normal=int(audit.vmp.get("normal_count", 0)),
+                nop=int(audit.vmp.get("nop_count", 0)),
+                vmp=int(audit.vmp.get("vmp_count", 0)),
+            )
         )
         lines.append("")
 
@@ -1054,20 +1143,24 @@ def render_markdown(audit: AuditReport) -> str:
             if "reflection_calls" in x_counts
             else len(audit.xref.get("reflection_calls") or [])
         )
-        lines.append("## Cross-Reference Highlights")
+        lines.append(f"## {t('report.sec.xref_md', eff)}")
         lines.append("")
         lines.append(
-            f"- String refs: **{str_cnt:,}** · "
-            f"Method calls: **{call_cnt:,}** · "
-            f"Field refs: **{field_cnt:,}** · "
-            f"Reflection calls: **{refl_cnt:,}**"
+            t(
+                "report.xref.line",
+                eff,
+                strings=str_cnt,
+                calls=call_cnt,
+                fields=field_cnt,
+                refl=refl_cnt,
+            )
         )
         lines.append("")
 
     # Recommendations
-    lines.append("## Recommendations")
+    lines.append(f"## {t('report.sec.recs_md', eff)}")
     lines.append("")
-    for rec in audit.recommendations:
+    for rec in recs:
         lines.append(f"- {rec}")
     lines.append("")
 
@@ -1106,18 +1199,19 @@ def _svg_risk_gauge(risk_score: int, grade: str) -> str:
     )
 
 
-def _svg_method_donut(normal: int, nop: int, vmp: int, empty: int) -> str:
+def _svg_method_donut(normal: int, nop: int, vmp: int, empty: int, *, lang: str = "en") -> str:
     """Render an inline SVG donut chart for method health composition."""
     total = normal + nop + vmp + empty
     if total <= 0:
         return ""
+    eff = resolve_lang(lang)
     radius = 38
     circ = 2 * math.pi * radius
     segments = [
-        ("Normal", normal, "#10b981"),
-        ("NOP", nop, "#f59e0b"),
-        ("VMP Stub", vmp, "#ef4444"),
-        ("Empty/Abstract", empty, "#64748b"),
+        (t("report.donut.normal", eff), normal, "#10b981"),
+        (t("report.donut.nop", eff), nop, "#f59e0b"),
+        (t("report.donut.vmp", eff), vmp, "#ef4444"),
+        (t("report.donut.empty", eff), empty, "#64748b"),
     ]
     arcs: list[str] = []
     offset = 0.0
@@ -1138,23 +1232,30 @@ def _svg_method_donut(normal: int, nop: int, vmp: int, empty: int) -> str:
             f'<span>{_esc(label)}</span><strong>{count:,}</strong>'
             f'<span class="muted">({frac:.1%})</span></div>'
         )
+    center_lbl = _esc(t("report.donut.center", eff))
     return (
         '<div class="donut-wrap">'
         '<svg viewBox="0 0 100 100" width="128" height="128" aria-label="Method Composition">'
         f'<circle cx="50" cy="50" r="{radius}" fill="none" stroke="var(--border)" stroke-width="11" />'
         + "".join(arcs)
         + f'<text x="50" y="48" text-anchor="middle" font-size="13" font-weight="700" fill="var(--text)">{total:,}</text>'
-        + '<text x="50" y="61" text-anchor="middle" font-size="8.5" fill="var(--muted)">methods</text>'
+        + f'<text x="50" y="61" text-anchor="middle" font-size="8.5" fill="var(--muted)">{center_lbl}</text>'
         + "</svg>"
         + f'<div class="legend">{"".join(legend)}</div>'
         + "</div>"
     )
 
 
-def render_html(audit: AuditReport) -> str:
+def render_html(audit: AuditReport, lang: str = "en") -> str:
     """Render a self-contained, offline, print-ready commercial HTML5 audit report."""
+    eff = resolve_lang(lang)
+    html_lang = "zh-CN" if eff == "zh" else "en"
+    title_str = _localized_report_title(audit, eff)
+    summary_str = _localized_exec_summary(audit, eff)
+    recs = _localized_recommendations(audit, eff)
+
     counts = audit.severity_counts()
-    packer_label = "None"
+    packer_label = t("report.kpi.packer_none", eff)
     protection_label = "none"
     confidence_pct = "—"
     if audit.scan and audit.scan.get("packer_name"):
@@ -1177,31 +1278,35 @@ def render_html(audit: AuditReport) -> str:
     # Findings HTML cards
     if audit.findings:
         finding_cards: list[str] = []
+        ev_lbl = _esc(t("report.evidence", eff))
+        rem_lbl = _esc(t("report.remediation", eff))
+        loc_lbl = _esc(t("report.location", eff))
         for f in audit.findings:
             ev_html = ""
             if f.evidence:
                 ev_items = "".join(f"<li><code>{_esc(e)}</code></li>" for e in f.evidence[:20])
-                ev_html = f'<div class="finding-sub"><strong>Evidence</strong><ul>{ev_items}</ul></div>'
+                ev_html = f'<div class="finding-sub"><strong>{ev_lbl}</strong><ul>{ev_items}</ul></div>'
             rem_html = ""
             if f.remediation:
-                rem_html = f'<div class="finding-sub"><strong>Remediation</strong><p>{_esc(f.remediation)}</p></div>'
+                rem_html = f'<div class="finding-sub"><strong>{rem_lbl}</strong><p>{_esc(f.remediation)}</p></div>'
+            sev_badge = _sev_label(f.severity, eff)
             finding_cards.append(
                 f'<article class="finding-card" data-severity="{_esc(f.severity)}" '
                 f'data-search="{_esc((f.title + " " + f.rule_id + " " + f.category + " " + f.description).lower())}">'
                 f'<div class="finding-head">'
-                f'<span class="badge sev-{_esc(f.severity)}">{_esc(f.severity.upper())}</span>'
+                f'<span class="badge sev-{_esc(f.severity)}">{_esc(sev_badge)}</span>'
                 f'<code class="rule-id">{_esc(f.rule_id)}</code>'
                 f'<span class="finding-title">{_esc(f.title)}</span>'
                 f'<span class="chip">{_esc(f.category)}</span>'
                 f"</div>"
                 f'<p class="finding-desc">{_esc(f.description)}</p>'
-                f'<div class="finding-meta">Location: <code>{_esc(f.location or audit.target)}</code> · ID: <code>{_esc(f.id)}</code></div>'
+                f'<div class="finding-meta">{loc_lbl}: <code>{_esc(f.location or audit.target)}</code> · ID: <code>{_esc(f.id)}</code></div>'
                 f"{ev_html}{rem_html}"
                 f"</article>"
             )
         findings_section_body = "".join(finding_cards)
     else:
-        findings_section_body = '<p class="empty">No security or unpacking findings triggered.</p>'
+        findings_section_body = f'<p class="empty">{_esc(t("report.no_findings_html", eff))}</p>'
 
     # Packer breakdown section
     packer_html = ""
@@ -1225,22 +1330,24 @@ def render_html(audit: AuditReport) -> str:
             + "".join(f'<code class="tag">{_esc(s)}</code>' for s in sigs)
             + "</div>"
             if sigs
-            else '<p class="muted">No signature indicators matched.</p>'
+            else f'<p class="muted">{_esc(t("report.no_sigs", eff))}</p>'
         )
         bd_table = (
-            '<table class="data-table"><thead><tr><th>Dimension</th><th>Weight</th>'
-            '<th class="num">Score</th><th>Status</th></tr></thead>'
+            f'<table class="data-table"><thead><tr><th>{_esc(t("report.col.dimension", eff))}</th>'
+            f'<th>{_esc(t("report.col.weight", eff))}</th>'
+            f'<th class="num">{_esc(t("report.col.score", eff))}</th>'
+            f'<th>{_esc(t("report.col.status", eff))}</th></tr></thead>'
             f"<tbody>{bd_rows}</tbody></table>"
             if bd_rows
             else ""
         )
         packer_html = (
-            '<section class="panel"><h2>Packer Intelligence</h2>'
+            f'<section class="panel"><h2>{_esc(t("report.sec.packer", eff))}</h2>'
             f'<div class="kv-grid">'
-            f'<div><span class="k">Packer</span><span class="v">{_esc(packer_label)}</span></div>'
-            f'<div><span class="k">Protection Level</span><span class="v"><code>{_esc(protection_label)}</code></span></div>'
-            f'<div><span class="k">Confidence</span><span class="v">{_esc(confidence_pct)}</span></div>'
-            f'<div><span class="k">Application Class</span><span class="v"><code>{_esc(audit.scan.get("app_class") or "—")}</code></span></div>'
+            f'<div><span class="k">{_esc(t("report.kv.packer", eff))}</span><span class="v">{_esc(packer_label)}</span></div>'
+            f'<div><span class="k">{_esc(t("report.kv.protection", eff))}</span><span class="v"><code>{_esc(protection_label)}</code></span></div>'
+            f'<div><span class="k">{_esc(t("report.kv.confidence", eff))}</span><span class="v">{_esc(confidence_pct)}</span></div>'
+            f'<div><span class="k">{_esc(t("report.kv.app_class", eff))}</span><span class="v"><code>{_esc(audit.scan.get("app_class") or "—")}</code></span></div>'
             f"</div>{sigs_html}{bd_table}</section>"
         )
 
@@ -1260,14 +1367,15 @@ def render_html(audit: AuditReport) -> str:
         manifest_kv = ""
         if manifest:
             pkg_name = manifest.get("package") or manifest.get("package_name") or "—"
+            perms_val = t("report.kv.perms_val", eff, total=len(perms), dangerous=len(dangerous_perms))
             manifest_kv = (
                 '<div class="kv-grid">'
-                f'<div><span class="k">Package</span><span class="v"><code>{_esc(pkg_name)}</code></span></div>'
-                f'<div><span class="k">Version</span><span class="v">{_esc(manifest.get("version_name") or "—")} ({_esc(manifest.get("version_code") or "—")})</span></div>'
-                f'<div><span class="k">SDK (min / target)</span><span class="v">{_esc(manifest.get("min_sdk") or "—")} / {_esc(manifest.get("target_sdk") or "—")}</span></div>'
-                f'<div><span class="k">Debuggable / Backup</span><span class="v">{_esc(manifest.get("debuggable"))} / {_esc(manifest.get("allow_backup"))}</span></div>'
-                f'<div><span class="k">Signing Schemes</span><span class="v">{_esc(", ".join(signing.get("schemes") or []) or "—")}</span></div>'
-                f'<div><span class="k">Permissions</span><span class="v">{len(perms)} total ({len(dangerous_perms)} dangerous)</span></div>'
+                f'<div><span class="k">{_esc(t("report.kv.package", eff))}</span><span class="v"><code>{_esc(pkg_name)}</code></span></div>'
+                f'<div><span class="k">{_esc(t("report.kv.version", eff))}</span><span class="v">{_esc(manifest.get("version_name") or "—")} ({_esc(manifest.get("version_code") or "—")})</span></div>'
+                f'<div><span class="k">{_esc(t("report.kv.sdk_pair", eff))}</span><span class="v">{_esc(manifest.get("min_sdk") or "—")} / {_esc(manifest.get("target_sdk") or "—")}</span></div>'
+                f'<div><span class="k">{_esc(t("report.kv.debug_backup", eff))}</span><span class="v">{_esc(manifest.get("debuggable"))} / {_esc(manifest.get("allow_backup"))}</span></div>'
+                f'<div><span class="k">{_esc(t("report.kv.signing", eff))}</span><span class="v">{_esc(", ".join(signing.get("schemes") or []) or "—")}</span></div>'
+                f'<div><span class="k">{_esc(t("report.kv.permissions", eff))}</span><span class="v">{_esc(perms_val)}</span></div>'
                 "</div>"
             )
 
@@ -1292,12 +1400,14 @@ def render_html(audit: AuditReport) -> str:
                     f"<td>{_esc(', '.join(flags) or '—')}</td></tr>"
                 )
             lib_table = (
-                f'<h3>Native Libraries ({len(native_libs)})</h3>'
-                '<table class="data-table"><thead><tr><th>Library</th><th>ABI</th>'
-                '<th class="num">Size</th><th>ELF Mitigations</th></tr></thead>'
+                f'<h3>{_esc(t("report.sec.native_libs", eff, count=len(native_libs)))}</h3>'
+                f'<table class="data-table"><thead><tr><th>{_esc(t("report.col.library", eff))}</th>'
+                f'<th>{_esc(t("report.col.abi", eff))}</th>'
+                f'<th class="num">{_esc(t("report.col.size", eff))}</th>'
+                f'<th>{_esc(t("report.col.elf_mitigations", eff))}</th></tr></thead>'
                 f"<tbody>{lib_rows}</tbody></table>"
             )
-        inspect_html = f'<section class="panel"><h2>APK Static Profile</h2>{manifest_kv}{lib_table}</section>'
+        inspect_html = f'<section class="panel"><h2>{_esc(t("report.sec.apk_html", eff))}</h2>{manifest_kv}{lib_table}</section>'
 
     # DEX Quality + Method Composition Donut
     quality_html = ""
@@ -1309,12 +1419,13 @@ def render_html(audit: AuditReport) -> str:
                 int(audit.vmp.get("nop_count") or 0),
                 int(audit.vmp.get("vmp_count") or 0),
                 0,
+                lang=eff,
             )
         elif audit.quality and int(audit.quality.get("total_methods") or 0) > 0:
             with_code = int(audit.quality.get("methods_with_code") or 0)
             nop = int(audit.quality.get("nop_methods") or 0)
             empty = int(audit.quality.get("empty_methods") or 0)
-            donut_svg = _svg_method_donut(max(0, with_code - nop), nop, 0, empty)
+            donut_svg = _svg_method_donut(max(0, with_code - nop), nop, 0, empty, lang=eff)
 
         per_dex_html = ""
         if audit.quality and audit.quality.get("per_dex"):
@@ -1333,16 +1444,21 @@ def render_html(audit: AuditReport) -> str:
                     f'<td class="num">{m_nop:,}</td>'
                     f'<td class="num">{cov:.1%}</td></tr>'
                 )
+            dex_search_ph = _esc(t("report.search.dex", eff))
             per_dex_html = (
-                '<div class="table-toolbar"><input id="dexSearch" class="search-input" '
-                'type="search" placeholder="Filter DEX files..." aria-label="Filter DEX files" /></div>'
-                '<table class="data-table" id="dexTable"><thead><tr><th>DEX File</th>'
-                '<th class="num">Size</th><th class="num">Classes</th><th class="num">Methods</th>'
-                '<th class="num">With Code</th><th class="num">NOP</th><th class="num">Coverage</th>'
+                f'<div class="table-toolbar"><input id="dexSearch" class="search-input" '
+                f'type="search" placeholder="{dex_search_ph}" aria-label="{dex_search_ph}" /></div>'
+                f'<table class="data-table" id="dexTable"><thead><tr><th>{_esc(t("report.col.dex_file", eff))}</th>'
+                f'<th class="num">{_esc(t("report.col.size", eff))}</th>'
+                f'<th class="num">{_esc(t("report.col.classes", eff))}</th>'
+                f'<th class="num">{_esc(t("report.col.methods", eff))}</th>'
+                f'<th class="num">{_esc(t("report.col.with_code", eff))}</th>'
+                f'<th class="num">{_esc(t("report.col.nop", eff))}</th>'
+                f'<th class="num">{_esc(t("report.col.coverage", eff))}</th>'
                 f"</tr></thead><tbody>{rows}</tbody></table>"
             )
         quality_html = (
-            '<section class="panel"><h2>DEX Quality &amp; Method Health</h2>'
+            f'<section class="panel"><h2>{_esc(t("report.sec.quality_html", eff))}</h2>'
             f"{donut_svg}{per_dex_html}</section>"
         )
 
@@ -1350,10 +1466,11 @@ def render_html(audit: AuditReport) -> str:
     verify_html = ""
     if audit.verify_results or audit.repair_results:
         v_rows = ""
+        no_issues_txt = t("report.verify.no_issues", eff)
         for v in audit.verify_results:
             ok = bool(v.get("valid"))
             badge = '<span class="badge sev-pass">PASS</span>' if ok else '<span class="badge sev-high">FAIL</span>'
-            issues = "; ".join(str(x) for x in (v.get("issues") or [])) or "No issues"
+            issues = "; ".join(str(x) for x in (v.get("issues") or [])) or no_issues_txt
             v_rows += (
                 f"<tr><td><code>{_esc(v.get('file', ''))}</code></td>"
                 f"<td>{badge}</td><td>{_esc(issues)}</td></tr>"
@@ -1378,24 +1495,29 @@ def render_html(audit: AuditReport) -> str:
                 f'<td class="num">{nop_cnt:,}</td></tr>'
             )
         v_block = (
-            '<h3>Integrity Verification</h3><table class="data-table">'
-            "<thead><tr><th>File</th><th>Status</th><th>Details</th></tr></thead>"
+            f'<h3>{_esc(t("report.sec.integrity_sub", eff))}</h3><table class="data-table">'
+            f'<thead><tr><th>{_esc(t("report.col.file", eff))}</th>'
+            f'<th>{_esc(t("report.col.status", eff))}</th>'
+            f'<th>{_esc(t("report.col.details", eff))}</th></tr></thead>'
             f"<tbody>{v_rows}</tbody></table>"
             if v_rows
             else ""
         )
         r_block = (
-            '<h3>Repair Actions</h3><table class="data-table">'
-            '<thead><tr><th>File</th><th>Status</th><th>Actions</th><th class="num">NOP</th></tr></thead>'
+            f'<h3>{_esc(t("report.sec.repair_sub", eff))}</h3><table class="data-table">'
+            f'<thead><tr><th>{_esc(t("report.col.file", eff))}</th>'
+            f'<th>{_esc(t("report.col.status", eff))}</th>'
+            f'<th>{_esc(t("report.col.actions", eff))}</th>'
+            f'<th class="num">{_esc(t("report.col.nop", eff))}</th></tr></thead>'
             f"<tbody>{r_rows}</tbody></table>"
             if r_rows
             else ""
         )
-        verify_html = f'<section class="panel"><h2>Verification &amp; Repair</h2>{v_block}{r_block}</section>'
+        verify_html = f'<section class="panel"><h2>{_esc(t("report.sec.verify_html", eff))}</h2>{v_block}{r_block}</section>'
 
     # Recommendations section
-    rec_items = "".join(f"<li>{_esc(rec)}</li>" for rec in audit.recommendations)
-    rec_html = f'<section class="panel"><h2>Actionable Recommendations</h2><ol class="rec-list">{rec_items}</ol></section>'
+    rec_items = "".join(f"<li>{_esc(rec)}</li>" for rec in recs)
+    rec_html = f'<section class="panel"><h2>{_esc(t("report.sec.recs_html", eff))}</h2><ol class="rec-list">{rec_items}</ol></section>'
 
     sha_pill = (
         f'<span class="meta-pill">SHA-256: <code>{_esc(audit.target_sha256[:16])}…</code></span>'
@@ -1403,12 +1525,13 @@ def render_html(audit: AuditReport) -> str:
         else ""
     )
 
+    finding_search_ph = _esc(t("report.search.findings", eff))
     return f"""<!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="{html_lang}" data-theme="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>{_esc(audit.title)}</title>
+<title>{_esc(title_str)}</title>
 <style>
 :root {{
   --bg: #0b0e14;
@@ -1422,7 +1545,7 @@ def render_html(audit: AuditReport) -> str:
   --warn: #f59e0b;
   --fail: #ef4444;
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Inter, Roboto, sans-serif;
 }}
 [data-theme="light"] {{
   --bg: #f6f8fa;
@@ -1456,7 +1579,7 @@ h3 {{ margin: 18px 0 10px; font-size: 13px; font-weight: 600; color: var(--muted
   font-size: 12px; color: var(--muted); background: var(--surface); border: 1px solid var(--border);
   padding: 3px 9px; border-radius: 6px;
 }}
-.top-actions {{ display: flex; align-items: center; gap: 14px; }}
+.top-actions {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }}
 .btn {{
   background: var(--surface); color: var(--text); border: 1px solid var(--border);
   padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500;
@@ -1553,42 +1676,43 @@ footer {{ margin-top: 28px; text-align: center; font-size: 12px; color: var(--mu
 <div class="container">
   <header class="topbar">
     <div>
-      <div class="brand">UNPACK · Security &amp; Reverse-Engineering Audit</div>
-      <h1>{_esc(audit.title)}</h1>
+      <div class="brand">{_esc(t("report.brand", eff))}</div>
+      <h1>{_esc(title_str)}</h1>
       <div class="meta-row">
-        <span class="meta-pill">Target: <code>{_esc(audit.target)}</code></span>
+        <span class="meta-pill">{_esc(t("report.meta.target", eff))}: <code>{_esc(audit.target)}</code></span>
         {sha_pill}
-        <span class="meta-pill">Generated: {_esc(audit.generated_at)}</span>
+        <span class="meta-pill">{_esc(t("report.meta.generated", eff))}: {_esc(audit.generated_at)}</span>
         <span class="meta-pill">UNPACK v{_esc(audit.tool_version)}</span>
       </div>
     </div>
     <div class="top-actions">
       {_svg_risk_gauge(audit.risk_score, audit.grade)}
-      <button class="btn" id="themeToggle" type="button">Toggle Theme</button>
+      <button class="btn" id="themeToggle" type="button">{_esc(t("report.btn.theme", eff))}</button>
+      <button class="btn" id="printReport" type="button">{_esc(t("report.btn.print", eff))}</button>
     </div>
   </header>
 
-  <div class="summary-banner">{_esc(audit.executive_summary)}</div>
+  <div class="summary-banner">{_esc(summary_str)}</div>
 
   <section class="kpi-grid">
-    <div class="kpi"><div class="kpi-label">Packer</div><div class="kpi-value">{_esc(packer_label)}</div><div class="kpi-sub">Level: {_esc(protection_label)} ({_esc(confidence_pct)})</div></div>
-    <div class="kpi"><div class="kpi-label">Code Coverage</div><div class="kpi-value">{_esc(coverage_str)}</div><div class="kpi-sub">DEX files: {_esc(dex_count_str)}</div></div>
-    <div class="kpi"><div class="kpi-label">Methods</div><div class="kpi-value">{_esc(methods_str)}</div><div class="kpi-sub">Risk Score: {audit.risk_score}/100</div></div>
-    <div class="kpi"><div class="kpi-label">Findings</div><div class="kpi-value">{len(audit.findings)}</div><div class="kpi-sub">Crit/High: {counts['critical'] + counts['high']} · Med: {counts['medium']}</div></div>
+    <div class="kpi"><div class="kpi-label">{_esc(t("report.kpi.packer", eff))}</div><div class="kpi-value">{_esc(packer_label)}</div><div class="kpi-sub">{_esc(t("report.kpi.packer_sub", eff, level=protection_label, conf=confidence_pct))}</div></div>
+    <div class="kpi"><div class="kpi-label">{_esc(t("report.kpi.coverage", eff))}</div><div class="kpi-value">{_esc(coverage_str)}</div><div class="kpi-sub">{_esc(t("report.kpi.dex_sub", eff, count=dex_count_str))}</div></div>
+    <div class="kpi"><div class="kpi-label">{_esc(t("report.kpi.methods", eff))}</div><div class="kpi-value">{_esc(methods_str)}</div><div class="kpi-sub">{_esc(t("report.kpi.risk_sub", eff, score=audit.risk_score))}</div></div>
+    <div class="kpi"><div class="kpi-label">{_esc(t("report.kpi.findings", eff))}</div><div class="kpi-value">{len(audit.findings)}</div><div class="kpi-sub">{_esc(t("report.kpi.findings_sub", eff, high=counts['critical'] + counts['high'], med=counts['medium']))}</div></div>
   </section>
 
   <section class="panel">
-    <h2>Findings Explorer ({len(audit.findings)})</h2>
+    <h2>{_esc(t("report.sec.findings_explorer", eff, count=len(audit.findings)))}</h2>
     <div class="toolbar">
       <div class="pill-group" id="sevFilters">
-        <button class="pill active" data-sev="all" type="button">All ({len(audit.findings)})</button>
-        <button class="pill" data-sev="critical" type="button">Critical ({counts['critical']})</button>
-        <button class="pill" data-sev="high" type="button">High ({counts['high']})</button>
-        <button class="pill" data-sev="medium" type="button">Medium ({counts['medium']})</button>
-        <button class="pill" data-sev="low" type="button">Low ({counts['low']})</button>
-        <button class="pill" data-sev="info" type="button">Info ({counts['info']})</button>
+        <button class="pill active" data-sev="all" type="button">{_esc(t("report.pill.all", eff, count=len(audit.findings)))}</button>
+        <button class="pill" data-sev="critical" type="button">{_esc(t("report.sev.critical", eff))} ({counts['critical']})</button>
+        <button class="pill" data-sev="high" type="button">{_esc(t("report.sev.high", eff))} ({counts['high']})</button>
+        <button class="pill" data-sev="medium" type="button">{_esc(t("report.sev.medium", eff))} ({counts['medium']})</button>
+        <button class="pill" data-sev="low" type="button">{_esc(t("report.sev.low", eff))} ({counts['low']})</button>
+        <button class="pill" data-sev="info" type="button">{_esc(t("report.sev.info", eff))} ({counts['info']})</button>
       </div>
-      <input id="findingSearch" class="search-input" type="search" placeholder="Search findings..." aria-label="Search findings" />
+      <input id="findingSearch" class="search-input" type="search" placeholder="{finding_search_ph}" aria-label="{finding_search_ph}" />
     </div>
     <div id="findingsList">{findings_section_body}</div>
   </section>
@@ -1599,7 +1723,7 @@ footer {{ margin-top: 28px; text-align: center; font-size: 12px; color: var(--mu
   {verify_html}
   {rec_html}
 
-  <footer>Generated offline by UNPACK v{_esc(audit.tool_version)} · Schema v{_esc(audit.schema_version)}</footer>
+  <footer>{_esc(t("report.footer", eff, version=audit.tool_version, schema=audit.schema_version))}</footer>
 </div>
 <script>
 (function() {{
@@ -1609,6 +1733,10 @@ footer {{ margin-top: 28px; text-align: center; font-size: 12px; color: var(--mu
     toggle.addEventListener("click", function() {{
       root.setAttribute("data-theme", root.getAttribute("data-theme") === "dark" ? "light" : "dark");
     }});
+  }}
+  var printBtn = document.getElementById("printReport");
+  if (printBtn) {{
+    printBtn.addEventListener("click", function() {{ window.print(); }});
   }}
   var activeSev = "all";
   var searchEl = document.getElementById("findingSearch");
@@ -1654,12 +1782,13 @@ class ReportGenerator:
     SUPPORTED_FORMATS = ("html", "markdown", "md", "sarif", "json")
 
     @classmethod
-    def render(cls, audit: AuditReport, fmt: str) -> str:
+    def render(cls, audit: AuditReport, fmt: str, lang: str = "en") -> str:
         norm = fmt.strip().lower()
+        eff_lang = resolve_lang(lang)
         if norm == "html":
-            return render_html(audit)
+            return render_html(audit, lang=eff_lang)
         if norm in ("markdown", "md"):
-            return render_markdown(audit)
+            return render_markdown(audit, lang=eff_lang)
         if norm == "sarif":
             return render_sarif_json(audit)
         if norm == "json":
