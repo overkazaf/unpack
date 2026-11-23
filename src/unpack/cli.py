@@ -41,6 +41,9 @@ from unpack.cli_format import (
     confidence_bar,
     create_console,
     format_bytes,
+    print_ai_analysis,
+    print_ai_config,
+    print_ai_test_result,
     print_doctor_report,
     print_inspect_apk,
     print_inspect_dex,
@@ -51,6 +54,8 @@ from unpack.cli_format import (
     print_verify_result,
     print_verify_summary,
     print_vmp_summary,
+    print_workspace_detail,
+    print_workspace_list,
     print_xref_summary,
     render_error,
     render_header,
@@ -162,6 +167,13 @@ def _print_main_help() -> None:
                 ("web", t("cli.cmd.web", eff)),
             ],
         ),
+        (
+            t("cli.group.ai_ws", eff),
+            [
+                ("ai", t("cli.cmd.ai", eff)),
+                ("workspace", t("cli.cmd.workspace", eff)),
+            ],
+        ),
     ]
 
     cmd_table = Table(show_header=False, box=None, padding=(0, 2), pad_edge=False)
@@ -185,6 +197,8 @@ def _print_main_help() -> None:
         ("unpack dump app.apk --deep", t("cli.example.dump", eff)),
         ("unpack repair ./unpacked/ && unpack verify ./unpacked/", t("cli.example.repair", eff)),
         (f"unpack report ./unpacked/ --apk app.apk -F html -o audit.html{lang_flag}", t("cli.example.report", eff)),
+        (f"unpack ai show{lang_flag}", t("cli.example.ai", eff)),
+        (f"unpack workspace list{lang_flag}", t("cli.example.workspace", eff)),
         ("unpack web --port 8080", t("cli.example.web", eff)),
     ]
     console.print(f"\n[{C_LABEL}]{safe(t('cli.quickstart', eff))}[/]")
@@ -3382,6 +3396,617 @@ def wizard(
         no_devices=no_devices,
         lang=lang,
     )
+
+
+# ── AI Configuration & Reverse-Engineering Analysis (`unpack ai`) ────────────
+
+ai_app = typer.Typer(
+    name="ai",
+    help="Configure multi-provider AI models, test connectivity & run AI reverse-engineering analysis",
+    rich_markup_mode="rich",
+    no_args_is_help=True,
+)
+app.add_typer(ai_app, name="ai")
+
+
+@ai_app.command("show")
+def ai_show(
+    output_json: Annotated[
+        Optional[Path],
+        typer.Option("--json", "-j", help="Output public AI config & presets as JSON (use - for stdout)"),
+    ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
+):
+    """Display current AI provider configuration (API key masked) and supported presets."""
+    from unpack.core.ai_engine import AIConfigStore, list_provider_presets
+
+    eff = _apply_lang(lang)
+    pub = AIConfigStore().load().to_public_dict()
+    presets = list_provider_presets()
+    payload = {"config": pub, "presets": presets}
+
+    if output_json is not None and str(output_json) == "-":
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    print_ai_config(console, pub, presets=presets, lang=eff)
+    if not pub.get("configured") and not _QUIET:
+        console.print(f"\n  [{C_DIM}]{safe(t('ai.config_hint', eff))}[/]")
+    if output_json:
+        output_json.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
+
+
+@ai_app.command("config")
+def ai_config(
+    provider: Annotated[
+        Optional[str],
+        typer.Option("--provider", "-p", help="Provider: openai | anthropic | gemini | deepseek | qwen | ollama | custom"),
+    ] = None,
+    model: Annotated[
+        Optional[str],
+        typer.Option("--model", "-m", help="Model name (e.g. gpt-4o-mini, deepseek-chat, qwen-plus)"),
+    ] = None,
+    base_url: Annotated[
+        Optional[str],
+        typer.Option("--base-url", help="Custom API base URL"),
+    ] = None,
+    api_key: Annotated[
+        Optional[str],
+        typer.Option("--api-key", "-k", help="API key (stored with 0600 permissions, never echoed raw)"),
+    ] = None,
+    enable: Annotated[
+        Optional[bool],
+        typer.Option("--enable/--disable", help="Enable or disable AI features"),
+    ] = None,
+    clear_key: Annotated[
+        bool,
+        typer.Option("--clear-key", help="Clear the stored API key"),
+    ] = False,
+    temperature: Annotated[
+        Optional[float],
+        typer.Option("--temperature", help="Sampling temperature (0.0 - 2.0)"),
+    ] = None,
+    timeout: Annotated[
+        Optional[float],
+        typer.Option("--timeout", help="HTTP timeout in seconds (3 - 300)"),
+    ] = None,
+    output_json: Annotated[
+        Optional[Path],
+        typer.Option("--json", "-j", help="Output updated public config as JSON (use - for stdout)"),
+    ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
+):
+    """Save AI provider configuration securely (API key is masked in all output)."""
+    from unpack.core.ai_engine import AIConfigStore
+
+    eff = _apply_lang(lang)
+    payload: dict[str, Any] = {}
+    if provider is not None:
+        payload["provider"] = provider
+    if model is not None:
+        payload["model"] = model
+    if base_url is not None:
+        payload["base_url"] = base_url
+    if api_key is not None:
+        payload["api_key"] = api_key
+    if enable is not None:
+        payload["enabled"] = enable
+    if temperature is not None:
+        payload["temperature"] = temperature
+    if timeout is not None:
+        payload["timeout_seconds"] = timeout
+
+    updated = AIConfigStore().update(payload, clear_api_key=clear_key)
+    pub = updated.to_public_dict()
+
+    if output_json is not None and str(output_json) == "-":
+        print(json.dumps(pub, indent=2, ensure_ascii=False))
+        return
+
+    print_ai_config(console, pub, lang=eff)
+    console.print(f"  [{C_OK}]✓[/] {safe(t('ai.config_saved', eff))}")
+    if output_json:
+        output_json.write_text(json.dumps(pub, indent=2, ensure_ascii=False))
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
+
+
+@ai_app.command("test")
+def ai_test(
+    output_json: Annotated[
+        Optional[Path],
+        typer.Option("--json", "-j", help="Output connectivity test result as JSON (use - for stdout)"),
+    ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
+):
+    """Test connectivity to the configured AI model provider."""
+    from unpack.core.ai_engine import test_connection
+
+    eff = _apply_lang(lang)
+    json_stdout = output_json is not None and str(output_json) == "-"
+    with _spinner(t("ai.spinner.test", eff), enabled=not json_stdout):
+        res = test_connection(lang=eff)
+
+    if json_stdout:
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        if not res.get("ok"):
+            raise typer.Exit(EXIT_ERROR)
+        return
+
+    print_ai_test_result(console, res, lang=eff)
+    if output_json:
+        output_json.write_text(json.dumps(res, indent=2, ensure_ascii=False))
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
+    if not res.get("ok"):
+        raise typer.Exit(EXIT_ERROR)
+
+
+@ai_app.command("analyze")
+def ai_analyze(
+    target: Annotated[Path, typer.Argument(help="Path to APK file, DEX file, or DEX directory")],
+    module: Annotated[
+        str,
+        typer.Option("--module", "-m", help="Analysis module: scan | security | vmp | method"),
+    ] = "scan",
+    method: Annotated[
+        Optional[str],
+        typer.Option("--method", help="Target method (ClassName::methodName) for --module method"),
+    ] = None,
+    save_workspace: Annotated[
+        Optional[str],
+        typer.Option("--save-workspace", "-w", help="Workspace ID to archive sample & AI analysis"),
+    ] = None,
+    output_json: Annotated[
+        Optional[Path],
+        typer.Option("--json", "-j", help="Output AI analysis result as JSON (use - for stdout)"),
+    ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Analysis & display language: en | zh | auto"),
+    ] = None,
+):
+    """Run domain-expert AI reverse-engineering analysis on an APK or DEX target."""
+    from unpack.core.ai_engine import AIAnalyzer
+    from unpack.core.errors import UnpackError
+
+    eff = _apply_lang(lang)
+    mod_l = module.strip().lower()
+    json_stdout = output_json is not None and str(output_json) == "-"
+
+    if mod_l not in ("scan", "security", "vmp", "method"):
+        _fail_error(
+            f"Unsupported AI module: {module}",
+            json_stdout=json_stdout,
+            hint="Use --module scan | security | vmp | method",
+        )
+    if not target.exists():
+        _fail_missing("Target", target, json_stdout=json_stdout)
+    if mod_l == "method" and (not method or "::" not in method):
+        _fail_error(t("ai.method.required", eff), json_stdout=json_stdout)
+
+    analyzer = AIAnalyzer()
+    scan_d: dict[str, Any] | None = None
+    inspect_d: dict[str, Any] | None = None
+    vmp_d: dict[str, Any] | None = None
+    xref_d: dict[str, Any] | None = None
+
+    try:
+        with _spinner(t("ai.spinner.analyze", eff, module=mod_l, name=target.name), enabled=not json_stdout):
+            if mod_l == "scan":
+                from unpack.core.scanner import PackerScanner
+
+                scan_d = PackerScanner().scan(target, verbose=True).to_verbose_dict()
+                if target.is_file() and target.suffix.lower() == ".apk":
+                    inspect_d = _inspect_apk_impl(target)
+                result = analyzer.analyze_scan(scan_d, inspect=inspect_d, lang=eff)
+
+            elif mod_l == "security":
+                inspect_d = _inspect_apk_impl(target)
+                result = analyzer.analyze_security(
+                    inspect_d,
+                    findings=inspect_d.get("findings") or [],
+                    lang=eff,
+                )
+
+            elif mod_l == "vmp":
+                from unpack.analysis.vmp import VmpDetector
+
+                native_libs: list[dict[str, Any]] | None = None
+                dex_blobs: list[tuple[str, bytes]] = []
+                if target.is_file() and target.suffix.lower() == ".apk":
+                    inspect_d = _inspect_apk_impl(target)
+                    native_libs = inspect_d.get("native_libs") or []
+                    with zipfile.ZipFile(target, "r") as zf:
+                        for info in zf.infolist():
+                            if info.filename.endswith(".dex") and "/" not in info.filename:
+                                dex_blobs.append((info.filename, zf.read(info.filename)))
+                else:
+                    for p in _discover_dex_paths(target):
+                        dex_blobs.append((p.name, p.read_bytes()))
+
+                det = VmpDetector()
+                tot = norm = nops = vmps = 0
+                v_methods: list[dict[str, Any]] = []
+                c_graph: list[dict[str, Any]] = []
+                for fname, blob in dex_blobs:
+                    vr = det.analyze_dex(blob)
+                    tot += vr.total_methods
+                    norm += vr.normal_count
+                    nops += vr.nop_count
+                    vmps += vr.vmp_count
+                    v_methods.extend({**m, "dex_file": fname} for m in vr.vmp_methods)
+                    c_graph.extend({**c, "dex_file": fname} for c in vr.call_graph)
+                vmp_d = {
+                    "dex": target.name,
+                    "total_methods": tot,
+                    "normal_count": norm,
+                    "nop_count": nops,
+                    "vmp_count": vmps,
+                    "vmp_methods": v_methods,
+                    "call_graph": c_graph,
+                }
+                result = analyzer.analyze_vmp_native(
+                    vmp=vmp_d,
+                    native_libs=native_libs,
+                    xref=xref_d,
+                    lang=eff,
+                )
+
+            else:  # method
+                assert method is not None
+                cls_name, _meth_name = method.split("::", 1)
+                disasm_dict: dict[str, Any] | None = None
+                if target.is_file() and target.suffix.lower() in (".dex", ".cdex"):
+                    dex_info = _inspect_dex_impl(target, method_target=method)
+                    disasm_dict = dex_info.get("disasm")
+                elif target.is_file() and target.suffix.lower() == ".apk":
+                    import tempfile
+
+                    with zipfile.ZipFile(target, "r") as zf, tempfile.TemporaryDirectory() as td:
+                        for info in zf.infolist():
+                            if info.filename.endswith(".dex") and "/" not in info.filename:
+                                tmp_dex = Path(td) / Path(info.filename).name
+                                tmp_dex.write_bytes(zf.read(info.filename))
+                                dex_info = _inspect_dex_impl(tmp_dex, method_target=method)
+                                if dex_info.get("disasm"):
+                                    disasm_dict = dex_info["disasm"]
+                                    break
+                if not disasm_dict:
+                    _fail_error(
+                        t("ai.method.not_found", eff, method=method, target=target.name),
+                        json_stdout=json_stdout,
+                    )
+                result = analyzer.analyze_method(disasm_dict, class_name=cls_name, lang=eff)
+    except UnpackError as exc:
+        if json_stdout:
+            print(json.dumps({"error": exc.message, "hint": exc.hint}, indent=2, ensure_ascii=False))
+            raise typer.Exit(EXIT_ERROR)
+        render_error(console, exc.message, hint=exc.hint, lang=eff)
+        raise typer.Exit(EXIT_ERROR)
+
+    res_dict = result.to_dict()
+
+    saved_ws_label: str | None = None
+    if save_workspace:
+        from unpack.core.workspace_store import WorkspaceStore
+
+        store = WorkspaceStore()
+        try:
+            sha = ""
+            size_b = 0
+            if target.is_file():
+                raw = target.read_bytes()
+                sha = hashlib.sha256(raw).hexdigest()
+                size_b = len(raw)
+            kind = "apk" if target.suffix.lower() == ".apk" else "dex"
+            saved_sample = store.save_sample(
+                save_workspace,
+                {
+                    "filename": target.name,
+                    "sha256": sha,
+                    "kind": kind,
+                    "size_bytes": size_b,
+                    "source_path": str(target.resolve()),
+                    "scan_result": scan_d,
+                    "inspect_result": inspect_d,
+                    "vmp_result": vmp_d,
+                    "xref_result": xref_d,
+                },
+            )
+            store.save_ai_analysis(save_workspace, saved_sample["sample_id"], result.module, result)
+            saved_ws_label = f"{save_workspace} ({saved_sample['sample_id']})"
+            res_dict["saved_workspace"] = save_workspace
+            res_dict["sample_id"] = saved_sample["sample_id"]
+        finally:
+            store.close()
+
+    if json_stdout:
+        print(json.dumps(res_dict, indent=2, ensure_ascii=False))
+        return
+
+    print_ai_analysis(console, res_dict, saved_workspace=saved_ws_label, lang=eff)
+    if output_json:
+        output_json.write_text(json.dumps(res_dict, indent=2, ensure_ascii=False))
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
+
+
+# ── Persistent Workspace Storage (`unpack workspace`) ────────────────────────
+
+workspace_app = typer.Typer(
+    name="workspace",
+    help="Manage persistent workspaces, saved samples, pipeline runs & AI analysis history",
+    rich_markup_mode="rich",
+    no_args_is_help=True,
+)
+app.add_typer(workspace_app, name="workspace")
+
+
+@workspace_app.command("list")
+def workspace_list(
+    output_json: Annotated[
+        Optional[Path],
+        typer.Option("--json", "-j", help="Output workspace list as JSON (use - for stdout)"),
+    ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
+):
+    """List saved workspaces with sample, pipeline run, and AI analysis counts."""
+    from unpack.core.workspace_store import WorkspaceStore
+
+    eff = _apply_lang(lang)
+    store = WorkspaceStore()
+    try:
+        workspaces = store.list_workspaces()
+    finally:
+        store.close()
+
+    if output_json is not None and str(output_json) == "-":
+        print(json.dumps(workspaces, indent=2, ensure_ascii=False))
+        return
+
+    print_workspace_list(console, workspaces, lang=eff)
+    if output_json:
+        output_json.write_text(json.dumps(workspaces, indent=2, ensure_ascii=False))
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
+
+
+@workspace_app.command("show")
+def workspace_show(
+    ws_id: Annotated[str, typer.Argument(help="Workspace ID (e.g. default or ws_...)")],
+    output_json: Annotated[
+        Optional[Path],
+        typer.Option("--json", "-j", help="Output full workspace snapshot as JSON (use - for stdout)"),
+    ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
+):
+    """Show saved samples, pipeline run history, and AI analyses inside a workspace."""
+    from unpack.core.workspace_store import WorkspaceStore
+
+    eff = _apply_lang(lang)
+    json_stdout = output_json is not None and str(output_json) == "-"
+    store = WorkspaceStore()
+    try:
+        ws = store.get_workspace(ws_id)
+        if ws is None:
+            _fail_error(t("ws.not_found", eff, ws_id=ws_id), json_stdout=json_stdout, code=EXIT_NOT_FOUND)
+        samples = store.list_samples(workspace_id=ws_id)
+        runs = store.list_pipeline_runs(workspace_id=ws_id, limit=50)
+        analyses = store.list_ai_analyses(workspace_id=ws_id, limit=50)
+    finally:
+        store.close()
+
+    payload = {
+        "workspace": ws,
+        "samples": samples,
+        "pipeline_runs": runs,
+        "ai_analyses": analyses,
+    }
+    if json_stdout:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    print_workspace_detail(console, ws, samples, runs, analyses, lang=eff)
+    if output_json:
+        output_json.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
+
+
+@workspace_app.command("create")
+def workspace_create(
+    name: Annotated[str, typer.Argument(help="Workspace display name")],
+    desc: Annotated[str, typer.Option("--desc", "-d", help="Optional description")] = "",
+    tags: Annotated[Optional[str], typer.Option("--tags", "-t", help="Comma-separated tags")] = None,
+    output_json: Annotated[
+        Optional[Path],
+        typer.Option("--json", "-j", help="Output created workspace as JSON (use - for stdout)"),
+    ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
+):
+    """Create a new persistent workspace."""
+    from unpack.core.workspace_store import WorkspaceStore
+
+    eff = _apply_lang(lang)
+    store = WorkspaceStore()
+    try:
+        tag_list = [x.strip() for x in tags.split(",") if x.strip()] if tags else None
+        ws = store.create_workspace(name, description=desc, tags=tag_list)
+    finally:
+        store.close()
+
+    if output_json is not None and str(output_json) == "-":
+        print(json.dumps(ws, indent=2, ensure_ascii=False))
+        return
+
+    render_kv_card(
+        console,
+        t("ws.title.created", eff),
+        [
+            (t("ws.kv.id", eff), f"[{C_INFO}]{safe(ws['id'])}[/]"),
+            (t("ws.kv.name", eff), f"[{C_LABEL}]{safe(ws['name'])}[/]"),
+            (t("ws.kv.desc", eff), safe(ws.get("description") or "—")),
+        ],
+        border_style=C_OK,
+        title_style=f"bold {C_OK}",
+    )
+    if output_json:
+        output_json.write_text(json.dumps(ws, indent=2, ensure_ascii=False))
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
+
+
+@workspace_app.command("delete")
+def workspace_delete(
+    ws_id: Annotated[str, typer.Argument(help="Workspace ID to delete")],
+    output_json: Annotated[
+        Optional[Path],
+        typer.Option("--json", "-j", help="Output deletion status as JSON (use - for stdout)"),
+    ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
+):
+    """Delete a saved workspace and its archived snapshots."""
+    from unpack.core.workspace_store import WorkspaceStore
+
+    eff = _apply_lang(lang)
+    json_stdout = output_json is not None and str(output_json) == "-"
+    store = WorkspaceStore()
+    try:
+        deleted = store.delete_workspace(ws_id)
+    except ValueError as exc:
+        _fail_error(str(exc), json_stdout=json_stdout)
+    finally:
+        store.close()
+
+    if not deleted:
+        _fail_error(t("ws.not_found", eff, ws_id=ws_id), json_stdout=json_stdout, code=EXIT_NOT_FOUND)
+
+    payload = {"deleted": True, "id": ws_id}
+    if json_stdout:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+        return
+
+    console.print(f"  [{C_OK}]✓[/] {safe(t('ws.deleted', eff, ws_id=ws_id))}")
+
+
+@workspace_app.command("export")
+def workspace_export(
+    ws_id: Annotated[str, typer.Argument(help="Workspace ID to export")],
+    out: Annotated[
+        Optional[Path],
+        typer.Option("--out", "-o", help="Destination JSON file (omit or use - for stdout)"),
+    ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
+):
+    """Export a workspace and all saved samples, runs, and AI analyses to a JSON bundle."""
+    from unpack.core.workspace_store import WorkspaceStore
+
+    eff = _apply_lang(lang)
+    to_stdout = out is None or str(out) == "-"
+    store = WorkspaceStore()
+    try:
+        try:
+            bundle = store.export_workspace_json(ws_id)
+        except KeyError:
+            _fail_error(t("ws.not_found", eff, ws_id=ws_id), json_stdout=to_stdout, code=EXIT_NOT_FOUND)
+    finally:
+        store.close()
+
+    serialized = json.dumps(bundle, indent=2, ensure_ascii=False)
+    if to_stdout:
+        print(serialized)
+        return
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(serialized)
+    console.print(f"  [{C_OK}]✓[/] {safe(t('ws.exported', eff, ws_id=ws_id, path=out))}")
+
+
+@workspace_app.command("import")
+def workspace_import(
+    bundle_file: Annotated[Path, typer.Argument(help="Path to exported workspace JSON file")],
+    name: Annotated[
+        Optional[str],
+        typer.Option("--name", "-n", help="Optional override name for the imported workspace"),
+    ] = None,
+    output_json: Annotated[
+        Optional[Path],
+        typer.Option("--json", "-j", help="Output imported workspace metadata as JSON (use - for stdout)"),
+    ] = None,
+    lang: Annotated[
+        Optional[str],
+        typer.Option("--lang", "-L", help="Display language: en | zh | auto"),
+    ] = None,
+):
+    """Import a workspace snapshot JSON file into a newly restored workspace."""
+    from unpack.core.workspace_store import WorkspaceStore
+
+    eff = _apply_lang(lang)
+    json_stdout = output_json is not None and str(output_json) == "-"
+    if not bundle_file.exists():
+        _fail_missing("Bundle", bundle_file, json_stdout=json_stdout)
+
+    try:
+        bundle = json.loads(bundle_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        _fail_error(t("ws.invalid_bundle", eff, err=str(exc)), json_stdout=json_stdout)
+
+    store = WorkspaceStore()
+    try:
+        try:
+            restored = store.import_workspace_json(bundle, name_override=name)
+        except ValueError as exc:
+            _fail_error(t("ws.invalid_bundle", eff, err=str(exc)), json_stdout=json_stdout)
+    finally:
+        store.close()
+
+    if json_stdout:
+        print(json.dumps(restored, indent=2, ensure_ascii=False))
+        return
+
+    render_kv_card(
+        console,
+        t("ws.title.imported", eff),
+        [
+            (t("ws.kv.id", eff), f"[{C_INFO}]{safe(restored['id'])}[/]"),
+            (t("ws.kv.name", eff), f"[{C_LABEL}]{safe(restored['name'])}[/]"),
+            (
+                t("ws.kv.counts", eff),
+                t(
+                    "ws.counts_val",
+                    eff,
+                    samples=restored.get("sample_count", 0),
+                    runs=restored.get("pipeline_run_count", 0),
+                    ai=restored.get("ai_analysis_count", 0),
+                ),
+            ),
+        ],
+        border_style=C_OK,
+        title_style=f"bold {C_OK}",
+    )
+    if output_json:
+        output_json.write_text(json.dumps(restored, indent=2, ensure_ascii=False))
+        console.print(f"  [{C_DIM}]{safe(t('cli.saved_to', eff, path=output_json))}[/]")
 
 
 @app.command()

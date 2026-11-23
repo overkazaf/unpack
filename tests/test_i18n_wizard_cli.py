@@ -314,3 +314,261 @@ class TestDeepPipelineBlueprintAndRunner:
         assert plan["can_execute"] is False
         assert any(c["status"] == "block" and c["id"] == "device" for c in plan["preflight_checks"])
         assert "--mode offline" in plan["offline_alternative_cmd"]
+
+
+class _FakeHTTPResponse:
+    def __init__(self, payload: dict):
+        self._body = json.dumps(payload).encode("utf-8")
+
+    def read(self) -> bytes:
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class TestAICommandGroup:
+    def _clear_ai_env(self, monkeypatch, home: Path) -> None:
+        monkeypatch.setenv("UNPACK_HOME", str(home))
+        for k in (
+            "UNPACK_AI_PROVIDER",
+            "UNPACK_AI_BASE_URL",
+            "UNPACK_AI_API_KEY",
+            "UNPACK_AI_MODEL",
+            "UNPACK_AI_ENABLED",
+        ):
+            monkeypatch.delenv(k, raising=False)
+
+    def test_ai_show_and_config_masking_and_clear_key(self, monkeypatch, tmp_path):
+        self._clear_ai_env(monkeypatch, tmp_path / "unpack_home")
+        raw_secret = "sk-proj-supersecretkey9876"
+
+        # 1. Configure DeepSeek with secret key
+        res_cfg = runner.invoke(
+            app,
+            [
+                "ai",
+                "config",
+                "--provider",
+                "deepseek",
+                "--model",
+                "deepseek-chat",
+                "--api-key",
+                raw_secret,
+                "--temperature",
+                "0.3",
+                "--timeout",
+                "45",
+                "--lang",
+                "zh",
+            ],
+        )
+        assert res_cfg.exit_code == EXIT_OK
+        assert raw_secret not in res_cfg.output
+        assert "sk-***9876" in res_cfg.output
+        assert "AI 模型配置已安全保存" in res_cfg.output
+
+        # 2. ai show --json - never exposes raw key and includes presets
+        res_show_json = runner.invoke(app, ["ai", "show", "--json", "-"])
+        assert res_show_json.exit_code == EXIT_OK
+        assert raw_secret not in res_show_json.stdout
+        data = json.loads(res_show_json.stdout)
+        assert data["config"]["provider"] == "deepseek"
+        assert data["config"]["has_api_key"] is True
+        assert data["config"]["api_key_masked"] == "sk-***9876"
+        assert data["config"]["configured"] is True
+        assert len(data["presets"]) >= 7
+
+        # 3. ai show table in English and Chinese
+        res_show_en = runner.invoke(app, ["ai", "show", "--lang", "en"])
+        assert res_show_en.exit_code == EXIT_OK
+        assert "AI MODEL CONFIGURATION" in res_show_en.output
+        assert "Supported Provider Presets" in res_show_en.output
+        assert raw_secret not in res_show_en.output
+
+        # 4. Updating temperature without --api-key preserves stored key
+        res_keep = runner.invoke(app, ["ai", "config", "--temperature", "0.1", "--json", "-"])
+        assert res_keep.exit_code == EXIT_OK
+        assert json.loads(res_keep.stdout)["has_api_key"] is True
+
+        # 5. --clear-key clears stored key
+        res_clear = runner.invoke(app, ["ai", "config", "--clear-key", "--json", "-"])
+        assert res_clear.exit_code == EXIT_OK
+        cleared = json.loads(res_clear.stdout)
+        assert cleared["has_api_key"] is False
+        assert cleared["configured"] is False
+
+    def test_ai_test_connectivity_success_and_failure(self, monkeypatch, tmp_path):
+        self._clear_ai_env(monkeypatch, tmp_path / "unpack_home")
+
+        # Unconfigured fails cleanly with bilingual error & hint
+        res_fail = runner.invoke(app, ["ai", "test", "--lang", "zh"])
+        assert res_fail.exit_code != EXIT_OK
+        assert "连接测试失败" in res_fail.output
+
+        # Configure Ollama (no key required) and mock urlopen
+        runner.invoke(app, ["ai", "config", "--provider", "ollama", "--model", "qwen2.5-coder:7b"])
+
+        def _fake_urlopen(req, timeout=None):
+            return _FakeHTTPResponse(
+                {
+                    "choices": [{"message": {"content": "OK — ready"}}],
+                    "usage": {"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
+                }
+            )
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+        res_ok_zh = runner.invoke(app, ["ai", "test", "--lang", "zh"])
+        assert res_ok_zh.exit_code == EXIT_OK
+        assert "连接测试通过" in res_ok_zh.output
+        assert "OK — ready" in res_ok_zh.output
+
+        res_ok_json = runner.invoke(app, ["ai", "test", "--json", "-"])
+        assert res_ok_json.exit_code == EXIT_OK
+        parsed = json.loads(res_ok_json.stdout)
+        assert parsed["ok"] is True
+        assert parsed["provider"] == "ollama"
+
+    def test_ai_analyze_modules_and_save_workspace(self, monkeypatch, synthetic_dex_bytes, tmp_path):
+        self._clear_ai_env(monkeypatch, tmp_path / "unpack_home")
+        runner.invoke(app, ["ai", "config", "--provider", "ollama", "--model", "qwen2.5-coder:7b"])
+
+        def _fake_urlopen(req, timeout=None):
+            return _FakeHTTPResponse(
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "## Summary\nDetected 360 packer; recommend memory dump and VMP triage."
+                            }
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 30, "total_tokens": 130},
+                }
+            )
+
+        monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+
+        apk = _make_apk(tmp_path / "bank_packed.apk", synthetic_dex_bytes, packed=True)
+
+        # Create workspace first
+        ws_res = runner.invoke(app, ["workspace", "create", "Audit Case #1", "--json", "-"])
+        assert ws_res.exit_code == EXIT_OK
+        ws_id = json.loads(ws_res.stdout)["id"]
+
+        # 1. scan module + --save-workspace
+        res_scan = runner.invoke(
+            app,
+            ["ai", "analyze", str(apk), "--module", "scan", "--save-workspace", ws_id, "--lang", "zh"],
+        )
+        assert res_scan.exit_code == EXIT_OK
+        assert "加壳识别与脱壳策略 AI 分析" in res_scan.output
+        assert "已归档至工作间" in res_scan.output
+
+        # 2. security module JSON
+        res_sec = runner.invoke(app, ["ai", "analyze", str(apk), "--module", "security", "--json", "-"])
+        assert res_sec.exit_code == EXIT_OK
+        sec_data = json.loads(res_sec.stdout)
+        assert sec_data["module"] == "security"
+        assert "markdown" in sec_data
+
+        # 3. vmp module on APK
+        res_vmp = runner.invoke(app, ["ai", "analyze", str(apk), "--module", "vmp", "--json", "-"])
+        assert res_vmp.exit_code == EXIT_OK
+        assert json.loads(res_vmp.stdout)["module"] == "vmp_native"
+
+        # 4. method module on rich DEX containing real Dalvik bytecode
+        from test_dex_inspector import _build_rich_dex
+
+        dex_file = tmp_path / "rich.dex"
+        dex_file.write_bytes(_build_rich_dex())
+
+        res_meth = runner.invoke(
+            app,
+            [
+                "ai",
+                "analyze",
+                str(dex_file),
+                "--module",
+                "method",
+                "--method",
+                "com.acme.app.Main::run",
+                "--lang",
+                "en",
+            ],
+        )
+        assert res_meth.exit_code == EXIT_OK
+        assert "AI Method Reconstruction" in res_meth.output
+
+        # Verify workspace show now lists saved sample & AI analysis!
+        ws_show = runner.invoke(app, ["workspace", "show", ws_id, "--json", "-"])
+        assert ws_show.exit_code == EXIT_OK
+        snap = json.loads(ws_show.stdout)
+        assert len(snap["samples"]) == 1
+        assert snap["samples"][0]["filename"] == "bank_packed.apk"
+        assert len(snap["ai_analyses"]) == 1
+        assert snap["ai_analyses"][0]["module"] == "scan"
+
+
+class TestWorkspaceCommandGroup:
+    def test_workspace_crud_export_import_bilingual(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("UNPACK_HOME", str(tmp_path / "unpack_home"))
+
+        # 1. List initially includes default workspace
+        res_list_zh = runner.invoke(app, ["workspace", "list", "--lang", "zh"])
+        assert res_list_zh.exit_code == EXIT_OK
+        assert "已保存的工作间列表" in res_list_zh.output
+        assert "default" in res_list_zh.output
+
+        # 2. Create a new workspace
+        res_create = runner.invoke(
+            app,
+            ["workspace", "create", "Q4 Banking Audit", "--desc", "Packer review", "--tags", "bank,vmp", "--json", "-"],
+        )
+        assert res_create.exit_code == EXIT_OK
+        created = json.loads(res_create.stdout)
+        ws_id = created["id"]
+        assert created["name"] == "Q4 Banking Audit"
+        assert "bank" in created["tags"]
+
+        # 3. Show workspace in English and Chinese
+        res_show_en = runner.invoke(app, ["workspace", "show", ws_id, "--lang", "en"])
+        assert res_show_en.exit_code == EXIT_OK
+        assert "WORKSPACE OVERVIEW" in res_show_en.output
+        assert "Q4 Banking Audit" in res_show_en.output
+
+        res_show_zh = runner.invoke(app, ["workspace", "show", ws_id, "--lang", "zh"])
+        assert res_show_zh.exit_code == EXIT_OK
+        assert "工作间详情概览" in res_show_zh.output
+
+        # 4. Export to JSON file
+        export_path = tmp_path / "ws_export.json"
+        res_exp = runner.invoke(app, ["workspace", "export", ws_id, "-o", str(export_path), "--lang", "zh"])
+        assert res_exp.exit_code == EXIT_OK
+        assert export_path.exists()
+        bundle = json.loads(export_path.read_text())
+        assert bundle["workspace"]["id"] == ws_id
+
+        # 5. Import into a fresh workspace
+        res_imp = runner.invoke(
+            app,
+            ["workspace", "import", str(export_path), "--name", "Restored Audit", "--json", "-"],
+        )
+        assert res_imp.exit_code == EXIT_OK
+        restored = json.loads(res_imp.stdout)
+        assert restored["name"] == "Restored Audit"
+        assert restored["id"] != ws_id
+
+        # 6. Delete original workspace & verify missing returns EXIT_NOT_FOUND
+        res_del = runner.invoke(app, ["workspace", "delete", ws_id, "--lang", "en"])
+        assert res_del.exit_code == EXIT_OK
+        assert f"Deleted workspace `{ws_id}`" in res_del.output
+
+        res_missing = runner.invoke(app, ["workspace", "show", ws_id, "--json", "-"])
+        assert res_missing.exit_code == EXIT_NOT_FOUND
+        assert "error" in json.loads(res_missing.stdout)
+
