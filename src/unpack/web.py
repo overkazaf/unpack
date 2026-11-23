@@ -1645,12 +1645,17 @@ class _DexBrowserSession:
 class JobManager:
     """Thread-safe async job tracker with real-time SSE event streaming."""
 
-    def __init__(self, max_jobs: int = MAX_JOBS_RETAINED):
+    def __init__(
+        self,
+        max_jobs: int = MAX_JOBS_RETAINED,
+        on_finish: Callable[[dict[str, Any]], None] | None = None,
+    ):
         self._lock = threading.RLock()
         self._jobs: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._cancel_events: dict[str, threading.Event] = {}
         self._subscribers: dict[str, list[queue.Queue]] = {}
         self._max_jobs = max_jobs
+        self._on_finish = on_finish
 
     def create_job(
         self,
@@ -1891,10 +1896,17 @@ class JobManager:
                 job["error"] = error
             job["finished_at"] = _utc_now_iso()
             job["duration_ms"] = duration_ms
+            snapshot = json.loads(json.dumps(job))
+        if self._on_finish is not None:
+            try:
+                self._on_finish(snapshot)
+            except Exception:
+                pass
+        with self._lock:
             self._broadcast_locked(
                 job_id,
                 status,
-                {"status": status, "phase": job["phase"], "progress": job["progress"], "error": error},
+                {"status": status, "phase": snapshot["phase"], "progress": snapshot["progress"], "error": error},
             )
 
     def _broadcast_locked(self, job_id: str, event: str, payload: Any) -> None:
@@ -1929,8 +1941,20 @@ class JobManager:
 def create_app(
     local_roots: list[Path | str] | None = None,
     max_content_length: int = 512 * 1024 * 1024,
+    workspace_dir: Path | str | None = None,
 ) -> Flask:
     """Create and configure the UNPACK Studio Flask application."""
+    from unpack.core.ai_engine import (
+        AIAnalyzer,
+        AIConfig,
+        AIConfigStore,
+        is_masked_api_key,
+        list_provider_presets,
+        test_connection as ai_test_connection,
+    )
+    from unpack.core.errors import UnpackError
+    from unpack.core.workspace_store import DEFAULT_WORKSPACE_ID, WorkspaceStore
+
     pkg_dir = Path(__file__).parent
     app = Flask(
         __name__,
@@ -1953,17 +1977,34 @@ def create_app(
     uploads_dir.mkdir(parents=True, exist_ok=True)
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
+    # Persistent WorkspaceStore + AIConfigStore (isolated via workspace_dir or UNPACK_HOME)
+    if workspace_dir is not None:
+        ws_base = Path(workspace_dir).expanduser()
+        ws_store = WorkspaceStore(base_dir=ws_base / "studio")
+        ai_config_store = AIConfigStore(base_dir=ws_base)
+    else:
+        ws_store = WorkspaceStore()
+        ai_config_store = AIConfigStore()
+    ws_store.ensure_default_workspace()
+
     def _cleanup_workspace() -> None:
+        try:
+            ws_store.close()
+        except Exception:
+            pass
         shutil.rmtree(workspace_root, ignore_errors=True)
 
     atexit.register(_cleanup_workspace)
     app.config["UNPACK_CLEANUP"] = _cleanup_workspace
     app.config["UNPACK_WORKSPACE"] = workspace_root
+    app.config["UNPACK_WS_STORE"] = ws_store
+    app.config["UNPACK_AI_STORE"] = ai_config_store
 
     lock = threading.RLock()
+    ws_state: dict[str, str] = {"active_workspace_id": DEFAULT_WORKSPACE_ID}
     # Per-sample single-flight inspect locks (prevents duplicate deep ELF scans)
     inspect_locks: dict[str, threading.Lock] = {}
-    # sample_id (16-char sha256 prefix) -> sample dict
+    # sample_id (16-char sha256 prefix or persisted sample_id) -> sample dict
     samples: OrderedDict[str, dict[str, Any]] = OrderedDict()
     # artifact token -> {path, name, kind, size_bytes, mimetype}
     artifacts: dict[str, dict[str, Any]] = {}
@@ -1971,7 +2012,152 @@ def create_app(
     dex_sessions: OrderedDict[tuple[str, str], _DexBrowserSession] = OrderedDict()
     # Short-TTL cache for doctor probes so Pipeline preset/option switches are instantaneous
     doctor_cache: dict[str, Any] = {"ts": 0.0, "data": None}
-    job_mgr = JobManager()
+
+    def _active_ws_id() -> str:
+        with lock:
+            return ws_state["active_workspace_id"]
+
+    def _persist_sample(record: dict[str, Any], ws_id: str | None = None) -> None:
+        """Persist sample snapshot and analysis results into WorkspaceStore."""
+        target_ws = ws_id or record.get("workspace_id") or _active_ws_id()
+        try:
+            path_obj = record.get("path")
+            src_path = str(path_obj) if path_obj else str(record.get("source_path") or "")
+            saved = ws_store.save_sample(
+                target_ws,
+                {
+                    "sample_id": record["id"],
+                    "filename": record["name"],
+                    "sha256": record.get("sha256", ""),
+                    "kind": record.get("kind", "apk"),
+                    "size_bytes": int(record.get("size_bytes") or 0),
+                    "source_path": src_path,
+                    "scan_result": record.get("scan_result"),
+                    "inspect_result": record.get("inspect_result"),
+                    "vmp_result": record.get("vmp_result"),
+                    "xref_result": record.get("xref_result"),
+                    "repair_result": record.get("repair_diffs"),
+                    "notes": record.get("notes", ""),
+                    "bookmarks": record.get("bookmarks", []),
+                    "ai_analyses": record.get("ai_analyses", []),
+                },
+            )
+            with lock:
+                record["workspace_id"] = saved["workspace_id"]
+                record["updated_at"] = saved["updated_at"]
+        except Exception:
+            pass
+
+    def _persist_job_run(job_snap: dict[str, Any]) -> None:
+        ws_id = job_snap.get("workspace_id") or _active_ws_id()
+        try:
+            stages = job_snap.get("stages") or []
+            done_cnt = sum(1 for st in stages if st.get("status") == "done")
+            summary = f"{job_snap.get('mode', 'pipeline')} · {done_cnt}/{len(stages)} stages" if stages else f"{job_snap.get('phase', '')}"
+            ws_store.save_pipeline_run(
+                ws_id,
+                {
+                    "id": job_snap["id"],
+                    "sample_id": job_snap.get("sample_id") or job_snap.get("apk_hash"),
+                    "name": f"{job_snap.get('mode', 'pipeline')}:{job_snap.get('apk', '')}",
+                    "stage": job_snap.get("phase", ""),
+                    "status": job_snap.get("status", "done"),
+                    "started_at": job_snap.get("created_at", ""),
+                    "finished_at": job_snap.get("finished_at") or _utc_now_iso(),
+                    "duration_ms": int(job_snap.get("duration_ms") or 0),
+                    "summary": summary,
+                    "error": job_snap.get("error") or "",
+                    "stages": stages,
+                    "payload": {
+                        "apk": job_snap.get("apk"),
+                        "mode": job_snap.get("mode"),
+                        "phases": job_snap.get("phases", {}),
+                    },
+                },
+            )
+            sid = job_snap.get("sample_id") or job_snap.get("apk_hash")
+            if sid:
+                rec = _get_sample_or_404(str(sid))
+                if rec is not None:
+                    _persist_sample(rec, ws_id=ws_id)
+        except Exception:
+            pass
+
+    job_mgr = JobManager(on_finish=_persist_job_run)
+
+    def _restore_workspace_samples(ws_id: str) -> list[dict[str, Any]]:
+        """Load persisted samples for ``ws_id`` into the active in-memory vault."""
+        persisted = ws_store.list_samples(workspace_id=ws_id)
+        with lock:
+            ws_state["active_workspace_id"] = ws_id
+            samples.clear()
+            dex_sessions.clear()
+            for item in reversed(persisted):
+                sid = str(item["sample_id"])
+                raw_src = str(item.get("source_path") or "").strip()
+                p_obj: Path | None = None
+                file_ok = False
+                if raw_src:
+                    cand = Path(raw_src)
+                    if cand.exists():
+                        p_obj = cand
+                        file_ok = True
+                kind = str(item.get("kind") or "apk")
+                dex_cnt = 0
+                if file_ok and p_obj is not None:
+                    if kind == "dex":
+                        dex_cnt = 1
+                    elif kind == "dex_dir":
+                        dex_cnt = len([p for p in p_obj.glob("*.dex") if p.is_file()])
+                    elif kind == "apk":
+                        dex_cnt = _count_apk_dex(p_obj)
+                elif item.get("inspect_result") and isinstance(item["inspect_result"], dict):
+                    dex_cnt = len(item["inspect_result"].get("dex_files") or [])
+
+                work_dir = uploads_dir / f"restored_{sid}"
+                work_dir.mkdir(parents=True, exist_ok=True)
+                repair_diffs = item.get("repair_result")
+                verify_res = None
+                if isinstance(repair_diffs, list):
+                    verify_res = [d["after"] for d in repair_diffs if isinstance(d, dict) and d.get("after")] or None
+                ai_list = ws_store.list_ai_analyses(workspace_id=ws_id, sample_id=sid, limit=50)
+                if not ai_list and item.get("ai_analyses"):
+                    ai_list = list(item["ai_analyses"])
+
+                samples[sid] = {
+                    "id": sid,
+                    "workspace_id": ws_id,
+                    "name": item["filename"],
+                    "kind": kind,
+                    "source": "local" if file_ok else "saved",
+                    "path": p_obj,
+                    "source_path": raw_src,
+                    "file_available": file_ok,
+                    "work_dir": work_dir,
+                    "display_path": (
+                        _relative_display_path(p_obj, allowed_local_roots)
+                        if (file_ok and p_obj is not None)
+                        else f"saved://{item['filename']}"
+                    ),
+                    "size_bytes": int(item.get("size_bytes") or 0),
+                    "sha256": item.get("sha256") or "",
+                    "created_at": item.get("created_at") or _utc_now_iso(),
+                    "updated_at": item.get("updated_at") or _utc_now_iso(),
+                    "dex_count": dex_cnt,
+                    "scan_result": item.get("scan_result"),
+                    "inspect_result": item.get("inspect_result"),
+                    "vmp_result": item.get("vmp_result"),
+                    "xref_result": item.get("xref_result"),
+                    "verify_results": verify_res,
+                    "repair_diffs": repair_diffs if isinstance(repair_diffs, list) else None,
+                    "quality_report": None,
+                    "last_job_id": None,
+                    "artifacts": [],
+                    "notes": item.get("notes") or "",
+                    "bookmarks": list(item.get("bookmarks") or []),
+                    "ai_analyses": ai_list,
+                }
+            return [_public_sample(s) for s in reversed(samples.values())]
 
     def _get_doctor_cached(*, check_devices: bool = True, force_refresh: bool = False) -> dict[str, Any]:
         if not check_devices:
@@ -2010,17 +2196,26 @@ def create_app(
             "download_url": f"/api/v1/artifacts/{token}/download",
         }
 
+    def _sample_file_exists(s: dict[str, Any]) -> bool:
+        p = s.get("path")
+        return bool(p is not None and Path(p).exists())
+
     def _public_sample(s: dict[str, Any], include_details: bool = False) -> dict[str, Any]:
+        file_ok = _sample_file_exists(s)
+        ai_list = s.get("ai_analyses") or []
         out: dict[str, Any] = {
             "id": s["id"],
+            "workspace_id": s.get("workspace_id") or _active_ws_id(),
             "name": s["name"],
             "kind": s["kind"],
             "source": s["source"],
+            "file_available": file_ok,
             "display_path": s["display_path"],
             "size_bytes": s["size_bytes"],
             "size_mb": round(s["size_bytes"] / (1024 * 1024), 2),
             "sha256": s["sha256"],
             "created_at": s["created_at"],
+            "updated_at": s.get("updated_at") or s["created_at"],
             "dex_count": s.get("dex_count", 0),
             "packer": (s.get("scan_result") or {}).get("packer_name"),
             "protection_level": (s.get("scan_result") or {}).get("protection_level"),
@@ -2032,6 +2227,9 @@ def create_app(
             "has_vmp": s.get("vmp_result") is not None,
             "has_xref": s.get("xref_result") is not None,
             "has_repair": bool(s.get("repair_diffs")),
+            "notes": s.get("notes") or "",
+            "bookmarks_count": len(s.get("bookmarks") or []),
+            "ai_analyses_count": len(ai_list),
         }
         if include_details:
             out["scan_result"] = s.get("scan_result")
@@ -2041,6 +2239,8 @@ def create_app(
             out["verify_results"] = s.get("verify_results")
             out["repair_diffs"] = s.get("repair_diffs")
             out["artifacts"] = s.get("artifacts", [])
+            out["bookmarks"] = list(s.get("bookmarks") or [])
+            out["ai_analyses"] = list(ai_list)
         return out
 
     def _save_uploaded_file(file_storage) -> dict[str, Any]:
@@ -2066,21 +2266,33 @@ def create_app(
         sid = sha[:16]
         with lock:
             if sid in samples:
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-                return samples[sid]
+                existing = samples[sid]
+                if not _sample_file_exists(existing):
+                    existing["path"] = dest
+                    existing["source"] = "upload"
+                    existing["work_dir"] = tmp_dir
+                    existing["file_available"] = True
+                    existing["display_path"] = f"upload://{safe_name}"
+                else:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                return existing
 
             dex_count = 1 if ext == ".dex" else _count_apk_dex(dest)
             record = {
                 "id": sid,
+                "workspace_id": _active_ws_id(),
                 "name": safe_name,
                 "kind": "apk" if ext == ".apk" else "dex",
                 "source": "upload",
                 "path": dest,
+                "source_path": str(dest),
+                "file_available": True,
                 "work_dir": tmp_dir,
                 "display_path": f"upload://{safe_name}",
                 "size_bytes": dest.stat().st_size,
                 "sha256": sha,
                 "created_at": _utc_now_iso(),
+                "updated_at": _utc_now_iso(),
                 "dex_count": dex_count,
                 "scan_result": None,
                 "inspect_result": None,
@@ -2091,9 +2303,13 @@ def create_app(
                 "quality_report": None,
                 "last_job_id": None,
                 "artifacts": [],
+                "notes": "",
+                "bookmarks": [],
+                "ai_analyses": [],
             }
             samples[sid] = record
-            return record
+        _persist_sample(record)
+        return record
 
     def _import_local_sample(resolved: Path) -> dict[str, Any]:
         if resolved.is_dir():
@@ -2115,22 +2331,33 @@ def create_app(
         sid = sha[:16]
         with lock:
             if sid in samples:
-                return samples[sid]
+                existing = samples[sid]
+                if not _sample_file_exists(existing):
+                    existing["path"] = resolved
+                    existing["source_path"] = str(resolved)
+                    existing["source"] = "local"
+                    existing["file_available"] = True
+                    existing["display_path"] = _relative_display_path(resolved, allowed_local_roots)
+                return existing
 
             work_dir = uploads_dir / f"local_{sid}"
             work_dir.mkdir(parents=True, exist_ok=True)
             rel_display = _relative_display_path(resolved, allowed_local_roots)
             record = {
                 "id": sid,
+                "workspace_id": _active_ws_id(),
                 "name": name,
                 "kind": kind,
                 "source": "local",
                 "path": resolved,
+                "source_path": str(resolved),
+                "file_available": True,
                 "work_dir": work_dir,
                 "display_path": rel_display,
                 "size_bytes": total_size,
                 "sha256": sha,
                 "created_at": _utc_now_iso(),
+                "updated_at": _utc_now_iso(),
                 "dex_count": dex_count,
                 "scan_result": None,
                 "inspect_result": None,
@@ -2141,9 +2368,13 @@ def create_app(
                 "quality_report": None,
                 "last_job_id": None,
                 "artifacts": [],
+                "notes": "",
+                "bookmarks": [],
+                "ai_analyses": [],
             }
             samples[sid] = record
-            return record
+        _persist_sample(record)
+        return record
 
     def _count_apk_dex(apk_path: Path) -> int:
         try:
@@ -2166,7 +2397,10 @@ def create_app(
             return samples.get(sample_id)
 
     def _list_sample_dex_entries(sample: dict[str, Any]) -> list[dict[str, Any]]:
-        path: Path = sample["path"]
+        path: Path | None = sample.get("path")
+        if path is None or not path.exists():
+            insp = sample.get("inspect_result") or {}
+            return list(insp.get("dex_files") or [])
         kind = sample["kind"]
         entries: list[dict[str, Any]] = []
 
@@ -2213,7 +2447,9 @@ def create_app(
         safe = _safe_filename(dex_name, "")
         if not safe or safe != dex_name:
             return None
-        path: Path = sample["path"]
+        path: Path | None = sample.get("path")
+        if path is None or not path.exists():
+            return None
         kind = sample["kind"]
         if kind == "dex":
             return path.read_bytes() if path.name == safe else None
@@ -2248,7 +2484,9 @@ def create_app(
     def _extract_sample_dex_files(sample: dict[str, Any], target_dir: Path, dex_names: list[str] | None = None) -> list[Path]:
         """Materialize selected or all DEX files of a sample into target_dir."""
         target_dir.mkdir(parents=True, exist_ok=True)
-        path: Path = sample["path"]
+        path: Path | None = sample.get("path")
+        if path is None or not path.exists():
+            return []
         kind = sample["kind"]
         out: list[Path] = []
         wanted = set(dex_names) if dex_names else None
@@ -2273,6 +2511,9 @@ def create_app(
                             dst.write_bytes(zf.read(name))
                             out.append(dst)
         return out
+
+    # Auto-restore saved samples for the default workspace on startup
+    _restore_workspace_samples(DEFAULT_WORKSPACE_ID)
 
     # ── Structured Error Handlers ──
 
@@ -2411,6 +2652,7 @@ def create_app(
                         scan_dict = _scan_apk_rich(rec["path"])
                         with lock:
                             rec["scan_result"] = scan_dict
+                        _persist_sample(rec)
                     except Exception:
                         pass
                 uploaded.append(_public_sample(rec, include_details=True))
@@ -2441,6 +2683,7 @@ def create_app(
                 scan_dict = _scan_apk_rich(rec["path"])
                 with lock:
                     rec["scan_result"] = scan_dict
+                _persist_sample(rec)
             except Exception:
                 pass
 
@@ -2461,9 +2704,36 @@ def create_app(
                 return jsonify(error="Sample not found", code="NOT_FOUND"), 404
             for k in [k for k in dex_sessions if k[0] == sample_id]:
                 dex_sessions.pop(k, None)
+        try:
+            ws_store.delete_sample(sample_id)
+        except Exception:
+            pass
         if sample["source"] == "upload" and sample.get("work_dir"):
             shutil.rmtree(sample["work_dir"], ignore_errors=True)
         return jsonify(deleted=True, id=sample_id)
+
+    @app.patch("/api/v1/samples/<sample_id>/notes")
+    def api_v1_sample_notes(sample_id: str):
+        sample = _get_sample_or_404(sample_id)
+        if sample is None:
+            return jsonify(error="Sample not found", code="NOT_FOUND"), 404
+        body = request.get_json(silent=True) or {}
+        notes = body.get("notes")
+        bookmarks = body.get("bookmarks")
+        if bookmarks is not None and not isinstance(bookmarks, list):
+            return jsonify(error="'bookmarks' must be a list", code="BAD_REQUEST"), 400
+        with lock:
+            if notes is not None:
+                sample["notes"] = str(notes)
+            if bookmarks is not None:
+                sample["bookmarks"] = list(bookmarks)
+        _persist_sample(sample)
+        ws_store.update_sample_notes(
+            sample_id,
+            notes=sample["notes"] if notes is not None else None,
+            bookmarks=sample["bookmarks"] if bookmarks is not None else None,
+        )
+        return jsonify(sample=_public_sample(sample, include_details=True))
 
     # ── Scan & Inspect ──
 
@@ -2474,10 +2744,15 @@ def create_app(
             return jsonify(error="Sample not found", code="NOT_FOUND"), 404
         if sample["kind"] != "apk":
             return jsonify(error="Packer scanning requires an APK sample", code="UNSUPPORTED_KIND"), 400
+        if not _sample_file_exists(sample):
+            if sample.get("scan_result"):
+                return jsonify(scan=sample["scan_result"], sample=_public_sample(sample))
+            return jsonify(error="Original APK file is no longer on disk (saved snapshot only)", code="FILE_UNAVAILABLE"), 400
 
         scan_dict = _scan_apk_rich(sample["path"])
         with lock:
             sample["scan_result"] = scan_dict
+        _persist_sample(sample)
         return jsonify(scan=scan_dict, sample=_public_sample(sample))
 
     def _ensure_apk_inspect(sample: dict[str, Any], force: bool = False) -> dict[str, Any]:
@@ -2486,9 +2761,26 @@ def create_app(
             slock = inspect_locks.setdefault(sid, threading.Lock())
         with slock:
             if sample["inspect_result"] is None or force:
+                if not _sample_file_exists(sample):
+                    return sample.get("inspect_result") or {
+                        "file": sample["name"],
+                        "sha256": sample["sha256"],
+                        "size_bytes": sample["size_bytes"],
+                        "manifest": {},
+                        "signing": {},
+                        "permissions": [],
+                        "components": {"activities": [], "services": [], "receivers": [], "providers": []},
+                        "native_libs": [],
+                        "dex_files": [],
+                        "findings": [],
+                        "risk_score": 0,
+                        "risk_grade": "A",
+                        "warnings": ["Original APK file not on disk; showing saved snapshot."],
+                    }
                 insp = _inspect_apk_rich(sample["path"])
                 with lock:
                     sample["inspect_result"] = insp
+                _persist_sample(sample)
             return sample["inspect_result"]
 
     @app.get("/api/v1/samples/<sample_id>/inspect")
@@ -2697,6 +2989,7 @@ def create_app(
         }
         with lock:
             sample["vmp_result"] = merged
+        _persist_sample(sample)
         return jsonify(vmp=merged)
 
     @app.post("/api/v1/samples/<sample_id>/xref")
@@ -2725,6 +3018,7 @@ def create_app(
         summary["dex_name"] = target
         with lock:
             sample["xref_result"] = summary
+        _persist_sample(sample)
         return jsonify(xref=summary)
 
     # ── Repair & Verify Lab ──
@@ -2793,6 +3087,7 @@ def create_app(
             sample["repair_diffs"] = diffs
             sample["repaired_dir"] = out_dir
             sample["artifacts"] = [art, *sample.get("artifacts", [])][:20]
+        _persist_sample(sample)
 
         resolved_total = sum(len(d.get("resolved_issues", [])) for d in diffs)
         return jsonify(
@@ -4819,6 +5114,299 @@ def create_app(
             as_attachment=True,
             download_name=meta["name"],
         )
+
+    # =======================================================================
+    # Persistent Workspace & Session History API
+    # =======================================================================
+
+    @app.get("/api/v1/workspaces")
+    def api_v1_workspaces_list():
+        return jsonify(
+            active_workspace_id=_active_ws_id(),
+            workspaces=ws_store.list_workspaces(),
+        )
+
+    @app.post("/api/v1/workspaces")
+    def api_v1_workspaces_create():
+        body = request.get_json(silent=True) or {}
+        name = str(body.get("name") or "").strip()
+        if not name:
+            return jsonify(error="Workspace name cannot be empty", code="BAD_REQUEST"), 400
+        try:
+            ws = ws_store.create_workspace(
+                name=name,
+                description=str(body.get("description") or ""),
+                tags=body.get("tags"),
+                notes=str(body.get("notes") or ""),
+                pinned=_parse_bool(body.get("pinned"), default=False),
+            )
+        except ValueError as exc:
+            return jsonify(error=str(exc), code="BAD_REQUEST"), 400
+        if _parse_bool(body.get("activate"), default=False):
+            _restore_workspace_samples(ws["id"])
+        return jsonify(workspace=ws, active_workspace_id=_active_ws_id()), 201
+
+    @app.get("/api/v1/workspaces/<ws_id>")
+    def api_v1_workspace_detail(ws_id: str):
+        ws = ws_store.get_workspace(ws_id)
+        if ws is None:
+            return jsonify(error="Workspace not found", code="NOT_FOUND"), 404
+        if _parse_bool(request.args.get("activate"), default=False):
+            _restore_workspace_samples(ws_id)
+        return jsonify(workspace=ws, active_workspace_id=_active_ws_id())
+
+    @app.post("/api/v1/workspaces/<ws_id>/activate")
+    def api_v1_workspace_activate(ws_id: str):
+        ws = ws_store.get_workspace(ws_id)
+        if ws is None:
+            return jsonify(error="Workspace not found", code="NOT_FOUND"), 404
+        restored = _restore_workspace_samples(ws_id)
+        runs = ws_store.list_pipeline_runs(workspace_id=ws_id, limit=50)
+        analyses = ws_store.list_ai_analyses(workspace_id=ws_id, limit=50)
+        return jsonify(
+            workspace=ws,
+            active_workspace_id=ws_id,
+            samples=restored,
+            pipeline_runs=runs,
+            ai_analyses=analyses,
+        )
+
+    @app.patch("/api/v1/workspaces/<ws_id>")
+    def api_v1_workspace_update(ws_id: str):
+        body = request.get_json(silent=True) or {}
+        try:
+            updated = ws_store.update_workspace(
+                ws_id,
+                name=body.get("name"),
+                description=body.get("description"),
+                notes=body.get("notes"),
+                tags=body.get("tags"),
+                pinned=_parse_bool(body.get("pinned")) if "pinned" in body else None,
+            )
+        except ValueError as exc:
+            return jsonify(error=str(exc), code="BAD_REQUEST"), 400
+        if updated is None:
+            return jsonify(error="Workspace not found", code="NOT_FOUND"), 404
+        return jsonify(workspace=updated)
+
+    @app.delete("/api/v1/workspaces/<ws_id>")
+    def api_v1_workspace_delete(ws_id: str):
+        if ws_id == DEFAULT_WORKSPACE_ID:
+            return jsonify(error="Cannot delete the default workspace", code="BAD_REQUEST"), 400
+        ok = ws_store.delete_workspace(ws_id)
+        if not ok:
+            return jsonify(error="Workspace not found", code="NOT_FOUND"), 404
+        if _active_ws_id() == ws_id:
+            _restore_workspace_samples(DEFAULT_WORKSPACE_ID)
+        return jsonify(deleted=True, id=ws_id, active_workspace_id=_active_ws_id())
+
+    @app.get("/api/v1/workspaces/<ws_id>/history")
+    def api_v1_workspace_history(ws_id: str):
+        ws = ws_store.get_workspace(ws_id)
+        if ws is None:
+            return jsonify(error="Workspace not found", code="NOT_FOUND"), 404
+        try:
+            limit = _parse_int(request.args.get("limit"), 50, min_val=1, max_val=200, name="limit")
+        except ValueError as exc:
+            return jsonify(error=str(exc), code="BAD_REQUEST"), 400
+        saved_samples = ws_store.list_samples(workspace_id=ws_id)
+        runs = ws_store.list_pipeline_runs(workspace_id=ws_id, limit=limit)
+        analyses = ws_store.list_ai_analyses(workspace_id=ws_id, limit=limit)
+        return jsonify(
+            workspace=ws,
+            samples=saved_samples,
+            pipeline_runs=runs,
+            ai_analyses=analyses,
+        )
+
+    @app.get("/api/v1/workspaces/<ws_id>/export")
+    def api_v1_workspace_export(ws_id: str):
+        try:
+            bundle = ws_store.export_workspace_json(ws_id)
+        except KeyError:
+            return jsonify(error="Workspace not found", code="NOT_FOUND"), 404
+        ws_name = _safe_filename(bundle["workspace"]["name"], "workspace")
+        payload = json.dumps(bundle, indent=2, ensure_ascii=False)
+        resp = Response(payload, mimetype="application/json; charset=utf-8")
+        resp.headers["Content-Disposition"] = f'attachment; filename="{ws_name}_workspace.json"'
+        return resp
+
+    @app.post("/api/v1/workspaces/import")
+    def api_v1_workspace_import():
+        bundle = None
+        name_override = None
+        if "file" in request.files and request.files["file"].filename:
+            try:
+                raw_bytes = request.files["file"].read()
+                bundle = json.loads(raw_bytes.decode("utf-8"))
+                name_override = request.form.get("name") or None
+            except Exception as exc:
+                return jsonify(error=f"Invalid workspace JSON file: {exc}", code="BAD_REQUEST"), 400
+        else:
+            body = request.get_json(silent=True)
+            if isinstance(body, dict) and "bundle" in body and isinstance(body["bundle"], dict):
+                bundle = body["bundle"]
+                name_override = body.get("name") or None
+            elif isinstance(body, dict):
+                bundle = body
+        if not isinstance(bundle, dict):
+            return jsonify(error="Provide a workspace JSON bundle", code="BAD_REQUEST"), 400
+        try:
+            restored = ws_store.import_workspace_json(bundle, name_override=name_override)
+        except ValueError as exc:
+            return jsonify(error=str(exc), code="BAD_REQUEST"), 400
+        return jsonify(workspace=restored), 201
+
+    # =======================================================================
+    # AI Model Configuration & Embedded Reverse-Engineering AI Analysis API
+    # =======================================================================
+
+    @app.get("/api/v1/ai/config")
+    def api_v1_ai_config_get():
+        cfg = ai_config_store.load()
+        return jsonify(config=cfg.to_public_dict(), presets=list_provider_presets())
+
+    @app.put("/api/v1/ai/config")
+    def api_v1_ai_config_put():
+        body = request.get_json(silent=True) or {}
+        clear_key = _parse_bool(body.get("clear_api_key"), default=False)
+        try:
+            cfg = ai_config_store.update(body, clear_api_key=clear_key)
+        except (ValueError, TypeError) as exc:
+            return jsonify(error=str(exc), code="BAD_REQUEST"), 400
+        return jsonify(config=cfg.to_public_dict(), presets=list_provider_presets())
+
+    @app.post("/api/v1/ai/test")
+    def api_v1_ai_test():
+        body = request.get_json(silent=True) or {}
+        lang = _normalize_lang(body.get("lang", "zh"))
+        override = body.get("config") if isinstance(body.get("config"), dict) else None
+        if override is not None:
+            stored = ai_config_store.load()
+            merged = dict(stored.to_storage_dict())
+            for k in ("enabled", "provider", "base_url", "model", "temperature", "max_tokens", "timeout_seconds"):
+                if k in override and override[k] is not None:
+                    merged[k] = override[k]
+            incoming_key = str(override.get("api_key") or "").strip()
+            if _parse_bool(override.get("clear_api_key"), default=False):
+                merged["api_key"] = ""
+            elif incoming_key and not is_masked_api_key(incoming_key):
+                merged["api_key"] = incoming_key
+            cfg = AIConfig.from_dict(merged)
+            res = ai_test_connection(cfg, lang=lang)
+        else:
+            res = ai_test_connection(config_store=ai_config_store, lang=lang)
+        return jsonify(res)
+
+    @app.get("/api/v1/samples/<sample_id>/ai")
+    def api_v1_sample_ai_history(sample_id: str):
+        sample = _get_sample_or_404(sample_id)
+        if sample is None:
+            return jsonify(error="Sample not found", code="NOT_FOUND"), 404
+        module = (request.args.get("module") or "").strip() or None
+        items = ws_store.list_ai_analyses(
+            workspace_id=sample.get("workspace_id") or _active_ws_id(),
+            sample_id=sample_id,
+            module=module,
+            limit=50,
+        )
+        return jsonify(analyses=items)
+
+    @app.post("/api/v1/samples/<sample_id>/ai/<module>")
+    def api_v1_sample_ai_analyze(sample_id: str, module: str):
+        sample = _get_sample_or_404(sample_id)
+        if sample is None:
+            return jsonify(error="Sample not found", code="NOT_FOUND"), 404
+        mod = module.strip().lower()
+        valid_modules = {"scan", "security", "method", "vmp_native", "pipeline_issue"}
+        if mod not in valid_modules:
+            return jsonify(error=f"Unsupported AI module: {module!r}", code="BAD_REQUEST"), 400
+
+        body = request.get_json(silent=True) or {}
+        lang = _normalize_lang(body.get("lang", "zh"))
+        analyzer = AIAnalyzer(config_store=ai_config_store)
+
+        try:
+            if mod == "scan":
+                scan_data = sample.get("scan_result")
+                if scan_data is None and sample["kind"] == "apk" and _sample_file_exists(sample):
+                    scan_data = _scan_apk_rich(sample["path"])
+                    with lock:
+                        sample["scan_result"] = scan_data
+                    _persist_sample(sample)
+                insp_data = sample.get("inspect_result")
+                if insp_data is None and sample["kind"] == "apk" and _sample_file_exists(sample):
+                    insp_data = _ensure_apk_inspect(sample, force=False)
+                result = analyzer.analyze_scan(scan_data or {}, insp_data, lang=lang)
+
+            elif mod == "security":
+                insp_data = sample.get("inspect_result")
+                if insp_data is None and sample["kind"] == "apk" and _sample_file_exists(sample):
+                    insp_data = _ensure_apk_inspect(sample, force=False)
+                if not insp_data:
+                    insp_data = {
+                        "file": sample["name"],
+                        "sha256": sample["sha256"],
+                        "findings": [],
+                        "risk_score": 0,
+                        "risk_grade": "A",
+                    }
+                result = analyzer.analyze_security(insp_data, findings=insp_data.get("findings"), lang=lang)
+
+            elif mod == "method":
+                disasm = body.get("disasm") if isinstance(body.get("disasm"), dict) else None
+                cls_name = str(body.get("class_name") or "")
+                if disasm is None:
+                    dex_name = str(body.get("dex_name") or "")
+                    meth_name = str(body.get("method_name") or "")
+                    meth_idx = (
+                        _parse_int(body.get("method_idx"), 0, min_val=0, name="method_idx")
+                        if body.get("method_idx") not in (None, "")
+                        else None
+                    )
+                    if not dex_name or not cls_name or not meth_name:
+                        return jsonify(error="Provide 'disasm' or ('dex_name', 'class_name', 'method_name')", code="BAD_REQUEST"), 400
+                    browser = _get_dex_browser(sample, dex_name)
+                    if browser is None:
+                        return jsonify(error=f"DEX '{dex_name}' not available on disk", code="FILE_UNAVAILABLE"), 400
+                    disasm = browser.disassemble_method(cls_name, meth_name, method_idx=meth_idx)
+                    if disasm is None:
+                        return jsonify(error="Method not found", code="NOT_FOUND"), 404
+                result = analyzer.analyze_method(disasm, class_name=cls_name or disasm.get("class_name", ""), lang=lang)
+
+            elif mod == "vmp_native":
+                vmp_data = sample.get("vmp_result")
+                insp_data = sample.get("inspect_result") or {}
+                xref_data = sample.get("xref_result")
+                native_libs = insp_data.get("native_libs") if isinstance(insp_data, dict) else None
+                result = analyzer.analyze_vmp_native(
+                    vmp=vmp_data,
+                    native_libs=native_libs,
+                    xref=xref_data,
+                    lang=lang,
+                )
+
+            else:  # pipeline_issue
+                stage_data = body.get("stage") if isinstance(body.get("stage"), dict) else {"name": str(body.get("stage") or "pipeline")}
+                error_text = str(body.get("error_text") or "")
+                doc = _get_doctor_cached(check_devices=False)
+                result = analyzer.analyze_pipeline_issue(stage_data, error_text=error_text, doctor=doc, lang=lang)
+
+        except ValueError as exc:
+            return jsonify(error=str(exc), code="BAD_REQUEST"), 400
+        except UnpackError as exc:
+            code_val = exc.code.value if hasattr(exc.code, "value") else str(exc.code)
+            status_code = 400 if code_val == "ENGINE_UNAVAILABLE" else 502
+            return jsonify(error=exc.message, code=code_val, hint=exc.hint), status_code
+
+        ws_id = sample.get("workspace_id") or _active_ws_id()
+        saved = ws_store.save_ai_analysis(ws_id, sample_id, mod, result)
+        with lock:
+            cur_list = [x for x in (sample.get("ai_analyses") or []) if x.get("id") != saved["id"]]
+            sample["ai_analyses"] = [saved, *cur_list][:50]
+
+        all_for_mod = ws_store.list_ai_analyses(workspace_id=ws_id, sample_id=sample_id, module=mod, limit=25)
+        return jsonify(analysis=saved, analyses=all_for_mod)
 
     # =======================================================================
     # Legacy Backward-Compatible Endpoints (Hardened)

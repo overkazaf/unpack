@@ -28,6 +28,9 @@
       <span class="brand-ver mono">v{{ version }}</span>
     </div>
 
+    <!-- Persistent Workspace Switcher -->
+    <div id="workspaceSidebarHost"></div>
+
     <nav class="nav-groups">
       <div class="nav-group-label" data-i18n="nav.group.intake">Intake</div>
       <button class="nav-item active" data-view="samples" type="button">
@@ -70,6 +73,11 @@
         <span class="status-dot warn" id="doctorDot"></span>
         <span class="env-status-label" id="doctorLabel" data-i18n="nav.doctor">Environment Doctor</span>
         <span class="env-status-meta mono" id="doctorEnginesMeta">--</span>
+      </button>
+      <button class="env-status-btn" id="btnSidebarAiSettings" type="button" data-action="open-ai-settings">
+        <span class="status-dot warn" data-ai-dot></span>
+        <span class="env-status-label" data-i18n="ai.nav_btn">AI Model</span>
+        <span class="env-status-meta mono" data-ai-status-text>--</span>
       </button>
       <div class="nav-footer-actions">
         <button class="icon-pill-btn" id="btnSidebarGuide" type="button" data-action="open-welcome">
@@ -115,6 +123,10 @@
           <button class="lang-pill" type="button" data-action="set-lang" data-lang="zh" data-lang-pill="zh">中</button>
           <button class="lang-pill" type="button" data-action="set-lang" data-lang="en" data-lang-pill="en">EN</button>
         </div>
+        <button class="btn btn-subtle btn-sm" id="btnTopAiSettings" type="button" data-action="open-ai-settings">
+          <span class="status-dot warn" data-ai-dot></span>
+          <span data-i18n="ai.nav_btn">AI Model</span>
+        </button>
         <button class="btn btn-subtle btn-sm" id="btnTopGuide" type="button" data-action="open-welcome">
           <span>✦</span>
           <span data-i18n="ctx.guide">Guide</span>
@@ -192,6 +204,8 @@
 <script src="/static/js/api.js"></script>
 <script src="/static/js/state.js"></script>
 <script src="/static/js/components.js"></script>
+<script src="/static/js/workspace.js"></script>
+<script src="/static/js/ai.js"></script>
 <script src="/static/js/pipeline.js"></script>
 <script src="/static/js/onboarding.js"></script>
 <script src="/static/js/views.js"></script>

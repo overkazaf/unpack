@@ -90,6 +90,15 @@
         ${UI.kpi(t("samples.kpi.jobs"), Store.jobs.filter((j) => j.status === "running").length, t("samples.kpi.jobs_sub", { count: Store.jobs.length }))}
       </div>
 
+      <div class="tabs">
+        <button class="tab-btn ${(Store.samplesTab || "intake") === "intake" ? "active" : ""}" type="button" data-action="samples-tab" data-tab="intake">${esc(t("ws.samples_tab.intake"))}</button>
+        <button class="tab-btn ${Store.samplesTab === "history" ? "active" : ""}" type="button" data-action="samples-tab" data-tab="history">${esc(t("ws.samples_tab.history", { count: ((Store.workspaceHistory || {}).samples || []).length }))}</button>
+      </div>
+
+      ${
+        Store.samplesTab === "history" && global.UnpackWorkspace
+          ? global.UnpackWorkspace.renderHistoryPanel()
+          : `
       <div id="tourSamplesLibrary">
         <div class="panel">
           <div class="panel-body">
@@ -141,7 +150,8 @@
             }
           </div>
         </div>
-      </div>
+      </div>`
+      }
     `;
   }
 
@@ -349,6 +359,17 @@
       `
           : ""
       }
+      ${
+        global.UnpackAI
+          ? global.UnpackAI.renderEmbeddedCard("scan")
+          : ""
+      }
+
+      ${
+        global.UnpackWorkspace
+          ? global.UnpackWorkspace.renderNotesBookmarksPanel(sample)
+          : ""
+      }
     `;
   }
 
@@ -433,14 +454,52 @@
             `;
           })
           .join("");
+        const bmKey = `${d.selectedDex}::${dis.class_name || d.selectedClass}->${dis.method_name}#${dis.method_idx}`;
+        const isBookmarked = (sample.bookmarks || []).some((b) => b.key === bmKey);
+        const methodAiBusy = Boolean((Store.aiLoading || {}).method);
+        const methodAiList = (sample.ai_analyses || []).filter((a) => a.module === "method");
+        const activeMethodAi =
+          methodAiList.find((a) => a.id === (Store.aiSelectedByModule || {}).method) || methodAiList[0] || null;
         disasmContent = `
-          <div style="padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg-inset);font-size:11.5px;display:flex;gap:14px;flex-wrap:wrap" class="mono">
-            <span><strong>${esc(dis.method_name)}${dis.signature ? esc(dis.signature) : ""}</strong></span>
-            <span style="color:var(--text-secondary)">code_off=0x${Number(dis.code_off || 0).toString(16)}</span>
-            <span style="color:var(--text-secondary)">regs=${dis.registers_size}</span>
-            <span style="color:var(--text-secondary)">units=${dis.insns_size}</span>
-            ${dis.truncated ? UI.badge("TRUNCATED", "warn") : ""}
+          <div style="padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg-inset);font-size:11.5px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between" class="mono">
+            <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+              <span><strong>${esc(dis.method_name)}${dis.signature ? esc(dis.signature) : ""}</strong></span>
+              <span style="color:var(--text-secondary)">code_off=0x${Number(dis.code_off || 0).toString(16)}</span>
+              <span style="color:var(--text-secondary)">regs=${dis.registers_size}</span>
+              <span style="color:var(--text-secondary)">units=${dis.insns_size}</span>
+              ${dis.truncated ? UI.badge("TRUNCATED", "warn") : ""}
+            </div>
+            <div class="toolbar">
+              <button class="btn ${isBookmarked ? "btn-primary" : "btn-subtle"} btn-xs" type="button"
+                data-action="toggle-bookmark"
+                data-dex="${esc(d.selectedDex || "")}"
+                data-class="${esc(dis.class_name || d.selectedClass || "")}"
+                data-method="${esc(dis.method_name || "")}"
+                data-idx="${esc(dis.method_idx ?? 0)}">
+                ${isBookmarked ? "★" : "☆"} ${esc(isBookmarked ? t("ws.bookmarks.remove") : t("ws.bookmarks.add"))}
+              </button>
+              <button class="btn btn-primary btn-xs" type="button" data-action="ai-run-method" ${methodAiBusy ? "disabled" : ""}>
+                ✦ ${esc(methodAiBusy ? t("ai.card.running") : t("ai.mod.method.btn"))}
+              </button>
+            </div>
           </div>
+          ${
+            methodAiBusy || activeMethodAi
+              ? `<div class="disasm-ai-drawer">
+                  <div class="toolbar" style="justify-content:space-between;margin-bottom:6px">
+                    <span class="badge badge-violet">✦ ${esc(t("ai.mod.method.title"))}</span>
+                    ${activeMethodAi ? `<button class="btn btn-ghost btn-xs" type="button" data-action="ai-copy" data-module="method">${esc(t("ai.card.copy"))}</button>` : ""}
+                  </div>
+                  ${
+                    methodAiBusy
+                      ? `<div class="ai-loading-row"><span class="ai-spinner"></span><span>${esc(t("ai.card.running"))}</span></div>`
+                      : global.UnpackAI
+                      ? global.UnpackAI.renderSafeMarkdown(activeMethodAi.markdown)
+                      : ""
+                  }
+                </div>`
+              : ""
+          }
           <div style="overflow:auto;flex:1">
             <table class="disasm-table"><tbody>${rows}</tbody></table>
           </div>
@@ -797,6 +856,8 @@
         <button class="tab-btn ${tab === "native" ? "active" : ""}" type="button" data-action="vmp-tab" data-tab="native">${esc(t("vmp.tab.native", { count: nativeLibs.length }))}</button>
         <button class="tab-btn ${tab === "xref" ? "active" : ""}" type="button" data-action="vmp-tab" data-tab="xref">${esc(t("vmp.tab.xref"))}</button>
       </div>
+
+      ${global.UnpackAI ? global.UnpackAI.renderEmbeddedCard("vmp_native", { compact: true }) : ""}
 
       ${
         tab === "stubs"

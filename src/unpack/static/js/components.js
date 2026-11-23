@@ -166,6 +166,8 @@
   function closeModal() {
     const backdrop = document.getElementById("modalBackdrop");
     if (backdrop) backdrop.hidden = true;
+    if (global.UnpackWorkspace) global.UnpackWorkspace.onModalClosed();
+    if (global.UnpackAI) global.UnpackAI.onModalClosed();
   }
 
   global.UnpackUI = {

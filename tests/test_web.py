@@ -199,7 +199,7 @@ def studio_client(tmp_path):
     (local_apks / "demo_packed.apk").write_bytes(_build_synthetic_apk())
     (local_dexs / "classes_000.dex").write_bytes(_build_dex_with_class(corrupt_checksum=True))
 
-    app = create_app(local_roots=[local_apks, local_dexs.parent])
+    app = create_app(local_roots=[local_apks, local_dexs.parent], workspace_dir=tmp_path / "studio_home")
     app.config["TESTING"] = True
     try:
         with app.test_client() as client:
@@ -215,7 +215,8 @@ def studio_client(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_create_app_zero_args_and_shell():
+def test_create_app_zero_args_and_shell(tmp_path, monkeypatch):
+    monkeypatch.setenv("UNPACK_HOME", str(tmp_path / "unpack_home"))
     app = create_app()
     app.config["TESTING"] = True
     try:
@@ -234,6 +235,8 @@ def test_create_app_zero_args_and_shell():
                 "/static/js/api.js",
                 "/static/js/state.js",
                 "/static/js/components.js",
+                "/static/js/workspace.js",
+                "/static/js/ai.js",
                 "/static/js/pipeline.js",
                 "/static/js/onboarding.js",
                 "/static/js/views.js",
@@ -291,7 +294,7 @@ def test_security_path_traversal_and_validation(studio_client, tmp_path):
 
 
 def test_payload_too_large_returns_json(tmp_path):
-    app = create_app(local_roots=[], max_content_length=1024)
+    app = create_app(local_roots=[], max_content_length=1024, workspace_dir=tmp_path / "studio_home")
     app.config["TESTING"] = True
     try:
         with app.test_client() as client:
@@ -709,4 +712,202 @@ def test_pipeline_plan_preflight_and_offline_end_to_end_telemetry(studio_client)
     assert enriched["vmp_result"]["total_methods"] == 1
     assert enriched["xref_result"] is not None
     assert len(enriched["repair_diffs"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# 6. Wave 3: Persistent Workspaces, Notes/Bookmarks & Embedded AI Analysis
+# ---------------------------------------------------------------------------
+
+
+def test_workspace_persistence_across_restarts_and_crud_export_import(tmp_path):
+    ws_dir = tmp_path / "persistent_home"
+    local_apks = tmp_path / "local_apks"
+    local_apks.mkdir(parents=True)
+    apk_path = local_apks / "persist_demo.apk"
+    apk_path.write_bytes(_build_synthetic_apk())
+
+    # ── Session 1: import, scan, add notes/bookmarks, run offline pipeline ──
+    app1 = create_app(local_roots=[local_apks], workspace_dir=ws_dir)
+    app1.config["TESTING"] = True
+    try:
+        with app1.test_client() as c1:
+            imp = c1.post(
+                "/api/v1/samples/import-local",
+                json={"path": str(apk_path), "auto_scan": True},
+            )
+            assert imp.status_code == 200
+            sid = imp.get_json()["sample"]["id"]
+
+            # Save analyst notes & method bookmark
+            note_res = c1.patch(
+                f"/api/v1/samples/{sid}/notes",
+                json={
+                    "notes": "Confirmed 360 packer; hook Demo.secret()",
+                    "bookmarks": [
+                        {
+                            "key": "classes.dex::Lcom/example/Demo;->secret#0",
+                            "dex_name": "classes.dex",
+                            "class_name": "Lcom/example/Demo;",
+                            "method_name": "secret",
+                            "method_idx": 0,
+                            "label": "Demo.secret",
+                        }
+                    ],
+                },
+            )
+            assert note_res.status_code == 200
+            assert note_res.get_json()["sample"]["notes"] == "Confirmed 360 packer; hook Demo.secret()"
+
+            # Run quick offline pipeline so a pipeline run persists too
+            launch = c1.post(
+                "/api/v1/jobs/pipeline",
+                json={"sample_id": sid, "mode": "offline_audit", "repack": False, "generate_report": False},
+            )
+            assert launch.status_code == 202
+            jid = launch.get_json()["job_id"]
+            sse_text = c1.get(f"/api/v1/jobs/{jid}/events").get_data(as_text=True)
+            assert ("event: done" in sse_text) or ('"status": "done"' in sse_text)
+    finally:
+        app1.config["UNPACK_CLEANUP"]()
+
+    # ── Session 2: brand-new Flask app on same workspace_dir auto-restores! ──
+    app2 = create_app(local_roots=[local_apks], workspace_dir=ws_dir)
+    app2.config["TESTING"] = True
+    try:
+        with app2.test_client() as c2:
+            listed = c2.get("/api/v1/samples").get_json()["items"]
+            assert any(item["id"] == sid and item["packer"] == "360加固保" for item in listed)
+
+            detail = c2.get(f"/api/v1/samples/{sid}").get_json()["sample"]
+            assert detail["notes"] == "Confirmed 360 packer; hook Demo.secret()"
+            assert len(detail["bookmarks"]) == 1
+            assert detail["bookmarks"][0]["method_name"] == "secret"
+
+            hist = c2.get("/api/v1/workspaces/default/history").get_json()
+            assert len(hist["samples"]) >= 1
+            assert len(hist["pipeline_runs"]) >= 1
+
+            # Workspace CRUD: create -> rename/pin -> export -> import -> delete
+            created = c2.post(
+                "/api/v1/workspaces",
+                json={"name": "Bank Audit", "description": "Q4 mobile audit", "activate": True},
+            )
+            assert created.status_code == 201
+            ws_id = created.get_json()["workspace"]["id"]
+
+            patched = c2.patch(f"/api/v1/workspaces/{ws_id}", json={"name": "Bank Audit v2", "pinned": True})
+            assert patched.status_code == 200
+            assert patched.get_json()["workspace"]["name"] == "Bank Audit v2"
+            assert patched.get_json()["workspace"]["pinned"] is True
+
+            # Export default workspace as JSON and re-import into a new workspace
+            exported = c2.get("/api/v1/workspaces/default/export")
+            assert exported.status_code == 200
+            assert "attachment;" in exported.headers.get("Content-Disposition", "")
+            bundle = json.loads(exported.get_data(as_text=True))
+            assert len(bundle["samples"]) >= 1
+
+            imp_ws = c2.post("/api/v1/workspaces/import", json={"bundle": bundle, "name": "Restored Backup"})
+            assert imp_ws.status_code == 201
+            restored_id = imp_ws.get_json()["workspace"]["id"]
+            assert imp_ws.get_json()["workspace"]["sample_count"] >= 1
+
+            # Default workspace cannot be deleted; custom workspaces can
+            assert c2.delete("/api/v1/workspaces/default").status_code == 400
+            assert c2.delete(f"/api/v1/workspaces/{ws_id}").status_code == 200
+            assert c2.delete(f"/api/v1/workspaces/{restored_id}").status_code == 200
+    finally:
+        app2.config["UNPACK_CLEANUP"]()
+
+
+def test_ai_config_mask_preserve_test_and_embedded_module_analyses(studio_client, monkeypatch):
+    client, local_apks, _ = studio_client
+
+    # Import sample
+    sample = client.post(
+        "/api/v1/samples/import-local",
+        json={"path": str(local_apks / "demo_packed.apk"), "auto_scan": True},
+    ).get_json()["sample"]
+    sid = sample["id"]
+
+    # 1. Default config is unconfigured & exposes presets without raw key
+    cfg_get = client.get("/api/v1/ai/config")
+    assert cfg_get.status_code == 200
+    body = cfg_get.get_json()
+    assert len(body["presets"]) >= 7
+    assert "api_key" not in body["config"]
+    assert body["config"]["configured"] is False
+
+    # Calling AI analyze while unconfigured returns clean 400 ENGINE_UNAVAILABLE
+    unconf = client.post(f"/api/v1/samples/{sid}/ai/scan", json={"lang": "zh"})
+    assert unconf.status_code == 400
+    assert unconf.get_json()["code"] == "ENGINE_UNAVAILABLE"
+
+    # 2. Save OpenAI key -> returned masked; updating model with blank/masked key preserves key!
+    put1 = client.put(
+        "/api/v1/ai/config",
+        json={
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "api_key": "sk-secret-test-key-9876",
+            "enabled": True,
+        },
+    )
+    assert put1.status_code == 200
+    c1 = put1.get_json()["config"]
+    assert c1["configured"] is True
+    assert c1["has_api_key"] is True
+    assert "9876" in c1["api_key_masked"]
+    assert "sk-secret-test-key-9876" not in json.dumps(c1)
+
+    put2 = client.put(
+        "/api/v1/ai/config",
+        json={"provider": "openai", "model": "gpt-4o", "api_key": c1["api_key_masked"]},
+    )
+    assert put2.status_code == 200
+    assert put2.get_json()["config"]["has_api_key"] is True
+    assert put2.get_json()["config"]["model"] == "gpt-4o"
+
+    # 3. Mock _invoke_chat_completion for deterministic offline test of connection & all 5 AI modules
+    import unpack.core.ai_engine as ai_mod
+
+    def _fake_invoke(cfg, *, system_prompt, user_prompt, lang="zh", max_tokens=None):
+        return (
+            f"## Mock AI Verdict ({lang})\n\n- Provider: `{cfg.provider}`\n- Model: `{cfg.model}`\n\n```java\npublic static void secret() {{ /* https://api.example.com/v1 */ }}\n```",
+            {"prompt_tokens": 120, "completion_tokens": 64, "total_tokens": 184},
+            42,
+        )
+
+    monkeypatch.setattr(ai_mod, "_invoke_chat_completion", _fake_invoke)
+
+    # Test connection endpoint
+    test_res = client.post("/api/v1/ai/test", json={"lang": "zh"})
+    assert test_res.status_code == 200
+    tj = test_res.get_json()
+    assert tj["ok"] is True
+    assert tj["latency_ms"] == 42
+
+    # Run all 5 embedded AI modules and verify persisted AI history
+    for mod, payload in (
+        ("scan", {"lang": "zh"}),
+        ("security", {"lang": "en"}),
+        ("method", {"lang": "zh", "dex_name": "classes.dex", "class_name": "Lcom/example/Demo;", "method_name": "secret"}),
+        ("vmp_native", {"lang": "zh"}),
+        ("pipeline_issue", {"lang": "zh", "stage": {"name": "dynamic_dump"}, "error_text": "No ADB devices"}),
+    ):
+        r = client.post(f"/api/v1/samples/{sid}/ai/{mod}", json=payload)
+        assert r.status_code == 200, f"AI module {mod} failed: {r.get_data(as_text=True)}"
+        ana = r.get_json()["analysis"]
+        assert ana["module"] == mod
+        assert "Mock AI Verdict" in ana["markdown"]
+
+    hist = client.get(f"/api/v1/samples/{sid}/ai").get_json()["analyses"]
+    assert len(hist) == 5
+    assert {h["module"] for h in hist} == {"scan", "security", "method", "vmp_native", "pipeline_issue"}
+
+    # Clear API key works
+    cleared = client.put("/api/v1/ai/config", json={"clear_api_key": True}).get_json()["config"]
+    assert cleared["has_api_key"] is False
+    assert cleared["configured"] is False
+
 

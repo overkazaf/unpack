@@ -177,6 +177,62 @@
     cancelJob: (jobId) =>
       requestJSON(`/api/v1/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" }),
 
+    // Persistent Workspaces & Notes
+    listWorkspaces: () => requestJSON("/api/v1/workspaces"),
+    createWorkspace: (payload) =>
+      requestJSON("/api/v1/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+      }),
+    activateWorkspace: (wsId) =>
+      requestJSON(`/api/v1/workspaces/${encodeURIComponent(wsId)}/activate`, { method: "POST" }),
+    updateWorkspace: (wsId, payload) =>
+      requestJSON(`/api/v1/workspaces/${encodeURIComponent(wsId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+      }),
+    deleteWorkspace: (wsId) =>
+      requestJSON(`/api/v1/workspaces/${encodeURIComponent(wsId)}`, { method: "DELETE" }),
+    getWorkspaceHistory: (wsId, limit = 50) =>
+      requestJSON(`/api/v1/workspaces/${encodeURIComponent(wsId)}/history${qs({ limit })}`),
+    workspaceExportUrl: (wsId) => `/api/v1/workspaces/${encodeURIComponent(wsId)}/export`,
+    importWorkspaceFile: (file) => {
+      const form = new FormData();
+      form.append("file", file);
+      return requestJSON("/api/v1/workspaces/import", { method: "POST", body: form });
+    },
+    updateSampleNotes: (sampleId, payload) =>
+      requestJSON(`/api/v1/samples/${encodeURIComponent(sampleId)}/notes`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+      }),
+
+    // AI Config & Embedded Analysis
+    getAiConfig: () => requestJSON("/api/v1/ai/config"),
+    saveAiConfig: (payload) =>
+      requestJSON("/api/v1/ai/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {}),
+      }),
+    testAiConnection: (configOverride) =>
+      requestJSON("/api/v1/ai/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lang: currentLang(), config: configOverride || undefined }),
+      }),
+    listSampleAi: (sampleId, module) =>
+      requestJSON(`/api/v1/samples/${encodeURIComponent(sampleId)}/ai${qs({ module })}`),
+    runSampleAi: (sampleId, module, payload) =>
+      requestJSON(`/api/v1/samples/${encodeURIComponent(sampleId)}/ai/${encodeURIComponent(module)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lang: currentLang(), ...(payload || {}) }),
+      }),
+
     subscribeJobEvents: (jobId, handlers) => {
       const es = new EventSource(`/api/v1/jobs/${encodeURIComponent(jobId)}/events`);
       ["snapshot", "log", "phase", "phase_data", "stage", "artifact", "done", "failed", "cancelled"].forEach(

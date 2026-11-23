@@ -359,6 +359,9 @@
               ${selLive && selLive.duration_ms ? UI.badge(`${selLive.duration_ms} ms`, "muted") : ""}
             </div>
             <div class="toolbar">
+              <button class="btn ${meta.status === "failed" || selPlan.preflight_status === "block" || selPlan.preflight_status === "warn" ? "btn-primary" : "btn-subtle"} btn-xs" type="button" data-action="ai-run-pipeline-stage" data-stage="${esc(selPlan.id)}" ${(Store.aiLoading || {}).pipeline_issue ? "disabled" : ""}>
+                ✦ ${esc((Store.aiLoading || {}).pipeline_issue ? t("ai.card.running") : t("ai.mod.pipeline_issue.btn"))}
+              </button>
               ${
                 jump
                   ? `<button class="btn btn-subtle btn-xs" type="button" data-action="nav" data-view="${jump.view}">${esc(t(jump.key))} →</button>`
@@ -461,6 +464,13 @@
               </div>
             </div>
           </div>
+          ${
+            global.UnpackAI &&
+            ((Store.aiLoading || {}).pipeline_issue ||
+              (sample.ai_analyses || []).some((a) => a.module === "pipeline_issue"))
+              ? `<div style="padding:0 16px 14px">${global.UnpackAI.renderEmbeddedCard("pipeline_issue", { compact: true })}</div>`
+              : ""
+          }
         </div>
       `;
     }

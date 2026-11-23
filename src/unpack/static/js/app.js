@@ -11,15 +11,19 @@
   const Views = global.UnpackViews;
   const Pipeline = global.UnpackPipeline;
   const Onboarding = global.UnpackOnboarding;
+  const Workspace = global.UnpackWorkspace;
+  const AI = global.UnpackAI;
 
   function t(key, params) {
     return I18n ? I18n.t(key, params) : key;
   }
 
   function render() {
-    // Sync static shell i18n labels & theme button
+    // Sync static shell i18n labels, theme, workspace switcher & AI status
     if (I18n) I18n.applyStaticDom();
     Store.updateThemeLabel();
+    if (Workspace) Workspace.renderSidebarWidget();
+    if (AI) AI.updateStatusIndicators();
 
     // Update nav active states
     document.querySelectorAll(".nav-item[data-view]").forEach((el) => {
@@ -203,6 +207,13 @@
     document.getElementById("pipeGenReport")?.addEventListener("change", (e) => {
       Pipeline?.updateParam("generateReport", Boolean(e.target.checked));
     });
+
+    // AI History switcher selects
+    document.querySelectorAll("[data-ai-history-module]").forEach((sel) => {
+      sel.addEventListener("change", (e) => {
+        AI?.selectHistoryItem(sel.getAttribute("data-ai-history-module"), e.target.value);
+      });
+    });
   }
 
   // =========================================================================
@@ -231,6 +242,7 @@
       const res = await API.listSamples();
       Store.samples = res.items || [];
       render();
+      Workspace?.loadWorkspaces();
     } catch (err) {
       UI.toast(err.message, "danger");
     }
@@ -678,6 +690,7 @@
         Store.sseSource = null;
         UI.toast(t("toast.job_done", { id: jobId }), "ok");
         refreshJobs();
+        Workspace?.loadWorkspaces();
         if (Store.activeSampleId) selectSample(Store.activeSampleId, null, true);
       },
       failed: (p) => {
@@ -731,6 +744,8 @@
 
   function buildPaletteCommands() {
     const cmds = [
+      { label: t("palette.cmd.ai"), cat: "AI", run: () => AI?.openSettingsModal() },
+      { label: t("palette.cmd.workspace"), cat: "WS", run: () => Workspace?.openManagerModal() },
       { label: t("palette.cmd.guide"), cat: "GUIDE", run: () => Onboarding?.openWelcomeModal() },
       { label: t("palette.cmd.lang"), cat: "I18N", run: () => I18n?.toggleLang() },
       { label: t("nav.samples"), cat: "NAV", run: () => switchView("samples") },
@@ -847,6 +862,84 @@
         });
       } else if (action === "open-doctor") {
         openDoctorModal();
+      } else if (action === "open-ws-manager") {
+        Workspace?.openManagerModal();
+      } else if (action === "ws-activate") {
+        Workspace?.activateWorkspace(act.dataset.id);
+      } else if (action === "ws-create") {
+        Workspace?.createWorkspaceFromModal();
+      } else if (action === "ws-pin") {
+        Workspace?.togglePinWorkspace(act.dataset.id, act.dataset.pinned === "1");
+      } else if (action === "ws-rename") {
+        Workspace?.renameWorkspace(act.dataset.id, act.dataset.name);
+      } else if (action === "ws-delete") {
+        Workspace?.deleteWorkspace(act.dataset.id);
+      } else if (action === "ws-import-trigger") {
+        document.getElementById("wsImportFileInput")?.click();
+      } else if (action === "samples-tab") {
+        Store.samplesTab = act.dataset.tab || "intake";
+        if (Store.samplesTab === "history") {
+          Workspace?.refreshHistory(Store.activeWorkspaceId).then(() => render());
+        } else {
+          render();
+        }
+      } else if (action === "save-sample-notes") {
+        Workspace?.saveSampleNotes();
+      } else if (action === "toggle-bookmark") {
+        Workspace?.toggleMethodBookmark(act.dataset.dex, act.dataset.class, act.dataset.method, act.dataset.idx);
+      } else if (action === "remove-bookmark") {
+        Workspace?.removeBookmark(act.dataset.key);
+      } else if (action === "jump-bookmark") {
+        const dexName = act.dataset.dex;
+        const clsName = act.dataset.class;
+        const methName = act.dataset.method;
+        const methIdx = act.dataset.idx;
+        switchView("inspector").then(async () => {
+          if (dexName) Store.dex.selectedDex = dexName;
+          await loadDexClasses();
+          await selectClass(clsName);
+          await selectMethod(clsName, methName, methIdx);
+        });
+      } else if (action === "open-ai-settings") {
+        AI?.openSettingsModal();
+      } else if (action === "ai-preset") {
+        AI?.selectPreset(act.dataset.provider);
+      } else if (action === "ai-pick-model") {
+        AI?.pickPresetModel(act.dataset.model);
+      } else if (action === "ai-save") {
+        AI?.saveSettings(false);
+      } else if (action === "ai-clear-key") {
+        AI?.saveSettings(true);
+      } else if (action === "ai-test") {
+        AI?.runConnectionTest();
+      } else if (action === "ai-copy") {
+        AI?.copyMarkdown(act.dataset.module);
+      } else if (action === "ai-run") {
+        AI?.runModuleAnalysis(act.dataset.module);
+      } else if (action === "ai-run-method") {
+        const dis = Store.dex.disasm;
+        if (dis) {
+          AI?.runModuleAnalysis("method", {
+            dex_name: Store.dex.selectedDex,
+            class_name: dis.class_name || Store.dex.selectedClass || "",
+            method_name: dis.method_name || "",
+            method_idx: dis.method_idx,
+            disasm: dis,
+          });
+        }
+      } else if (action === "ai-run-pipeline-stage") {
+        const stageId = act.dataset.stage || Store.pipeline.selectedStageId || "";
+        const planStage = ((Store.pipeline.plan || {}).stages || []).find((s) => s.id === stageId) || {};
+        const liveStage = (Store.pipeline.liveStages || {})[stageId] || {};
+        const blockers = ((Store.pipeline.plan || {}).preflight_checks || [])
+          .filter((c) => c.status !== "pass")
+          .map((c) => `${c.title}: ${c.detail} (${c.fix_hint || ""})`)
+          .join("\n");
+        const errLogs = (liveStage.logs || []).map((l) => `[${l.level}] ${l.message}`).join("\n");
+        AI?.runModuleAnalysis("pipeline_issue", {
+          stage: { ...planStage, ...liveStage, name: planStage.title || stageId },
+          error_text: [Store.activeJob?.error || "", blockers, errLogs].filter(Boolean).join("\n"),
+        });
       } else if (action === "pipe-mode") {
         Pipeline?.setMode(act.dataset.mode);
       } else if (action === "pipe-switch-offline") {
@@ -978,6 +1071,8 @@
       I18n.onChange(() => {
         render();
         Onboarding?.onLangChange();
+        if (Workspace?.isManagerOpen()) Workspace.renderManagerModal();
+        if (AI?.isSettingsOpen()) AI.renderSettingsModal();
         if (Store.activeSample && Store.view === "pipeline") {
           Pipeline?.refreshPlan(Store.pipeline.mode);
         }
@@ -993,7 +1088,15 @@
     Store.setTheme(Store.theme);
     initEvents();
     render();
-    await Promise.all([refreshSamples(), refreshLocalLibrary(), refreshJobs(), loadDoctor(false)]);
+    await Promise.all([
+      refreshSamples(),
+      refreshLocalLibrary(),
+      refreshJobs(),
+      loadDoctor(false),
+      Workspace ? Workspace.loadWorkspaces() : Promise.resolve(),
+      AI ? AI.loadConfig() : Promise.resolve(),
+    ]);
+    render();
     Onboarding?.maybeAutoOpenWelcome();
   }
 

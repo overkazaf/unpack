@@ -36,6 +36,20 @@
     localLibrary: { roots: [], items: [] },
     localFilter: "",
     localKindFilter: "all",
+    samplesTab: "intake", // "intake" | "history"
+
+    // Persistent Workspaces
+    workspaces: [],
+    activeWorkspaceId: "default",
+    workspaceHistory: { samples: [], pipeline_runs: [], ai_analyses: [] },
+
+    // AI Model Config & Embedded Analyses
+    aiConfig: null,
+    aiPresets: [],
+    aiTestResult: null,
+    aiTesting: false,
+    aiLoading: {}, // module -> bool
+    aiSelectedByModule: {}, // module -> analysis_id
 
     doctor: null,
 
