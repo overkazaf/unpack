@@ -38,9 +38,12 @@ def get_package_name(apk_path: Path) -> str | None:
             _lg.disable("androguard")
         except ImportError:
             pass
+        import warnings as _warnings
         from androguard.core.apk import APK
-        a = APK(str(apk_path))
-        return a.get_package()
+        with _warnings.catch_warnings():
+            _warnings.simplefilter("ignore")
+            a = APK(str(apk_path))
+            return a.get_package()
     except ImportError:
         pass
 

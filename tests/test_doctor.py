@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import subprocess
 from unittest.mock import patch
 
 from unpack.core.doctor import DeviceInfo, DoctorReport, run_doctor
+from unpack.utils.adb import list_devices
 from unpack.core.errors import (
     ApkValidationError,
     DependencyError,
@@ -48,6 +50,28 @@ class TestDoctorReport:
         engines = {e.name: e for e in report.engines}
         assert engines["memory"].available is True
         assert engines["ebpf"].available is True
+
+    def test_adb_list_devices_handles_nonzero_exit_and_oserror(self):
+        with patch(
+            "unpack.utils.adb.subprocess.check_output",
+            side_effect=subprocess.CalledProcessError(1, ["adb", "devices", "-l"]),
+        ):
+            assert list_devices() == []
+
+        with patch(
+            "unpack.utils.adb.subprocess.check_output",
+            side_effect=OSError("daemon busy"),
+        ):
+            assert list_devices() == []
+
+    def test_run_doctor_handles_adb_probe_failure_gracefully(self):
+        with patch("unpack.core.doctor._probe_tool", return_value=(True, "/usr/bin/adb", "1.0")), \
+             patch("unpack.core.doctor._probe_devices", side_effect=RuntimeError("adb crashed")):
+            report = run_doctor(check_devices=True, timeout=1.0)
+        dev_checks = [c for c in report.checks if c.id == "adb_devices"]
+        assert len(dev_checks) == 1
+        assert dev_checks[0].status == "warn"
+        assert "adb crashed" in dev_checks[0].summary
 
 
 class TestErrorTaxonomy:

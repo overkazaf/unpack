@@ -270,9 +270,25 @@ def run_doctor(
     # 4. Connected ADB devices
     devices: list[DeviceInfo] = []
     if check_devices and tool_found.get("adb", False):
-        devices = _probe_devices(device_serial=device_serial, timeout=timeout)
+        probe_error: str | None = None
+        try:
+            devices = _probe_devices(device_serial=device_serial, timeout=timeout)
+        except Exception as exc:
+            probe_error = str(exc)
+            devices = []
         online = [d for d in devices if d.state == "device"]
-        if online:
+        if probe_error:
+            checks.append(
+                DiagnosticCheck(
+                    id="adb_devices",
+                    category="device",
+                    name="ADB Devices",
+                    status="warn",
+                    summary=f"ADB device probe failed: {probe_error}",
+                    remediation="Ensure ADB server is running (`adb start-server`) and USB debugging is enabled.",
+                )
+            )
+        elif online:
             summary = f"{len(online)} online device(s): " + ", ".join(
                 f"{d.serial} (Android {d.android_version or '?'}, {'root' if d.rooted else 'non-root'})"
                 for d in online

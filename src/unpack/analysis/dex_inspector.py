@@ -245,6 +245,7 @@ class MethodDisassembly:
     outs_size: int
     insns_size: int
     health: str
+    code_off: int = 0
     truncated: bool = False
     instructions: list[DecodedInstruction] = field(default_factory=list)
 
@@ -255,6 +256,7 @@ class MethodDisassembly:
             "method_idx": self.method_idx,
             "signature": self.signature,
             "access_flags": self.access_flags,
+            "code_off": self.code_off,
             "registers_size": self.registers_size,
             "ins_size": self.ins_size,
             "outs_size": self.outs_size,
@@ -605,6 +607,7 @@ class DexInspector:
                 outs_size=0,
                 insns_size=0,
                 health=health,
+                code_off=target.code_off,
                 truncated=False,
                 instructions=[],
             )
@@ -627,6 +630,7 @@ class DexInspector:
             outs_size=ci.outs_size,
             insns_size=ci.insns_size,
             health=health,
+            code_off=target.code_off,
             truncated=truncated,
             instructions=insns,
         )

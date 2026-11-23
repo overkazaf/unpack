@@ -15,9 +15,9 @@ class Device:
 def list_devices() -> list[Device]:
     try:
         out = subprocess.check_output(
-            ["adb", "devices", "-l"], text=True, timeout=5
+            ["adb", "devices", "-l"], text=True, timeout=5, stderr=subprocess.DEVNULL
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError):
         return []
 
     devices = []

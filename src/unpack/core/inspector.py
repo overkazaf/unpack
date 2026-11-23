@@ -17,6 +17,7 @@ import hashlib
 import os
 import re
 import struct
+import warnings
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -580,38 +581,40 @@ class ApkInspector:
                 pass
             from androguard.core.apk import APK as AndroAPK
 
-            a = AndroAPK(str(apk_path))
-            andro_ok = True
-            m = result.manifest
-            m.package = a.get_package() or ""
-            m.version_name = str(a.get_androidversion_name() or "")
-            m.version_code = str(a.get_androidversion_code() or "")
-            m.min_sdk = _safe_int(a.get_min_sdk_version())
-            m.target_sdk = _safe_int(a.get_target_sdk_version())
-            m.compile_sdk = _safe_int(a.get_attribute_value("manifest", "compileSdkVersion"))
-            try:
-                m.app_name = str(a.get_app_name() or "")
-            except Exception:
-                m.app_name = ""
-            m.application_class = str(a.get_attribute_value("application", "name") or "")
-            m.debuggable = bool(_parse_bool_attr(a.get_attribute_value("application", "debuggable"), False))
-            m.allow_backup = bool(_parse_bool_attr(a.get_attribute_value("application", "allowBackup"), True))
-            m.uses_cleartext_traffic = _parse_bool_attr(
-                a.get_attribute_value("application", "usesCleartextTraffic"), None
-            )
-            m.network_security_config = str(
-                a.get_attribute_value("application", "networkSecurityConfig") or ""
-            )
-            m.extract_native_libs = _parse_bool_attr(
-                a.get_attribute_value("application", "extractNativeLibs"), None
-            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                a = AndroAPK(str(apk_path))
+                andro_ok = True
+                m = result.manifest
+                m.package = a.get_package() or ""
+                m.version_name = str(a.get_androidversion_name() or "")
+                m.version_code = str(a.get_androidversion_code() or "")
+                m.min_sdk = _safe_int(a.get_min_sdk_version())
+                m.target_sdk = _safe_int(a.get_target_sdk_version())
+                m.compile_sdk = _safe_int(a.get_attribute_value("manifest", "compileSdkVersion"))
+                try:
+                    m.app_name = str(a.get_app_name() or "")
+                except Exception:
+                    m.app_name = ""
+                m.application_class = str(a.get_attribute_value("application", "name") or "")
+                m.debuggable = bool(_parse_bool_attr(a.get_attribute_value("application", "debuggable"), False))
+                m.allow_backup = bool(_parse_bool_attr(a.get_attribute_value("application", "allowBackup"), True))
+                m.uses_cleartext_traffic = _parse_bool_attr(
+                    a.get_attribute_value("application", "usesCleartextTraffic"), None
+                )
+                m.network_security_config = str(
+                    a.get_attribute_value("application", "networkSecurityConfig") or ""
+                )
+                m.extract_native_libs = _parse_bool_attr(
+                    a.get_attribute_value("application", "extractNativeLibs"), None
+                )
 
-            # Permissions
-            perms = sorted(set(a.get_permissions() or []))
-            result.permissions = [_classify_permission(p) for p in perms]
+                # Permissions
+                perms = sorted(set(a.get_permissions() or []))
+                result.permissions = [_classify_permission(p) for p in perms]
 
-            # Components with exported & intent-filter analysis
-            self._extract_components_androguard(a, result)
+                # Components with exported & intent-filter analysis
+                self._extract_components_androguard(a, result)
         except ImportError:
             result.warnings.append(
                 "androguard not installed — manifest inspection used minimal binary fallback"

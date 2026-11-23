@@ -184,6 +184,8 @@ class TestDexInspector:
         disasm = insp.disassemble_method("com.acme.app.Main", "run")
         assert disasm is not None
         assert disasm.signature == "()V"
+        assert disasm.code_off > 0
+        assert disasm.to_dict()["code_off"] == disasm.code_off
         mnemonics = [i.mnemonic for i in disasm.instructions]
         assert mnemonics == ["const/4", "const-string", "invoke-static", "return-void"]
         assert "https://api.acme.example/v1/auth" in disasm.instructions[1].resolved_ref
