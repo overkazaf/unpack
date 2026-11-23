@@ -169,11 +169,36 @@ class TestBilingualReports:
 
 
 class TestBilingualCliCommands:
-    def test_global_lang_help_and_doctor(self):
+    def test_global_lang_help_and_doctor(self, monkeypatch):
+        monkeypatch.delenv("UNPACK_LANG", raising=False)
         res_zh = runner.invoke(app, ["--lang", "zh"])
         assert res_zh.exit_code == EXIT_OK
         assert "新手引导" in res_zh.output
         assert "快速开始" in res_zh.output
+
+        # `--lang zh --help`, `-L zh --help`, `--help --lang zh`, and `UNPACK_LANG=zh --help`
+        for argv in (["--lang", "zh", "--help"], ["-L", "zh", "--help"], ["--help", "--lang", "zh"]):
+            res_help_zh = runner.invoke(app, argv)
+            assert res_help_zh.exit_code == EXIT_OK
+            assert "新手引导" in res_help_zh.output
+            assert "快速开始" in res_help_zh.output
+
+        monkeypatch.setenv("UNPACK_LANG", "zh")
+        res_env_help = runner.invoke(app, ["--help"])
+        assert res_env_help.exit_code == EXIT_OK
+        assert "新手引导" in res_env_help.output
+
+        # Explicit `--lang en --help` overrides UNPACK_LANG=zh and prints English Typer help
+        res_help_en_override = runner.invoke(app, ["--lang", "en", "--help"])
+        assert res_help_en_override.exit_code == EXIT_OK
+        assert "Android APK unpacker" in res_help_en_override.output
+        assert "新手引导" not in res_help_en_override.output
+
+        monkeypatch.delenv("UNPACK_LANG", raising=False)
+        # Default `--help` remains English
+        res_help_default = runner.invoke(app, ["--help"])
+        assert res_help_default.exit_code == EXIT_OK
+        assert "Android APK unpacker" in res_help_default.output
 
         res_doc_zh = runner.invoke(app, ["doctor", "--no-devices", "--lang", "zh"])
         assert res_doc_zh.exit_code == EXIT_OK

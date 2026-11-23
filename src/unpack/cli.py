@@ -67,10 +67,61 @@ from unpack.cli_format import (
     render_wizard_step,
     safe,
 )
-from unpack.i18n import get_lang, resolve_lang, set_lang, t
+from unpack.i18n import get_lang, resolve_lang, set_lang, t, use_lang
+
+
+class _BilingualRootGroup(typer.core.TyperGroup):
+    """Intercept root `--help` so `--lang zh --help` / `-L zh --help` / `UNPACK_LANG=zh` renders Chinese help."""
+
+    def parse_args(self, ctx, args: list[str]) -> list[str]:
+        found_lang: str | None = None
+        found_no_color = False
+        has_top_help = False
+
+        idx = 0
+        while idx < len(args):
+            tok = args[idx]
+            if tok in ("--help", "-h"):
+                has_top_help = True
+                idx += 1
+                continue
+            if tok == "--no-color":
+                found_no_color = True
+                idx += 1
+                continue
+            if tok in ("--lang", "-L"):
+                if idx + 1 < len(args):
+                    found_lang = args[idx + 1]
+                    idx += 2
+                    continue
+                idx += 1
+                continue
+            if tok.startswith("--lang="):
+                found_lang = tok.split("=", 1)[1]
+                idx += 1
+                continue
+            if tok.startswith("-L") and len(tok) > 2:
+                found_lang = tok[2:]
+                idx += 1
+                continue
+            if tok.startswith("-"):
+                idx += 1
+                continue
+            # First positional token is a subcommand; let Typer handle subcommand `--help`.
+            break
+
+        if has_top_help and resolve_lang(found_lang) == "zh":
+            _configure_consoles(no_color=found_no_color, quiet=False)
+            with use_lang("zh"):
+                _print_main_help()
+            ctx.exit(EXIT_OK)
+
+        return super().parse_args(ctx, args)
+
 
 app = typer.Typer(
     name="unpack",
+    cls=_BilingualRootGroup,
     help="Android APK unpacker & mobile security workbench: scan · inspect · dump · repair · verify · report",
     rich_markup_mode="rich",
     invoke_without_command=True,
