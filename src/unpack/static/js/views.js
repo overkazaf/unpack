@@ -193,8 +193,19 @@
     const manifest = (insp && insp.manifest) || {};
     const signing = (insp && insp.signing) || {};
     const perms = (insp && insp.permissions) || [];
-    const dangerousPerms = perms.filter((p) => p.level === "dangerous");
+    const dangerousPerms = perms.filter(
+      (p) => p.protection_level === "dangerous" || p.level === "dangerous"
+    );
     const findings = (insp && insp.findings) || [];
+    const signingSchemes =
+      signing.schemes && signing.schemes.length
+        ? signing.schemes
+        : [
+            (signing.v1_signed || signing.v1) && "v1",
+            (signing.v2_signed || signing.v2) && "v2",
+            (signing.v3_signed || signing.v3) && "v3",
+            signing.v31_signed && "v3.1",
+          ].filter(Boolean);
 
     return `
       <div class="view-header">
@@ -290,13 +301,13 @@
             </div>
             <div class="panel-body">
               <div class="kv-list">
-                <div class="kv-row"><span class="kv-k">Package</span><span class="kv-v">${esc(manifest.package || "—")}</span></div>
+                <div class="kv-row"><span class="kv-k">Package</span><span class="kv-v">${esc(manifest.package || manifest.package_name || "—")}</span></div>
                 <div class="kv-row"><span class="kv-k">Version</span><span class="kv-v">${esc(manifest.version_name || "—")} (${esc(manifest.version_code || "—")})</span></div>
                 <div class="kv-row"><span class="kv-k">SDK (Min / Target)</span><span class="kv-v">${esc(manifest.min_sdk || "—")} / ${esc(manifest.target_sdk || "—")}</span></div>
                 <div class="kv-row"><span class="kv-k">Debuggable</span><span class="kv-v">${manifest.debuggable ? UI.badge("TRUE", "danger") : UI.badge("FALSE", "ok")}</span></div>
                 <div class="kv-row"><span class="kv-k">Signing Schemes</span><span class="kv-v">${
-                  signing.signed
-                    ? [signing.v1 && "v1", signing.v2 && "v2", signing.v3 && "v3"].filter(Boolean).join(" / ")
+                  signingSchemes.length
+                    ? `${esc(signingSchemes.join(" / "))}${signing.is_debug_cert ? " " + UI.badge("DEBUG CERT", "warn") : ""}`
                     : "Unsigned / Unknown"
                 }</span></div>
                 <div class="kv-row"><span class="kv-k">Permissions</span><span class="kv-v">${perms.length} total (${dangerousPerms.length} dangerous)</span></div>
@@ -317,7 +328,7 @@
                       ${findings
                         .map(
                           (f) =>
-                            `<tr><td>${UI.severityBadge(f.severity)}</td><td style="font-weight:600">${esc(f.title)}</td><td style="color:var(--text-secondary)">${esc(f.detail)}</td></tr>`
+                            `<tr><td>${UI.severityBadge(f.severity)}</td><td style="font-weight:600">${esc(f.title)}</td><td style="color:var(--text-secondary)">${esc(f.description || f.detail || "")}${f.evidence ? `<div class="mono" style="font-size:11px;color:var(--text-muted);margin-top:2px">${esc(f.evidence)}</div>` : ""}</td></tr>`
                         )
                         .join("")}
                     </tbody></table>`
@@ -415,7 +426,7 @@
           .join("");
         disasmContent = `
           <div style="padding:8px 12px;border-bottom:1px solid var(--border);background:var(--bg-inset);font-size:11.5px;display:flex;gap:14px;flex-wrap:wrap" class="mono">
-            <span><strong>${esc(dis.method_name)}</strong></span>
+            <span><strong>${esc(dis.method_name)}${dis.signature ? esc(dis.signature) : ""}</strong></span>
             <span style="color:var(--text-secondary)">code_off=0x${Number(dis.code_off || 0).toString(16)}</span>
             <span style="color:var(--text-secondary)">regs=${dis.registers_size}</span>
             <span style="color:var(--text-secondary)">units=${dis.insns_size}</span>
@@ -442,17 +453,20 @@
         <div class="panel-body-flush">
           <div class="table-wrap">
             <table class="data-table">
-              <thead><tr><th style="width:90px">Index</th><th>Literal Value</th><th class="num" style="width:80px">Len</th></tr></thead>
+              <thead><tr><th style="width:90px">Index</th><th style="width:110px">Category</th><th>Literal Value</th><th class="num" style="width:80px">Len</th></tr></thead>
               <tbody>
                 ${
                   d.stringsHits && d.stringsHits.length
                     ? d.stringsHits
-                        .map(
-                          (s) =>
-                            `<tr><td class="mono" style="color:var(--text-muted)">#${s.index}</td><td class="mono" style="word-break:break-all">${esc(s.value)}</td><td class="mono num">${s.length}</td></tr>`
-                        )
+                        .map((s) => {
+                          const idx = s.index ?? s.string_idx ?? 0;
+                          const cat = s.category || "plain";
+                          const catTone = cat === "secret" || cat === "anti_analysis" ? "danger" : cat === "url" || cat === "ip" ? "warn" : "muted";
+                          const val = s.value || "";
+                          return `<tr><td class="mono" style="color:var(--text-muted)">#${idx}</td><td>${UI.badge(cat, catTone)}</td><td class="mono" style="word-break:break-all">${esc(val)}</td><td class="mono num">${s.length ?? val.length}</td></tr>`;
+                        })
                         .join("")
-                    : `<tr><td colspan="3" style="color:var(--text-muted)">Enter a query or click Search to list strings from ${esc(d.selectedDex || "DEX")}.</td></tr>`
+                    : `<tr><td colspan="4" style="color:var(--text-muted)">Enter a query or click Search to list strings from ${esc(d.selectedDex || "DEX")}.</td></tr>`
                 }
               </tbody>
             </table>
@@ -695,11 +709,38 @@
     const vmpPct = totalM ? Math.max(vmp.vmp_count ? 1 : 0, Math.round((vmp.vmp_count / totalM) * 100)) : 0;
 
     const searchQ = (Store.vmpSearch || "").trim().toLowerCase();
-    const filteredStubs = ((vmp && vmp.vmp_methods) || []).filter(
-      (m) => !searchQ || `${m.class} ${m.method} ${m.dex || ""}`.toLowerCase().includes(searchQ)
-    );
+    const filteredStubs = ((vmp && vmp.vmp_methods) || []).filter((m) => {
+      const cls = m.class_name || m.class || "";
+      const meth = m.method_name || m.method || "";
+      return !searchQ || `${cls} ${meth} ${m.dex || ""}`.toLowerCase().includes(searchQ);
+    });
 
     const nativeLibs = (insp && insp.native_libs) || [];
+    const getLibIndicators = (n) => {
+      const merged = [
+        ...(n.security_indicators || []),
+        ...(n.vmp_indicators || []),
+        ...(n.dex2c_indicators || []),
+        ...(n.anti_debug_indicators || []),
+        ...(n.crypto_indicators || []),
+        ...(n.risk_flags || []),
+      ];
+      if (n.is_security_related && !merged.length) merged.push("security-lib");
+      return Array.from(new Set(merged));
+    };
+    const secLibCount = nativeLibs.filter((n) => n.is_security_related || getLibIndicators(n).length > 0).length;
+
+    const sensitiveCount = (x) => {
+      const sa = x && x.sensitive_apis;
+      if (!sa) return 0;
+      if (Array.isArray(sa)) return sa.length;
+      return Object.values(sa).reduce((acc, arr) => acc + (Array.isArray(arr) ? arr.length : 0), 0);
+    };
+    const formatIoc = (item) => {
+      if (typeof item === "string") return { value: item, count: null };
+      if (item && typeof item === "object") return { value: item.value || String(item), count: item.caller_count ?? null };
+      return { value: String(item || ""), count: null };
+    };
 
     return `
       <div class="view-header">
@@ -760,7 +801,7 @@
                   <tbody>
                     ${
                       (vmp.dispatchers || []).length
-                        ? vmp.dispatchers.map((d) => `<tr><td class="mono">${esc(d.target)}</td><td class="mono num">${d.call_count}</td></tr>`).join("")
+                        ? vmp.dispatchers.map((d) => `<tr><td class="mono">${esc(d.dispatcher || d.target)}</td><td class="mono num">${d.stub_count ?? d.call_count ?? 0}</td></tr>`).join("")
                         : `<tr><td colspan="2" style="color:var(--text-muted)">No VMP dispatchers clustered.</td></tr>`
                     }
                   </tbody>
@@ -775,7 +816,7 @@
                   <tbody>
                     ${
                       (vmp.class_density || []).length
-                        ? vmp.class_density.map((c) => `<tr><td class="mono">${esc(c.class)}</td><td class="mono num">${c.vmp_methods}</td></tr>`).join("")
+                        ? vmp.class_density.map((c) => `<tr><td class="mono">${esc(c.class_name || c.class)}</td><td class="mono num">${c.vmp_count ?? c.vmp_methods ?? 0}</td></tr>`).join("")
                         : `<tr><td colspan="2" style="color:var(--text-muted)">No VMP stub classes detected.</td></tr>`
                     }
                   </tbody>
@@ -800,7 +841,7 @@
                             .slice(0, 150)
                             .map(
                               (m) =>
-                                `<tr><td class="mono">${esc(m.dex || "classes.dex")}</td><td class="mono">${esc(m.class)}</td><td class="mono">${esc(m.method)}</td><td class="mono num">${m.insns_size || 0}</td></tr>`
+                                `<tr><td class="mono">${esc(m.dex || "classes.dex")}</td><td class="mono">${esc(m.class_name || m.class || "")}</td><td class="mono">${esc(m.method_name || m.method || "")}</td><td class="mono num">${m.insns_size || 0}</td></tr>`
                             )
                             .join("")
                         : `<tr><td colspan="4" style="color:var(--text-muted)">No VMP stub methods found in analyzed DEX files.</td></tr>`
@@ -821,25 +862,34 @@
         <div class="panel">
           <div class="panel-head">
             <div class="panel-title">Native SO / ELF Inventory</div>
-            ${UI.badge(`${nativeLibs.filter((n) => (n.security_indicators || []).length).length} Security Indicators`, "warn")}
+            ${UI.badge(`${secLibCount} Security Indicators`, secLibCount ? "warn" : "muted")}
           </div>
           <div class="panel-body-flush">
             ${
               nativeLibs.length
                 ? `<div class="table-wrap"><table class="data-table">
-                    <thead><tr><th>Library</th><th>ABI</th><th>Arch</th><th>PIE</th><th class="num">Size</th><th>Indicators</th></tr></thead>
+                    <thead><tr><th>Library</th><th>ABI</th><th>ELF / Arch</th><th>Mitigations</th><th class="num">Size</th><th>Indicators</th></tr></thead>
                     <tbody>
                       ${nativeLibs
-                        .map(
-                          (n) => `<tr>
+                        .map((n) => {
+                          const isPie = n.is_pie ?? n.pie;
+                          const inds = getLibIndicators(n);
+                          const mits = [
+                            isPie ? UI.badge("PIE", "ok") : "",
+                            n.has_nx ? UI.badge("NX", "ok") : "",
+                            n.relro && n.relro !== "none" ? UI.badge(`RELRO:${n.relro}`, n.relro === "full" ? "ok" : "warn") : "",
+                            n.has_canary ? UI.badge("CANARY", "ok") : "",
+                          ].filter(Boolean);
+                          const archText = [n.elf_class, n.arch || (n.bits ? `${n.bits}b` : "")].filter(Boolean).join(" ") || "—";
+                          return `<tr>
                             <td class="mono" style="font-weight:600">${esc(n.name)}</td>
                             <td class="mono">${esc(n.abi)}</td>
-                            <td class="mono">${esc(n.arch || "—")}${n.bits ? ` (${n.bits}b)` : ""}</td>
-                            <td>${n.pie ? UI.badge("PIE", "ok") : UI.badge("—", "muted")}</td>
+                            <td class="mono">${esc(archText)}</td>
+                            <td>${mits.length ? mits.join(" ") : UI.badge("—", "muted")}</td>
                             <td class="mono num">${esc(UI.fmtBytes(n.size_bytes))}</td>
-                            <td>${(n.security_indicators || []).length ? n.security_indicators.map((k) => UI.badge(k, "warn")).join(" ") : UI.badge("standard", "muted")}</td>
-                          </tr>`
-                        )
+                            <td>${inds.length ? inds.slice(0, 6).map((k) => UI.badge(k, "warn")).join(" ") : UI.badge("standard", "muted")}</td>
+                          </tr>`;
+                        })
                         .join("")}
                     </tbody>
                   </table></div>`
@@ -852,9 +902,9 @@
           ? `
         <div class="kpi-strip">
           ${UI.kpi("String Refs", UI.fmtNum((xref.counts || {}).strings))}
-          ${UI.kpi("Method Targets", UI.fmtNum((xref.counts || {}).method_targets))}
+          ${UI.kpi("Method Targets", UI.fmtNum((xref.counts || {}).method_calls ?? (xref.counts || {}).method_targets))}
           ${UI.kpi("Reflection Sinks", UI.fmtNum((xref.counts || {}).reflection_calls), "", (xref.counts || {}).reflection_calls ? "warn" : "ok")}
-          ${UI.kpi("Sensitive APIs", (xref.sensitive_apis || []).length)}
+          ${UI.kpi("Sensitive APIs", UI.fmtNum(sensitiveCount(xref)))}
         </div>
         <div class="grid-2">
           <div class="panel">
@@ -885,11 +935,26 @@
             <div class="panel-body">
               <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">URLs (${((xref.iocs || {}).urls || []).length})</div>
               <div class="mono" style="font-size:11.5px;max-height:170px;overflow:auto;background:var(--bg-inset);padding:8px;border-radius:4px;border:1px solid var(--border);margin-bottom:12px">
-                ${((xref.iocs || {}).urls || []).map((u) => `<div>${esc(u)}</div>`).join("") || `<span style="color:var(--text-muted)">None found</span>`}
+                ${
+                  ((xref.iocs || {}).urls || []).length
+                    ? (xref.iocs || {}).urls
+                        .map((raw) => {
+                          const it = formatIoc(raw);
+                          return `<div style="margin-bottom:3px">${esc(it.value)}${it.count !== null ? ` <span style="color:var(--text-muted)">(${it.count})</span>` : ""}</div>`;
+                        })
+                        .join("")
+                    : `<span style="color:var(--text-muted)">None found</span>`
+                }
               </div>
               <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px">IP Addresses (${((xref.iocs || {}).ips || []).length})</div>
               <div class="mono" style="font-size:11.5px;background:var(--bg-inset);padding:8px;border-radius:4px;border:1px solid var(--border)">
-                ${((xref.iocs || {}).ips || []).map((ip) => UI.badge(ip, "muted")).join(" ") || `<span style="color:var(--text-muted)">None found</span>`}
+                ${
+                  ((xref.iocs || {}).ips || []).length
+                    ? (xref.iocs || {}).ips
+                        .map((raw) => UI.badge(formatIoc(raw).value, "muted"))
+                        .join(" ")
+                    : `<span style="color:var(--text-muted)">None found</span>`
+                }
               </div>
             </div>
           </div>
@@ -1085,7 +1150,7 @@
           ${
             fmt === "html"
               ? Store.reportPreviewHtml
-                ? `<iframe class="report-frame" sandbox="allow-same-origin" id="reportPreviewFrame" title="Audit Report Preview"></iframe>`
+                ? `<iframe class="report-frame" sandbox="allow-scripts" id="reportPreviewFrame" title="Audit Report Preview"></iframe>`
                 : `<div style="color:var(--text-secondary)">Loading HTML audit report preview...</div>`
               : `<pre class="mono" style="background:var(--bg-inset);border:1px solid var(--border);border-radius:6px;padding:14px;max-height:540px;overflow:auto;font-size:12px;white-space:pre-wrap">${esc(Store.reportPreviewText || "Loading preview...")}</pre>`
           }
@@ -1212,8 +1277,8 @@
           <tr>
             <td style="font-weight:600">${esc(c.name)}</td>
             <td>${UI.badge(c.status.toUpperCase(), c.status === "pass" ? "ok" : c.status === "fail" ? "danger" : "warn")}</td>
-            <td class="mono" style="font-size:11.5px">${esc(c.detail)}</td>
-            <td class="mono" style="font-size:11px;color:var(--text-muted)">${esc(c.hint || "—")}</td>
+            <td class="mono" style="font-size:11.5px">${esc(c.summary || c.detail || c.version || "—")}</td>
+            <td class="mono" style="font-size:11px;color:var(--text-muted)">${esc(c.remediation || c.hint || "—")}</td>
           </tr>
         `
       )
@@ -1231,9 +1296,12 @@
       )
       .join("");
 
+    const overall = String(doc.overall_status || "ok").toLowerCase();
+    const overallTone = overall === "healthy" || overall === "pass" ? "ok" : overall === "unhealthy" || overall === "fail" ? "danger" : "warn";
+
     return `
       <div class="kpi-strip" style="margin-bottom:14px">
-        ${UI.kpi("Overall", (doc.overall_status || "ok").toUpperCase(), "", doc.overall_status === "pass" ? "ok" : "warn")}
+        ${UI.kpi("Overall", overall.toUpperCase(), "", overallTone)}
         ${UI.kpi("Python", doc.python_version || "—")}
         ${UI.kpi("ADB Devices", (doc.devices || []).length)}
         ${UI.kpi("Engines Ready", (doc.engines || []).filter((e) => e.available).length)}

@@ -208,7 +208,8 @@
       const dot = document.getElementById("doctorDot");
       const meta = document.getElementById("doctorEnginesMeta");
       if (dot) {
-        dot.className = `status-dot ${doc.overall_status === "pass" ? "ok" : doc.overall_status === "fail" ? "fail" : "warn"}`;
+        const st = String(doc.overall_status || "").toLowerCase();
+        dot.className = `status-dot ${st === "healthy" || st === "pass" ? "ok" : st === "unhealthy" || st === "fail" ? "fail" : "warn"}`;
       }
       if (meta) {
         const ready = (doc.engines || []).filter((e) => e.available).length;

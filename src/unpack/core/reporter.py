@@ -542,13 +542,19 @@ class Reporter:
 
             signing = inspect_d.get("signing") or {}
             if isinstance(signing, dict) and signing.get("is_debug_cert"):
+                certs = signing.get("certificates") or []
+                cert_subj = (
+                    certs[0].get("subject")
+                    if certs and isinstance(certs[0], dict)
+                    else None
+                )
                 add_finding(
                     "UNPACK-APK-005",
                     "APK signed with Android debug certificate",
                     "high",
                     "apk_security",
                     "Debug signing keys are publicly known and must not be shipped to production.",
-                    evidence=[str(signing.get("subject") or "CN=Android Debug")],
+                    evidence=[str(signing.get("subject") or cert_subj or "CN=Android Debug")],
                     location="META-INF/",
                     remediation="Sign release artifacts with a protected production keystore.",
                 )
@@ -612,7 +618,7 @@ class Reporter:
             total_m = int(vmp_d.get("total_methods") or 0)
             ratio = (vmp_count / total_m) if total_m else 0.0
             sample_ev = [
-                f"{m.get('class', '')}->{m.get('method', '')}"
+                f"{m.get('class_name') or m.get('class') or ''}->{m.get('method_name') or m.get('method') or ''}"
                 for m in (vmp_d.get("vmp_methods") or [])[:8]
             ]
             add_finding(
@@ -938,8 +944,10 @@ def render_markdown(audit: AuditReport) -> str:
         if manifest:
             lines.append("| Attribute | Value |")
             lines.append("| --- | --- |")
+            pkg_val = manifest.get("package") or manifest.get("package_name")
+            if pkg_val:
+                lines.append(f"| Package | `{pkg_val}` |")
             for key, label in (
-                ("package_name", "Package"),
                 ("version_name", "Version Name"),
                 ("version_code", "Version Code"),
                 ("min_sdk", "Min SDK"),
@@ -948,7 +956,7 @@ def render_markdown(audit: AuditReport) -> str:
                 ("debuggable", "Debuggable"),
                 ("allow_backup", "Allow Backup"),
             ):
-                if key in manifest and manifest[key] is not None:
+                if key in manifest and manifest[key] is not None and manifest[key] != "":
                     lines.append(f"| {label} | `{manifest[key]}` |")
             lines.append("")
 
@@ -960,13 +968,14 @@ def render_markdown(audit: AuditReport) -> str:
             lines.append("| --- | --- | ---: | --- |")
             for lib in native_libs[:25]:
                 flags = []
-                if lib.get("pie") is True:
+                if lib.get("is_pie") is True or lib.get("pie") is True:
                     flags.append("PIE")
-                if lib.get("nx") is True:
+                if lib.get("has_nx") is True or lib.get("nx") is True:
                     flags.append("NX")
-                if lib.get("relro"):
-                    flags.append(f"RELRO:{lib['relro']}")
-                if lib.get("canary") is True:
+                relro = lib.get("relro")
+                if relro and str(relro).lower() != "none":
+                    flags.append(f"RELRO:{relro}")
+                if lib.get("has_canary") is True or lib.get("canary") is True:
                     flags.append("CANARY")
                 lines.append(
                     f"| `{lib.get('name') or lib.get('path', '')}` | {lib.get('abi', '—')} "
@@ -1028,13 +1037,30 @@ def render_markdown(audit: AuditReport) -> str:
 
     # Xref
     if audit.xref:
+        x_counts = audit.xref.get("counts") if isinstance(audit.xref.get("counts"), dict) else {}
+        str_cnt = int(x_counts.get("strings")) if "strings" in x_counts else len(audit.xref.get("string_refs") or {})
+        call_cnt = (
+            int(x_counts.get("method_calls"))
+            if "method_calls" in x_counts
+            else len(audit.xref.get("method_calls") or {})
+        )
+        field_cnt = (
+            int(x_counts.get("field_refs"))
+            if "field_refs" in x_counts
+            else len(audit.xref.get("field_refs") or {})
+        )
+        refl_cnt = (
+            int(x_counts.get("reflection_calls"))
+            if "reflection_calls" in x_counts
+            else len(audit.xref.get("reflection_calls") or [])
+        )
         lines.append("## Cross-Reference Highlights")
         lines.append("")
         lines.append(
-            f"- String refs: **{len(audit.xref.get('string_refs') or {}):,}** · "
-            f"Method calls: **{len(audit.xref.get('method_calls') or {}):,}** · "
-            f"Field refs: **{len(audit.xref.get('field_refs') or {}):,}** · "
-            f"Reflection calls: **{len(audit.xref.get('reflection_calls') or []):,}**"
+            f"- String refs: **{str_cnt:,}** · "
+            f"Method calls: **{call_cnt:,}** · "
+            f"Field refs: **{field_cnt:,}** · "
+            f"Reflection calls: **{refl_cnt:,}**"
         )
         lines.append("")
 
@@ -1225,13 +1251,18 @@ def render_html(audit: AuditReport) -> str:
         signing = audit.inspect.get("signing") or {}
         perms = audit.inspect.get("permissions") or []
         native_libs = audit.inspect.get("native_libs") or []
-        dangerous_perms = [p for p in perms if isinstance(p, dict) and p.get("dangerous")]
+        dangerous_perms = [
+            p
+            for p in perms
+            if isinstance(p, dict) and (p.get("dangerous") or p.get("protection_level") == "dangerous")
+        ]
 
         manifest_kv = ""
         if manifest:
+            pkg_name = manifest.get("package") or manifest.get("package_name") or "—"
             manifest_kv = (
                 '<div class="kv-grid">'
-                f'<div><span class="k">Package</span><span class="v"><code>{_esc(manifest.get("package_name") or "—")}</code></span></div>'
+                f'<div><span class="k">Package</span><span class="v"><code>{_esc(pkg_name)}</code></span></div>'
                 f'<div><span class="k">Version</span><span class="v">{_esc(manifest.get("version_name") or "—")} ({_esc(manifest.get("version_code") or "—")})</span></div>'
                 f'<div><span class="k">SDK (min / target)</span><span class="v">{_esc(manifest.get("min_sdk") or "—")} / {_esc(manifest.get("target_sdk") or "—")}</span></div>'
                 f'<div><span class="k">Debuggable / Backup</span><span class="v">{_esc(manifest.get("debuggable"))} / {_esc(manifest.get("allow_backup"))}</span></div>'
@@ -1245,13 +1276,14 @@ def render_html(audit: AuditReport) -> str:
             lib_rows = ""
             for lib in native_libs[:30]:
                 flags = []
-                if lib.get("pie") is True:
+                if lib.get("is_pie") is True or lib.get("pie") is True:
                     flags.append("PIE")
-                if lib.get("nx") is True:
+                if lib.get("has_nx") is True or lib.get("nx") is True:
                     flags.append("NX")
-                if lib.get("relro"):
-                    flags.append(f"RELRO:{lib['relro']}")
-                if lib.get("canary") is True:
+                relro = lib.get("relro")
+                if relro and str(relro).lower() != "none":
+                    flags.append(f"RELRO:{relro}")
+                if lib.get("has_canary") is True or lib.get("canary") is True:
                     flags.append("CANARY")
                 lib_rows += (
                     f"<tr><td><code>{_esc(lib.get('name') or lib.get('path', ''))}</code></td>"
@@ -1328,13 +1360,22 @@ def render_html(audit: AuditReport) -> str:
             )
         r_rows = ""
         for r in audit.repair_results:
-            ok = bool(r.get("success", True))
+            rep = r.get("repair") if isinstance(r.get("repair"), dict) else r
+            ok = bool(rep.get("success", r.get("success", True)))
             badge = '<span class="badge sev-pass">OK</span>' if ok else '<span class="badge sev-high">FAIL</span>'
-            actions = ", ".join(str(x) for x in (r.get("actions") or [])) or "—"
+            actions = ", ".join(str(x) for x in (rep.get("actions") or r.get("actions") or [])) or "—"
+            nop_cnt = int(
+                rep.get("nop_method_count")
+                or rep.get("nop_methods")
+                or r.get("nop_methods")
+                or r.get("nop_method_count")
+                or 0
+            )
+            fname = r.get("file") or rep.get("file") or ""
             r_rows += (
-                f"<tr><td><code>{_esc(r.get('file', ''))}</code></td>"
+                f"<tr><td><code>{_esc(fname)}</code></td>"
                 f"<td>{badge}</td><td>{_esc(actions)}</td>"
-                f'<td class="num">{int(r.get("nop_methods") or r.get("nop_method_count") or 0):,}</td></tr>'
+                f'<td class="num">{nop_cnt:,}</td></tr>'
             )
         v_block = (
             '<h3>Integrity Verification</h3><table class="data-table">'

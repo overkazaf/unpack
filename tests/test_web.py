@@ -345,25 +345,31 @@ def test_studio_local_library_scan_inspect_dex_browser(studio_client):
     dex_list = client.get(f"/api/v1/samples/{sid}/dex").get_json()["dex_files"]
     assert dex_list[0]["name"] == "classes.dex"
 
-    cls_page = client.get(f"/api/v1/samples/{sid}/dex/classes.dex/classes?q=Demo").get_json()
+    cls_page = client.get(f"/api/v1/samples/{sid}/dex/classes.dex/classes?q=Demo&health=ok").get_json()
     assert cls_page["total"] == 1
     cls_name = cls_page["classes"][0]["name"]
     assert cls_name == "Lcom/example/Demo;"
+    assert cls_page["classes"][0]["health"] == "ok"
 
     cls_detail = client.get(f"/api/v1/samples/{sid}/dex/classes.dex/class?name={cls_name}").get_json()
+    assert cls_detail["name"] == cls_name
     assert len(cls_detail["methods"]) == 1
     assert cls_detail["methods"][0]["name"] == "secret"
+    assert cls_detail["methods"][0]["kind"] == "direct"
 
     disasm = client.get(
         f"/api/v1/samples/{sid}/dex/classes.dex/disasm?class={cls_name}&method=secret"
     ).get_json()
+    assert "code_off" in disasm
     mnemonics = [i["mnemonic"] for i in disasm["instructions"]]
     assert "const-string" in mnemonics
     assert "return-void" in mnemonics
+    assert all(i.get("hex") for i in disasm["instructions"])
     assert any("https://api.example.com/v1" in (i.get("operand") or "") for i in disasm["instructions"])
 
     strings = client.get(f"/api/v1/samples/{sid}/dex/classes.dex/strings?q=https").get_json()["strings"]
     assert any("https://api.example.com/v1" in s["value"] for s in strings)
+    assert all("index" in s and "length" in s for s in strings)
 
     # VMP & Xref
     vmp = client.post(f"/api/v1/samples/{sid}/vmp", json={}).get_json()["vmp"]
@@ -371,7 +377,8 @@ def test_studio_local_library_scan_inspect_dex_browser(studio_client):
     assert vmp["vmp_count"] == 0
 
     xref = client.post(f"/api/v1/samples/{sid}/xref", json={}).get_json()["xref"]
-    assert "https://api.example.com/v1" in xref["iocs"]["urls"]
+    url_vals = [u["value"] if isinstance(u, dict) else u for u in xref["iocs"]["urls"]]
+    assert "https://api.example.com/v1" in url_vals
 
 
 def test_studio_repair_diff_repack_fart_and_reports(studio_client):

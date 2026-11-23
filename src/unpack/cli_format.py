@@ -652,7 +652,7 @@ def print_doctor_report(console: Console, report: dict[str, Any]) -> None:
                 safe(d.get("model") or "—"),
                 safe(d.get("android_version") or d.get("api_level") or "—"),
                 f"[{C_OK}]yes[/]" if d.get("rooted") or d.get("root") else f"[{C_DIM}]no[/]",
-                f"[{C_OK}]ready[/]" if d.get("frida_server") else f"[{C_DIM}]—[/]",
+                f"[{C_OK}]ready[/]" if (d.get("frida_server_running") or d.get("frida_server")) else f"[{C_DIM}]—[/]",
             ]
             for d in devices
         ]
@@ -708,10 +708,11 @@ def print_inspect_apk(
     risk = data.get("risk_score")
     risk_str = f"{grade} ({risk}/100)" if risk is not None else grade
 
+    pkg_val = manifest.get("package") or manifest.get("package_name") or "—"
     rows: list[tuple[str, str]] = [
         ("File", f"[path]{safe(data.get('file', ''))}[/]  [{C_DIM}]({format_bytes(data.get('size_bytes'))})[/]"),
         ("SHA-256", f"[{C_DIM}]{safe(data.get('sha256') or '—')}[/]"),
-        ("Package", f"[{C_INFO}]{safe(manifest.get('package_name') or '—')}[/]"),
+        ("Package", f"[{C_INFO}]{safe(pkg_val)}[/]"),
         ("Version", f"{safe(manifest.get('version_name') or '—')} [{C_DIM}](code {safe(manifest.get('version_code') or '—')})[/]"),
         ("SDK", f"min {safe(manifest.get('min_sdk') or '—')} · target {safe(manifest.get('target_sdk') or '—')}"),
         ("Application", f"[{C_INFO}]{safe(manifest.get('application_class') or '—')}[/]"),
@@ -725,7 +726,9 @@ def print_inspect_apk(
     ]
     if signing:
         schemes = ", ".join(signing.get("schemes") or []) or "unknown"
-        subj = signing.get("subject") or "—"
+        certs = signing.get("certificates") or []
+        cert_subj = certs[0].get("subject") if certs and isinstance(certs[0], dict) else None
+        subj = signing.get("subject") or cert_subj or "—"
         rows.append(("Signing", f"{safe(schemes)}  [{C_DIM}]{safe(subj)}[/]"))
     render_kv_card(console, "APK OVERVIEW", rows, border_style=C_INFO)
 
@@ -749,8 +752,15 @@ def print_inspect_apk(
         p_rows = []
         for p in perms[:40]:
             if isinstance(p, dict):
-                dang = f"[{C_WARN}]DANGEROUS[/]" if p.get("dangerous") else f"[{C_DIM}]normal[/]"
-                p_rows.append([dang, safe(p.get("name", ""))])
+                is_dang = bool(p.get("dangerous") or p.get("protection_level") == "dangerous")
+                prot = str(p.get("protection_level") or "normal")
+                if is_dang:
+                    tier = f"[{C_WARN}]DANGEROUS[/]"
+                elif prot == "signature":
+                    tier = f"[{C_INFO}]SIGNATURE[/]"
+                else:
+                    tier = f"[{C_DIM}]{safe(prot)}[/]"
+                p_rows.append([tier, safe(p.get("name", ""))])
             else:
                 p_rows.append([f"[{C_DIM}]perm[/]", safe(p)])
         render_table(
@@ -778,13 +788,14 @@ def print_inspect_apk(
         lib_rows = []
         for lib in native_libs[:20]:
             flags = []
-            if lib.get("pie") is True:
+            if lib.get("is_pie") is True or lib.get("pie") is True:
                 flags.append("PIE")
-            if lib.get("nx") is True:
+            if lib.get("has_nx") is True or lib.get("nx") is True:
                 flags.append("NX")
-            if lib.get("relro"):
-                flags.append(f"RELRO:{lib['relro']}")
-            if lib.get("canary") is True:
+            relro = lib.get("relro")
+            if relro and str(relro).lower() != "none":
+                flags.append(f"RELRO:{relro}")
+            if lib.get("has_canary") is True or lib.get("canary") is True:
                 flags.append("CANARY")
             lib_rows.append(
                 [
@@ -842,19 +853,24 @@ def print_inspect_dex(
     rows: list[tuple[str, str]] = [
         ("DEX", f"[path]{safe(overview.get('name') or overview.get('file') or 'classes.dex')}[/]"),
         ("Size", format_bytes(overview.get("size_bytes") or overview.get("file_size"))),
-        ("Version", safe(overview.get("version") or overview.get("magic") or "—")),
+        ("Version", safe(overview.get("dex_version") or overview.get("version") or overview.get("magic") or "—")),
         ("Classes", f"[{C_INFO}]{int(overview.get('class_count') or overview.get('classes') or 0):,}[/]"),
         ("Methods", f"[{C_INFO}]{int(overview.get('method_count') or overview.get('methods') or 0):,}[/]"),
         ("Strings", f"[{C_DIM}]{int(overview.get('string_count') or overview.get('strings') or 0):,}[/]"),
     ]
-    if "nop_methods" in overview:
-        rows.append(("NOP methods", f"[{C_WARN if overview['nop_methods'] else C_DIM}]{int(overview['nop_methods']):,}[/]"))
+    nop_val = (
+        overview["nop_method_count"]
+        if "nop_method_count" in overview
+        else overview.get("nop_methods")
+    )
+    if nop_val is not None:
+        rows.append(("NOP methods", f"[{C_WARN if nop_val else C_DIM}]{int(nop_val):,}[/]"))
     render_kv_card(console, "DEX OVERVIEW", rows, border_style=C_INFO)
 
     if classes:
         cls_rows = [
             [
-                safe(c.get("name") or c.get("class_name") or ""),
+                safe(c.get("java_name") or c.get("descriptor") or c.get("name") or c.get("class_name") or ""),
                 f"{int(c.get('method_count') or c.get('methods') or 0):,}",
                 f"[{C_WARN if c.get('nop_count', 0) else C_DIM}]{int(c.get('nop_count') or 0):,}[/]",
                 safe(c.get("health") or "ok"),
@@ -885,6 +901,12 @@ def print_inspect_dex(
             ]
             for m in methods[:50]
         ]
+        cls_title = (
+            class_detail.get("java_name")
+            or class_detail.get("descriptor")
+            or class_detail.get("name")
+            or ""
+        )
         render_table(
             console,
             [
@@ -894,7 +916,7 @@ def print_inspect_dex(
                 ("Units", {"justify": "right"}),
             ],
             m_rows,
-            title=f"Class Methods: {class_detail.get('name') or ''}",
+            title=f"Class Methods: {cls_title}",
         )
 
     if disasm:
@@ -965,8 +987,8 @@ def print_vmp_summary(
         stub_rows = [
             [
                 safe(m.get("dex_file", "")),
-                safe(m.get("class", "")),
-                f"[{C_FAIL}]{safe(m.get('method', ''))}[/]",
+                safe(m.get("class_name") or m.get("class") or ""),
+                f"[{C_FAIL}]{safe(m.get('method_name') or m.get('method') or '')}[/]",
                 safe(m.get("target", "")),
             ]
             for m in vmp_methods[:15]

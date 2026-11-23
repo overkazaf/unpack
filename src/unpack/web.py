@@ -1208,9 +1208,27 @@ class _DexBrowserSession:
         self, query: str = "", package: str = "", health: str = "", offset: int = 0, limit: int = 100
     ) -> dict[str, Any]:
         if self._native_inspector is not None:
+            health_map = {"ok": "normal", "vmp": "vmp_stub", "nop": "nop", "empty": "empty"}
+            mapped_health = health_map.get(health.strip().lower(), health.strip().lower())
             page = self._native_inspector.list_classes(
-                query=query, package=package, health=health, offset=offset, limit=limit
+                query=query, package=package, health=mapped_health, offset=offset, limit=limit
             ).to_dict()
+            norm_classes = []
+            for c in page.get("items", []):
+                raw_h = c.get("health", "normal")
+                ui_h = "ok" if raw_h == "normal" else ("vmp" if raw_h == "vmp_stub" else raw_h)
+                desc = c.get("descriptor") or c.get("name", "")
+                norm_classes.append(
+                    {
+                        **c,
+                        "name": desc,
+                        "descriptor": desc,
+                        "nop_methods": c.get("nop_count", c.get("nop_methods", 0)),
+                        "vmp_methods": c.get("vmp_count", c.get("vmp_methods", 0)),
+                        "health": ui_h,
+                    }
+                )
+            page["classes"] = norm_classes
             page["packages"] = [p.to_dict() for p in self._native_inspector.package_tree()[:80]]
             return page
 
@@ -1244,7 +1262,29 @@ class _DexBrowserSession:
     def inspect_class(self, class_name: str) -> dict[str, Any] | None:
         if self._native_inspector is not None:
             res = self._native_inspector.inspect_class(class_name)
-            return res.to_dict() if res is not None else None
+            if res is None:
+                return None
+            d = res.to_dict()
+            desc = d.get("descriptor") or d.get("name", class_name)
+            d["name"] = desc
+            d["descriptor"] = desc
+            norm_methods = []
+            for m in d.get("methods", []):
+                raw_h = m.get("health", "normal")
+                ui_h = "ok" if raw_h == "normal" else raw_h
+                norm_methods.append(
+                    {
+                        **m,
+                        "kind": m.get("kind") or ("direct" if m.get("is_direct") else "virtual"),
+                        "health": ui_h,
+                    }
+                )
+            d["methods"] = norm_methods
+            d["fields"] = [
+                {**f, "kind": f.get("kind") or ("static" if f.get("is_static") else "instance")}
+                for f in d.get("fields", [])
+            ]
+            return d
 
         cdef = self._class_map.get(class_name)
         if cdef is None:
@@ -1311,7 +1351,47 @@ class _DexBrowserSession:
             res = self._native_inspector.disassemble_method(
                 class_name, method_name, method_idx=method_idx, max_insns=max_insns
             )
-            return res.to_dict() if res is not None else None
+            if res is None:
+                return None
+            d = res.to_dict()
+            if "code_off" not in d:
+                cls_info = self._native_inspector.inspect_class(class_name)
+                code_off = 0
+                if cls_info is not None:
+                    for m in cls_info.methods:
+                        if m.method_idx == d.get("method_idx") or (
+                            method_idx is None and m.name == d.get("method_name")
+                        ):
+                            code_off = m.code_off
+                            break
+                d["code_off"] = code_off
+            norm_insns = []
+            for ins in d.get("instructions", []):
+                raw_hex = ins.get("raw_hex") or ins.get("hex") or ""
+                spaced_hex = (
+                    " ".join(raw_hex[i : i + 2] for i in range(0, len(raw_hex), 2))
+                    if raw_hex and " " not in raw_hex
+                    else raw_hex
+                )
+                off_hex = ins.get("offset_hex")
+                off_str = (
+                    f"0x{off_hex}"
+                    if off_hex is not None
+                    else (ins["offset"] if isinstance(ins.get("offset"), str) else f"0x{int(ins.get('offset', 0)):04x}")
+                )
+                operand = ins.get("operands") or ins.get("operand") or ins.get("resolved_ref") or ""
+                norm_insns.append(
+                    {
+                        **ins,
+                        "offset": off_str,
+                        "offset_int": ins.get("offset", 0) if isinstance(ins.get("offset"), int) else 0,
+                        "hex": spaced_hex,
+                        "operand": operand,
+                        "ref_kind": ins.get("ref_kind") or "",
+                    }
+                )
+            d["instructions"] = norm_insns
+            return d
 
         cdef = self._class_map.get(class_name)
         if cdef is None or not cdef.class_data:
@@ -1394,7 +1474,22 @@ class _DexBrowserSession:
 
     def search_strings(self, query: str = "", limit: int = 100) -> list[dict[str, Any]]:
         if self._native_inspector is not None:
-            return [h.to_dict() for h in self._native_inspector.search_strings(query=query, limit=limit)]
+            out = []
+            for hit in self._native_inspector.search_strings(query=query, limit=limit):
+                h = hit.to_dict()
+                val = h.get("value", "")
+                idx = h.get("string_idx", h.get("index", 0))
+                out.append(
+                    {
+                        **h,
+                        "index": idx,
+                        "string_idx": idx,
+                        "value": val,
+                        "length": len(val),
+                        "category": h.get("category", "plain"),
+                    }
+                )
+            return out
         q = query.strip().lower()
         hits = []
         for idx in range(self._dex.header.string_ids_size):
@@ -1662,6 +1757,8 @@ def create_app(
     app.config["UNPACK_WORKSPACE"] = workspace_root
 
     lock = threading.RLock()
+    # Per-sample single-flight inspect locks (prevents duplicate deep ELF scans)
+    inspect_locks: dict[str, threading.Lock] = {}
     # sample_id (16-char sha256 prefix) -> sample dict
     samples: OrderedDict[str, dict[str, Any]] = OrderedDict()
     # artifact token -> {path, name, kind, size_bytes, mimetype}
@@ -2164,6 +2261,17 @@ def create_app(
             sample["scan_result"] = scan_dict
         return jsonify(scan=scan_dict, sample=_public_sample(sample))
 
+    def _ensure_apk_inspect(sample: dict[str, Any], force: bool = False) -> dict[str, Any]:
+        sid = sample["id"]
+        with lock:
+            slock = inspect_locks.setdefault(sid, threading.Lock())
+        with slock:
+            if sample["inspect_result"] is None or force:
+                insp = _inspect_apk_rich(sample["path"])
+                with lock:
+                    sample["inspect_result"] = insp
+            return sample["inspect_result"]
+
     @app.get("/api/v1/samples/<sample_id>/inspect")
     def api_v1_sample_inspect(sample_id: str):
         sample = _get_sample_or_404(sample_id)
@@ -2172,11 +2280,7 @@ def create_app(
 
         force = _parse_bool(request.args.get("refresh"), default=False)
         if sample["kind"] == "apk":
-            if sample["inspect_result"] is None or force:
-                insp = _inspect_apk_rich(sample["path"])
-                with lock:
-                    sample["inspect_result"] = insp
-            return jsonify(inspect=sample["inspect_result"])
+            return jsonify(inspect=_ensure_apk_inspect(sample, force=force))
 
         # DEX / DEX dir inspect overview
         dex_list = _list_sample_dex_entries(sample)
@@ -2328,16 +2432,23 @@ def create_app(
                     "vmp_ratio": rep.get("vmp_ratio", 0.0),
                 }
             )
+            method_target_hits = 0
             for m in rep.get("vmp_methods", []):
+                cls = m.get("class_name") or m.get("class") or "unknown"
+                meth = m.get("method_name") or m.get("method") or ""
                 if len(all_vmp_methods) < 300:
-                    all_vmp_methods.append({**m, "dex": dname})
-                cls = m.get("class", "unknown")
+                    all_vmp_methods.append({**m, "class": cls, "class_name": cls, "method": meth, "method_name": meth, "dex": dname})
                 class_counts[cls] = class_counts.get(cls, 0) + 1
+                if m.get("target"):
+                    tgt = m["target"]
+                    dispatcher_counts[tgt] = dispatcher_counts.get(tgt, 0) + 1
+                    method_target_hits += 1
             for edge in rep.get("call_graph", []):
                 if len(all_call_graph) < 300:
                     all_call_graph.append({**edge, "dex": dname})
-                tgt = edge.get("target") or edge.get("callee") or "unknown"
-                dispatcher_counts[tgt] = dispatcher_counts.get(tgt, 0) + 1
+                if method_target_hits == 0:
+                    tgt = edge.get("target") or edge.get("callee") or "unknown"
+                    dispatcher_counts[tgt] = dispatcher_counts.get(tgt, 0) + 1
 
         vmp_ratio = round(vmp_count / max(1, total_methods), 4)
         risk_score = min(100, int(round(vmp_ratio * 250 + (20 if vmp_count > 0 else 0))))
@@ -2605,9 +2716,7 @@ def create_app(
                     pass
             if sample["inspect_result"] is None:
                 try:
-                    insp = _inspect_apk_rich(sample["path"])
-                    with lock:
-                        sample["inspect_result"] = insp
+                    _ensure_apk_inspect(sample, force=False)
                 except Exception:
                     pass
 

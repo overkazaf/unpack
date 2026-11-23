@@ -258,3 +258,127 @@ class TestDomainRenderers:
         assert "DEX OVERVIEW" in out
         assert "VMP CLASSIFICATION" in out
         assert "XREF SUMMARY" in out
+
+    def test_core_pro_schema_alignment_regression(self):
+        """Verify renderers consume exact real core-pro keys (Phase 3 QA #15)."""
+        con, buf = _recording_console()
+
+        # 1. Doctor DeviceInfo with frida_server_running
+        print_doctor_report(
+            con,
+            {
+                "overall_status": "healthy",
+                "python_version": "3.12.5",
+                "unpack_version": "0.1.0",
+                "checks": [],
+                "devices": [
+                    {
+                        "serial": "EMU-5554",
+                        "model": "Pixel 7",
+                        "android_version": "13",
+                        "rooted": True,
+                        "frida_server_running": True,
+                    }
+                ],
+                "engines": [],
+            },
+        )
+
+        # 2. ApkInspectResult real keys: manifest.package, certificates[0].subject,
+        # protection_level=="dangerous", is_pie/has_nx/has_canary
+        print_inspect_apk(
+            con,
+            {
+                "file": "bank.apk",
+                "sha256": "deadbeef",
+                "size_bytes": 204800,
+                "manifest": {
+                    "package": "com.real.bank",
+                    "version_name": "2.0",
+                    "version_code": "20",
+                    "min_sdk": 26,
+                    "target_sdk": 34,
+                },
+                "signing": {
+                    "schemes": ["v1", "v2"],
+                    "certificates": [{"subject": "CN=RealBank Corp"}],
+                },
+                "permissions": [
+                    {"name": "android.permission.READ_SMS", "protection_level": "dangerous"},
+                    {"name": "android.permission.INTERNET", "protection_level": "normal"},
+                ],
+                "components": {},
+                "native_libs": [
+                    {
+                        "name": "libsec.so",
+                        "abi": "arm64-v8a",
+                        "size_bytes": 16384,
+                        "is_pie": True,
+                        "has_nx": True,
+                        "relro": "full",
+                        "has_canary": True,
+                    }
+                ],
+                "dex_files": [],
+                "findings": [],
+                "risk_score": 40,
+                "risk_grade": "C",
+            },
+            show_permissions=True,
+        )
+
+        # 3. DexInspector real keys: dex_version, nop_method_count, java_name/descriptor
+        print_inspect_dex(
+            con,
+            {
+                "name": "classes.dex",
+                "size_bytes": 4096,
+                "dex_version": "035",
+                "class_count": 2,
+                "method_count": 5,
+                "string_count": 10,
+                "nop_method_count": 3,
+            },
+            classes=[
+                {
+                    "descriptor": "Lcom/real/App;",
+                    "java_name": "com.real.App",
+                    "method_count": 5,
+                    "nop_count": 3,
+                    "health": "nop",
+                }
+            ],
+            class_detail={
+                "descriptor": "Lcom/real/App;",
+                "java_name": "com.real.App",
+                "methods": [{"name": "init", "signature": "()V", "health": "nop", "insns_size": 4}],
+            },
+        )
+
+        # 4. VmpDetector real keys: class_name / method_name
+        print_vmp_summary(
+            con,
+            [{"file": "classes.dex", "normal": 5, "nop": 0, "vmp": 1}],
+            {"total_methods": 6, "normal_count": 5, "nop_count": 0, "vmp_count": 1},
+            vmp_methods=[
+                {
+                    "dex_file": "classes.dex",
+                    "class_name": "Lcom/real/Secret;",
+                    "method_name": "decrypt",
+                    "target": "Lvm/Dispatcher;->exec",
+                }
+            ],
+        )
+
+        out = buf.getvalue()
+        assert "ready" in out
+        assert "com.real.bank" in out
+        assert "CN=RealBank Corp" in out
+        assert "DANGEROUS" in out
+        assert "PIE, NX, RELRO:full, CANARY" in out
+        assert "035" in out
+        assert "NOP methods" in out
+        assert "com.real.App" in out
+        assert "Class Methods: com.real.App" in out
+        assert "Lcom/real/Secret;" in out
+        assert "decrypt" in out
