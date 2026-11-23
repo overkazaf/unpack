@@ -212,3 +212,98 @@ class TestRenderers:
         assert parsed["grade"] == audit.grade
         assert parsed["risk_score"] == audit.risk_score
         assert len(parsed["findings"]) == len(audit.findings)
+
+    def test_real_core_pro_schemas_in_html_markdown_and_findings(self):
+        """Regression test for Phase 3 QA #15: real core-pro dict shapes across renderers."""
+        audit = Reporter().build_audit_report(
+            "real_app.apk",
+            inspect={
+                "file": "real_app.apk",
+                "sha256": "0123456789abcdef" * 4,
+                "manifest": {
+                    "package": "com.real.prod",
+                    "version_name": "3.1.4",
+                    "version_code": "314",
+                    "min_sdk": 24,
+                    "target_sdk": 34,
+                    "debuggable": False,
+                    "allow_backup": False,
+                },
+                "signing": {
+                    "schemes": ["v1", "v2"],
+                    "is_debug_cert": True,
+                    "certificates": [{"subject": "CN=Debug Keystore"}],
+                },
+                "permissions": [
+                    {"name": "android.permission.CAMERA", "protection_level": "dangerous"},
+                    {"name": "android.permission.INTERNET", "protection_level": "normal"},
+                ],
+                "native_libs": [
+                    {
+                        "name": "libnative.so",
+                        "abi": "arm64-v8a",
+                        "size_bytes": 65536,
+                        "is_pie": True,
+                        "has_nx": True,
+                        "relro": "full",
+                        "has_canary": True,
+                    }
+                ],
+                "findings": [],
+                "risk_score": 35,
+            },
+            vmp={
+                "total_methods": 100,
+                "normal_count": 98,
+                "nop_count": 0,
+                "vmp_count": 2,
+                "vmp_methods": [
+                    {"class_name": "Lcom/real/Vault;", "method_name": "unlock", "target": "Lvm/Core;->run"}
+                ],
+                "call_graph": [],
+            },
+            xref={
+                "counts": {
+                    "strings": 420,
+                    "method_calls": 180,
+                    "field_refs": 55,
+                    "reflection_calls": 3,
+                },
+                "reflection_calls": [],
+                "iocs": {},
+            },
+            repair_results=[
+                {
+                    "file": "classes_000.dex",
+                    "repair": {
+                        "success": True,
+                        "actions": ["fixed checksum", "recomputed sha1"],
+                        "nop_method_count": 7,
+                    },
+                    "health_delta": 25.0,
+                }
+            ],
+        )
+
+        # Finding evidence checks
+        vmp_f = next(f for f in audit.findings if f.rule_id == "UNPACK-VMP-001")
+        assert "Lcom/real/Vault;->unlock" in vmp_f.evidence
+        cert_f = next(f for f in audit.findings if f.rule_id == "UNPACK-APK-005")
+        assert "CN=Debug Keystore" in cert_f.evidence
+
+        # Markdown checks
+        md = render_markdown(audit)
+        assert "| Package | `com.real.prod` |" in md
+        assert "PIE, NX, RELRO:full, CANARY" in md
+        assert "String refs: **420**" in md
+        assert "Method calls: **180**" in md
+        assert "Field refs: **55**" in md
+        assert "Reflection calls: **3**" in md
+
+        # HTML checks
+        html_out = render_html(audit)
+        assert "<code>com.real.prod</code>" in html_out
+        assert "2 total (1 dangerous)" in html_out
+        assert "PIE, NX, RELRO:full, CANARY" in html_out
+        assert "fixed checksum, recomputed sha1" in html_out
+        assert ">7</td>" in html_out
