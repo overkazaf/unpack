@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import struct
+import zlib
 from dataclasses import dataclass, field
 from typing import ClassVar
 
@@ -480,8 +481,17 @@ class DexFile:
         return methods
 
     def compute_checksum(self) -> int:
-        import zlib
-        return zlib.adler32(self.data[12:]) & 0xFFFFFFFF
+        return compute_dex_checksum(self.data)
 
     def compute_signature(self) -> bytes:
-        return hashlib.sha1(self.data[32:]).digest()
+        return compute_dex_signature(self.data)
+
+
+def compute_dex_signature(data: bytes | bytearray) -> bytes:
+    """Compute the DEX SHA-1 signature over bytes ``[32:]``."""
+    return hashlib.sha1(memoryview(data)[32:]).digest()
+
+
+def compute_dex_checksum(data: bytes | bytearray) -> int:
+    """Compute the DEX Adler32 checksum over bytes ``[12:]``."""
+    return zlib.adler32(memoryview(data)[12:]) & 0xFFFFFFFF

@@ -4,7 +4,11 @@ import subprocess
 import time
 from dataclasses import dataclass
 
+from unpack.logging_config import get_logger
+from unpack.utils.adb import adb_run
 from unpack.utils.apk import validate_package_name
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -53,9 +57,6 @@ class AppExerciser:
 
     def _run_action(self, serial: str, package_name: str, action: str):
         try:
-            subprocess.run(
-                ["adb", "-s", serial, "shell", action],
-                timeout=10, capture_output=True,
-            )
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError):
-            pass
+            adb_run(serial, "shell", action, timeout=10)
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, OSError) as exc:
+            log.debug("AppExerciser action failed (%s): %s", action, exc)

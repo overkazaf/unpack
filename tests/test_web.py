@@ -911,3 +911,79 @@ def test_ai_config_mask_preserve_test_and_embedded_module_analyses(studio_client
     assert cleared["configured"] is False
 
 
+def test_pipeline_guards_snapshot_only_sample_and_auto_relocates(tmp_path):
+    """Regression: moving repo or restarting on a snapshot-only sample must never raise PathLike NoneType."""
+    ws_dir = tmp_path / "unpack_home"
+    old_dir = tmp_path / "old_repo" / "test_apks"
+    new_dir = tmp_path / "new_repo" / "test_apks"
+    old_dir.mkdir(parents=True)
+    new_dir.mkdir(parents=True)
+
+    apk_bytes = _build_synthetic_apk()
+    old_apk = old_dir / "moved_sample.apk"
+    old_apk.write_bytes(apk_bytes)
+
+    # Session 1: mount from old_dir & scan so it persists with old_dir source_path
+    app1 = create_app(local_roots=[old_dir], workspace_dir=ws_dir)
+    c1 = app1.test_client()
+    mounted = c1.post(
+        "/api/v1/samples/import-local",
+        json={"path": str(old_apk), "auto_scan": True},
+    ).get_json()["sample"]
+    sid = mounted["id"]
+    assert c1.post(f"/api/v1/samples/{sid}/scan").status_code == 200
+
+    # Simulate repo directory moved away (old path deleted, no replacement yet -> snapshot-only)
+    old_apk.unlink()
+    app2 = create_app(local_roots=[new_dir], workspace_dir=ws_dir)
+    c2 = app2.test_client()
+
+    # Preflight plan blocks device mode clearly
+    plan = c2.post(
+        "/api/v1/pipeline/plan",
+        json={"sample_id": sid, "mode": "device_standard", "lang": "zh", "check_devices": False},
+    ).get_json()
+    sample_check = next(ch for ch in plan["preflight_checks"] if ch["id"] == "sample_ready")
+    assert sample_check["status"] == "block"
+
+    # Launching device_standard fails gracefully in intake with helpful message (never TypeError NoneType)
+    launch = c2.post(
+        "/api/v1/jobs/pipeline",
+        json={"sample_id": sid, "mode": "device_standard", "lang": "zh"},
+    )
+    assert launch.status_code == 202
+    jid = launch.get_json()["job_id"]
+    job = None
+    for _ in range(40):
+        job = c2.get(f"/api/v1/jobs/{jid}").get_json()
+        if job["status"] in {"done", "failed"}:
+            break
+        time.sleep(0.05)
+    assert job["status"] == "failed"
+    assert "NoneType" not in (job.get("error") or "")
+    assert "原路径" in (job.get("error") or "")
+
+    # Offline pipeline reuses persisted snapshot cleanly without crashing
+    launch_off = c2.post(
+        "/api/v1/jobs/pipeline",
+        json={"sample_id": sid, "mode": "offline_audit", "lang": "zh", "generate_report": True},
+    )
+    assert launch_off.status_code == 202
+    jid_off = launch_off.get_json()["job_id"]
+    job_off = None
+    for _ in range(40):
+        job_off = c2.get(f"/api/v1/jobs/{jid_off}").get_json()
+        if job_off["status"] in {"done", "failed"}:
+            break
+        time.sleep(0.05)
+    assert job_off["status"] == "done"
+
+    # Now place the moved APK under new_dir -> Session 3 auto-relocates it by filename + SHA-256!
+    (new_dir / "moved_sample.apk").write_bytes(apk_bytes)
+    app3 = create_app(local_roots=[new_dir], workspace_dir=ws_dir)
+    c3 = app3.test_client()
+    restored = c3.get(f"/api/v1/samples/{sid}").get_json()["sample"]
+    assert restored["file_available"] is True
+
+
+

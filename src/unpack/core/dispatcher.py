@@ -1,19 +1,18 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
-
 from typing import Callable
 
-from rich.console import Console
-
 from unpack.core.scanner import ProtectionLevel, ScanResult
-from unpack.engines.base import BaseEngine, DumpResult, EngineType
+from unpack.engines.base import BaseEngine, DumpOptions, DumpResult, EngineType
 from unpack.engines.ebpf_engine import EbpfEngine
 from unpack.engines.frida_engine import FridaEngine
 from unpack.engines.memory_engine import MemoryEngine
+from unpack.logging_config import get_logger
 from unpack.utils.apk import get_package_name, validate_package_name
 
-console = Console()
+log = get_logger(__name__)
 
 _ENGINE_PRIORITY: dict[ProtectionLevel, list[EngineType]] = {
     ProtectionLevel.NONE: [EngineType.FRIDA, EngineType.EBPF, EngineType.MEMORY],
@@ -39,10 +38,15 @@ class Dispatcher:
         }
 
     def _emit(self, level: str, plain: str, rich_msg: str | None = None) -> None:
+        if level == "warn":
+            log.warning("%s", plain)
+        else:
+            log.info("%s", plain)
         if self._on_event is not None:
             self._on_event(level, plain)
-        if not self._quiet:
-            console.print(rich_msg if rich_msg is not None else plain)
+        elif not self._quiet:
+            sys.stdout.write(f"  {plain}\n")
+            sys.stdout.flush()
 
     def dispatch(
         self,
@@ -86,15 +90,10 @@ class Dispatcher:
                 f"  [yellow]Warning:[/] {warn_plain}",
             )
 
-        if timeout:
-            for eng in self._engines.values():
-                if hasattr(eng, "_wait_seconds"):
-                    eng._wait_seconds = timeout
-
-        if not anti_detect:
-            for eng in self._engines.values():
-                if hasattr(eng, "_anti_detect"):
-                    eng._anti_detect = False
+        options = DumpOptions(timeout=timeout, anti_detect=anti_detect)
+        for eng in self._engines.values():
+            if hasattr(eng, "configure"):
+                eng.configure(options)
 
         if force_engine:
             try:
@@ -111,15 +110,57 @@ class Dispatcher:
             [EngineType.FRIDA],
         )
 
-        for engine_type in priority:
-            engine = self._engines.get(engine_type)
-            if engine and engine.is_available():
-                self._emit("info", f"Engine: {engine_type.value}", f"  Engine: [green]{engine_type.value}[/]")
-                return engine.dump(package_name, output_dir, device_serial)
+        last_failure: DumpResult | None = None
+        tried: set[EngineType] = set()
+        skipped_reasons: list[str] = []
 
+        # Try engines in priority order; if all fail/unavailable, allow Memory as last-resort partial fallback
+        candidate_order = list(priority)
+        if EngineType.MEMORY not in candidate_order:
+            candidate_order.append(EngineType.MEMORY)
+
+        for idx, engine_type in enumerate(candidate_order):
+            is_last_resort = idx >= len(priority)
+            engine = self._engines.get(engine_type)
+            if not engine:
+                continue
+            if not engine.is_available():
+                reason = getattr(engine, "unavailable_reason", None) or "unavailable"
+                skipped_reasons.append(f"{engine_type.value}: {reason}")
+                self._emit(
+                    "warn",
+                    f"Engine {engine_type.value} skipped ({reason})",
+                    f"  [dim]Skip {engine_type.value}: {reason}[/]",
+                )
+                continue
+
+            tried.add(engine_type)
+            if is_last_resort:
+                self._emit(
+                    "warn",
+                    f"All primary engines failed/unavailable; falling back to {engine_type.value} (root /proc/pid/mem scan)...",
+                    f"  [yellow]Fallback:[/] using [green]{engine_type.value}[/] for partial memory dump",
+                )
+            else:
+                self._emit("info", f"Engine: {engine_type.value}", f"  Engine: [green]{engine_type.value}[/]")
+
+            res = engine.dump(package_name, output_dir, device_serial)
+            if res.success or res.dex_files:
+                return res
+            last_failure = res
+            self._emit(
+                "warn",
+                f"Engine {engine_type.value} failed ({res.error or 'no DEX captured'}); trying next available engine...",
+                f"  [yellow]Fallback:[/] {engine_type.value} failed, trying next engine...",
+            )
+
+        if last_failure is not None:
+            return last_failure
+
+        detail = "; ".join(skipped_reasons) if skipped_reasons else "install frida and connect a rooted device"
         return DumpResult(
             engine=EngineType.FRIDA,
-            error="No available engine — install frida and connect a device",
+            error=f"No available engine — {detail}",
         )
 
     def _run_engine(

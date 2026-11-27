@@ -23,7 +23,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from unpack.analysis.disasm import DalvikDecoder, Instruction
+from unpack.analysis.ioc import ANTI_ANALYSIS_RE, IP_RE, URL_RE
+from unpack.logging_config import get_logger
 from unpack.repair.dex_parser import DexFile
+
+log = get_logger(__name__)
 
 # (class_descriptor, method_name) pairs that are classic reflection /
 # dynamic-loading sinks. Matching is on the raw signature pieces we can
@@ -92,12 +96,6 @@ class XrefReport:
 
     def summary(self, limit: int = 100) -> dict:
         """Bounded, categorized summary suitable for Web UI and CLI tables."""
-        import re
-
-        url_re = re.compile(r"https?://[^\s'\"<>]{4,}", re.IGNORECASE)
-        ip_re = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-        anti_re = re.compile(r"(?:/system/bin/su|/sbin/su|frida|/proc/self/maps|xposed)", re.IGNORECASE)
-
         sensitive_categories: dict[str, tuple[str, ...]] = {
             "crypto": ("Ljavax/crypto/", "Ljava/security/MessageDigest;", "Ljava/security/Cipher;"),
             "network": ("Ljava/net/URL;", "Ljava/net/HttpURLConnection;", "Lokhttp3/", "Ljavax/net/ssl/"),
@@ -121,11 +119,11 @@ class XrefReport:
         ips: list[dict] = []
         anti_analysis: list[dict] = []
         for s, callers in self.string_refs.items():
-            if len(urls) < limit and url_re.search(s):
+            if len(urls) < limit and URL_RE.search(s):
                 urls.append({"value": s[:256], "caller_count": len(callers), "callers": callers[:5]})
-            elif len(anti_analysis) < limit and anti_re.search(s):
+            elif len(anti_analysis) < limit and ANTI_ANALYSIS_RE.search(s):
                 anti_analysis.append({"value": s[:256], "caller_count": len(callers), "callers": callers[:5]})
-            elif len(ips) < limit and ip_re.search(s):
+            elif len(ips) < limit and IP_RE.search(s):
                 ips.append({"value": s[:256], "caller_count": len(callers), "callers": callers[:5]})
 
         top_strings = [
@@ -220,7 +218,8 @@ class XrefBuilder:
         """
         try:
             dex = DexFile.parse(dex_data)
-        except Exception:
+        except Exception as exc:
+            log.debug("XrefBuilder.build parse failed: %s", exc)
             return XrefReport()
         return self.build_dex(dex)
 

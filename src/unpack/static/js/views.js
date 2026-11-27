@@ -31,10 +31,14 @@
     const vaultRows = samples
       .map((s) => {
         const isActive = s.id === Store.activeSampleId;
+        const offlineBadge =
+          s.file_available === false
+            ? ` <span class="badge badge-violet" title="${esc(t("samples.badge.offline_tip"))}">${esc(t("samples.badge.offline"))}</span>`
+            : "";
         return `
           <tr class="${isActive ? "selected" : ""}">
             <td>
-              <div class="mono" style="font-weight:600">${esc(s.name)}</div>
+              <div class="mono" style="font-weight:600">${esc(s.name)}${offlineBadge}</div>
               <div style="font-size:11px;color:var(--text-muted)">${esc(s.display_path)} &middot; <span class="mono">${esc(s.id)}</span></div>
             </td>
             <td>${UI.kindBadge(s.kind)}</td>
@@ -44,7 +48,7 @@
             <td class="num">
               <div class="toolbar" style="justify-content:flex-end">
                 <button class="btn btn-subtle btn-xs" type="button" data-action="select-sample" data-id="${esc(s.id)}">${esc(isActive ? t("common.open") : t("common.select"))}</button>
-                <button class="btn btn-ghost btn-xs" type="button" data-action="delete-sample" data-id="${esc(s.id)}" title="${esc(t("samples.vault.remove_tip"))}">✕</button>
+                <button class="btn btn-ghost btn-xs" type="button" data-action="delete-sample" data-id="${esc(s.id)}" data-name="${esc(s.name)}" title="${esc(t("samples.vault.remove_tip"))}">✕</button>
               </div>
             </td>
           </tr>
@@ -128,7 +132,7 @@
 
         <div class="panel">
           <div class="panel-head">
-            <div class="panel-title">${esc(t("samples.local.title"))} ${UI.badge(String(filteredLocal.length), "muted")}</div>
+            <div class="panel-title">${esc(t("samples.local.title"))} <span class="badge badge-muted" id="localLibraryCount">${filteredLocal.length}</span></div>
             <div class="toolbar">
               <select class="select select-sm" id="localKindFilter">
                 <option value="all" ${kindF === "all" ? "selected" : ""}>${esc(t("samples.local.all"))}</option>
@@ -139,12 +143,12 @@
               <input type="search" class="input input-sm" id="localSearchInput" placeholder="${esc(t("samples.local.search_ph"))}" value="${esc(Store.localFilter)}">
             </div>
           </div>
-          <div class="panel-body-flush">
+          <div class="panel-body-flush" id="localLibraryBody">
             ${
               filteredLocal.length
                 ? `<div class="table-wrap"><table class="data-table">
                     <thead><tr><th>${esc(t("samples.local.col.target"))}</th><th>${esc(t("common.type"))}</th><th class="num">${esc(t("samples.local.col.dex"))}</th><th class="num">${esc(t("common.size"))}</th><th class="num">${esc(t("samples.local.col.action"))}</th></tr></thead>
-                    <tbody>${localRows}</tbody>
+                    <tbody id="localLibraryTbody">${localRows}</tbody>
                   </table></div>`
                 : `<div class="panel-body" style="color:var(--text-secondary)">${esc(t("samples.local.empty"))}</div>`
             }
@@ -898,14 +902,14 @@
 
           <div class="panel">
             <div class="panel-head">
-              <div class="panel-title">${esc(t("vmp.stubs.title", { count: filteredStubs.length }))}</div>
+              <div class="panel-title" id="vmpStubsTitle">${esc(t("vmp.stubs.title", { count: filteredStubs.length }))}</div>
               <input type="search" class="input input-sm" id="vmpSearchInput" style="width:220px" placeholder="${esc(t("vmp.stubs.ph"))}" value="${esc(Store.vmpSearch)}">
             </div>
             <div class="panel-body-flush">
               <div class="table-wrap">
                 <table class="data-table">
                   <thead><tr><th>DEX</th><th>${esc(t("vmp.density.col_class"))}</th><th>${esc(t("vmp.stubs.col_method"))}</th><th class="num">${esc(t("vmp.stubs.col_units"))}</th></tr></thead>
-                  <tbody>
+                  <tbody id="vmpStubsTbody">
                     ${
                       filteredStubs.length
                         ? filteredStubs
@@ -1098,7 +1102,7 @@
             ${
               fmt === "html"
                 ? Store.reportPreviewHtml
-                  ? `<iframe class="report-frame" sandbox="allow-scripts" id="reportPreviewFrame" title="Audit Report Preview"></iframe>`
+                  ? `<iframe class="report-frame" sandbox="" id="reportPreviewFrame" title="Audit Report Preview"></iframe>`
                   : `<div style="color:var(--text-secondary)">${esc(t("reports.preview.loading_html"))}</div>`
                 : `<pre class="mono" style="background:var(--bg-inset);border:1px solid var(--border);border-radius:6px;padding:14px;max-height:540px;overflow:auto;font-size:12px;white-space:pre-wrap">${esc(Store.reportPreviewText || t("reports.preview.loading_text"))}</pre>`
             }
@@ -1268,6 +1272,76 @@
     `;
   }
 
+  function updateLocalLibraryTable() {
+    const body = document.getElementById("localLibraryBody");
+    const countEl = document.getElementById("localLibraryCount");
+    if (!body) return false;
+    const localItems = (Store.localLibrary && Store.localLibrary.items) || [];
+    const filterQ = (Store.localFilter || "").trim().toLowerCase();
+    const kindF = Store.localKindFilter || "all";
+    const filteredLocal = localItems.filter((it) => {
+      if (kindF !== "all" && it.kind !== kindF) return false;
+      if (filterQ && !`${it.name} ${it.display_path}`.toLowerCase().includes(filterQ)) return false;
+      return true;
+    });
+    if (countEl) countEl.textContent = String(filteredLocal.length);
+    if (!filteredLocal.length) {
+      body.innerHTML = `<div class="panel-body" style="color:var(--text-secondary)">${esc(t("samples.local.empty"))}</div>`;
+      return true;
+    }
+    const localRows = filteredLocal
+      .map(
+        (it) => `
+          <tr>
+            <td>
+              <div class="mono" style="font-weight:500">${esc(it.name)}</div>
+              <div style="font-size:11px;color:var(--text-muted)">${esc(it.display_path)}</div>
+            </td>
+            <td>${UI.kindBadge(it.kind)}</td>
+            <td class="mono num">${it.dex_count ? `${it.dex_count} DEX` : "—"}</td>
+            <td class="mono num">${esc(UI.fmtBytes(it.size_bytes))}</td>
+            <td class="num">
+              <button class="btn btn-primary btn-xs" type="button" data-action="import-local" data-path="${esc(it.path)}">${esc(t("samples.local.import_btn"))}</button>
+            </td>
+          </tr>
+        `
+      )
+      .join("");
+    const existingTbody = document.getElementById("localLibraryTbody");
+    if (existingTbody) {
+      existingTbody.innerHTML = localRows;
+    } else {
+      body.innerHTML = `<div class="table-wrap"><table class="data-table">
+        <thead><tr><th>${esc(t("samples.local.col.target"))}</th><th>${esc(t("common.type"))}</th><th class="num">${esc(t("samples.local.col.dex"))}</th><th class="num">${esc(t("common.size"))}</th><th class="num">${esc(t("samples.local.col.action"))}</th></tr></thead>
+        <tbody id="localLibraryTbody">${localRows}</tbody>
+      </table></div>`;
+    }
+    return true;
+  }
+
+  function updateVmpStubsTable() {
+    const tbody = document.getElementById("vmpStubsTbody");
+    const titleEl = document.getElementById("vmpStubsTitle");
+    const vmp = Store.activeSample && Store.activeSample.vmp_result;
+    if (!tbody || !vmp) return false;
+    const q = (Store.vmpSearch || "").trim().toLowerCase();
+    const filteredStubs = (vmp.vmp_methods || []).filter((m) => {
+      if (!q) return true;
+      return `${m.class_name || m.class || ""} ${m.method_name || m.method || ""} ${m.dex || ""}`.toLowerCase().includes(q);
+    });
+    if (titleEl) titleEl.textContent = t("vmp.stubs.title", { count: filteredStubs.length });
+    tbody.innerHTML = filteredStubs.length
+      ? filteredStubs
+          .slice(0, 150)
+          .map(
+            (m) =>
+              `<tr><td class="mono">${esc(m.dex || "classes.dex")}</td><td class="mono">${esc(m.class_name || m.class || "")}</td><td class="mono">${esc(m.method_name || m.method || "")}</td><td class="mono num">${m.insns_size || 0}</td></tr>`
+          )
+          .join("")
+      : `<tr><td colspan="4" style="color:var(--text-muted)">${esc(t("vmp.stubs.empty"))}</td></tr>`;
+    return true;
+  }
+
   global.UnpackViews = {
     samples: renderSamplesView,
     overview: renderOverviewView,
@@ -1278,5 +1352,7 @@
     reports: renderReportsView,
     renderTaskDrawer,
     renderDoctorModalHtml,
+    updateLocalLibraryTable,
+    updateVmpStubsTable,
   };
 })(window);

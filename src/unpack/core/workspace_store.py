@@ -10,32 +10,24 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import tempfile
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from unpack.logging_config import get_logger
+from unpack.utils.fs import atomic_write_json, resolve_unpack_home, utc_now_iso
+
+logger = get_logger(__name__)
 
 SCHEMA_VERSION = 1
 DEFAULT_WORKSPACE_ID = "default"
 DEFAULT_WORKSPACE_NAME = "Default Workspace"
 
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-
-
-def resolve_unpack_home(base_dir: str | Path | None = None) -> Path:
-    """Resolve the root UNPACK home directory (``~/.unpack`` or ``UNPACK_HOME``)."""
-    if base_dir is not None:
-        return Path(base_dir).expanduser()
-    env_home = os.environ.get("UNPACK_HOME", "").strip()
-    if env_home:
-        return Path(env_home).expanduser()
-    return Path.home() / ".unpack"
+_utc_now_iso = utc_now_iso
+_atomic_write_json = atomic_write_json
 
 
 def resolve_studio_dir(base_dir: str | Path | None = None) -> Path:
@@ -48,34 +40,6 @@ def resolve_studio_dir(base_dir: str | Path | None = None) -> Path:
     if base_dir is not None:
         return Path(base_dir).expanduser()
     return resolve_unpack_home() / "studio"
-
-
-def _atomic_write_json(path: Path, payload: Any, *, mode: int | None = None) -> None:
-    """Atomically write JSON to ``path`` using temp-file + ``os.replace``."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    serialized = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=str(path.parent),
-    )
-    tmp_path = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(serialized)
-            fh.flush()
-            os.fsync(fh.fileno())
-        if mode is not None and os.name == "posix":
-            os.chmod(tmp_path, mode)
-        os.replace(tmp_path, path)
-        if mode is not None and os.name == "posix":
-            os.chmod(path, mode)
-    except Exception:
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
 
 
 def _safe_json_loads(raw: str | None, default: Any) -> Any:
@@ -404,8 +368,8 @@ class WorkspaceStore:
             if self._conn is not None:
                 try:
                     self._conn.close()
-                except sqlite3.Error:
-                    pass
+                except sqlite3.Error as exc:
+                    logger.debug("Ignoring SQLite close error: %s", exc)
                 self._conn = None  # type: ignore[assignment]
 
     def _connect(self) -> sqlite3.Connection:
@@ -432,7 +396,8 @@ class WorkspaceStore:
             )
             conn.commit()
             return conn
-        except sqlite3.DatabaseError:
+        except sqlite3.DatabaseError as exc:
+            logger.warning("Corrupt workspace DB at %s (%s); quarantining and reinitializing.", self.db_path, exc)
             self._quarantine_corrupt_db()
             conn = self._connect()
             conn.executescript(_SCHEMA_SQL)
@@ -451,11 +416,12 @@ class WorkspaceStore:
                 dst = Path(f"{self.db_path}.corrupt.{stamp}{suffix}")
                 try:
                     os.replace(src, dst)
-                except OSError:
+                except OSError as exc:
+                    logger.debug("Failed quarantining %s to %s: %s", src, dst, exc)
                     try:
                         src.unlink(missing_ok=True)
-                    except OSError:
-                        pass
+                    except OSError as unlink_exc:
+                        logger.debug("Failed removing corrupt DB artifact %s: %s", src, unlink_exc)
 
     def _write_index_mirror(self) -> None:
         """Atomically persist a lightweight JSON index of workspaces for quick inspection."""
@@ -484,9 +450,9 @@ class WorkspaceStore:
                 ],
             }
             _atomic_write_json(self.index_path, payload)
-        except OSError:
+        except OSError as exc:
             # Mirror is best-effort; SQLite remains the source of truth.
-            pass
+            logger.debug("Skipping studio index mirror write at %s: %s", self.index_path, exc)
 
     def _touch_workspace(self, ws_id: str, ts: str | None = None) -> None:
         now = ts or _utc_now_iso()
@@ -554,6 +520,29 @@ class WorkspaceStore:
             updated_at=str(row["updated_at"]),
         )
         return rec.to_dict()
+
+    def _row_to_sample_summary(self, row: sqlite3.Row) -> dict[str, Any]:
+        """Lightweight metadata-only sample serializer avoiding multi-MB JSON deserialization."""
+        rec = SampleRecord(
+            sample_id=str(row["sample_id"]),
+            workspace_id=str(row["workspace_id"]),
+            filename=str(row["filename"]),
+            sha256=str(row["sha256"] or ""),
+            kind=str(row["kind"] or "apk"),
+            size_bytes=int(row["size_bytes"] or 0),
+            source_path=str(row["source_path"] or ""),
+            notes=str(row["notes"] or ""),
+            bookmarks=_normalize_bookmarks(_safe_json_loads(row["bookmarks_json"], [])),
+            created_at=str(row["created_at"]),
+            updated_at=str(row["updated_at"]),
+        )
+        out = rec.to_dict()
+        out["has_scan"] = bool(row["has_scan"])
+        out["has_inspect"] = bool(row["has_inspect"])
+        out["has_vmp"] = bool(row["has_vmp"])
+        out["has_xref"] = bool(row["has_xref"])
+        out["has_repair"] = bool(row["has_repair"])
+        return out
 
     def _row_to_pipeline_run(self, row: sqlite3.Row) -> dict[str, Any]:
         rec = PipelineRunRecord(
@@ -627,6 +616,40 @@ class WorkspaceStore:
             assert ws is not None
             return ws
 
+    def _insert_workspace_in_tx(
+        self,
+        name: str,
+        description: str = "",
+        tags: list[str] | None = None,
+        *,
+        notes: str = "",
+        pinned: bool = False,
+    ) -> str:
+        clean_name = (name or "").strip()
+        if not clean_name:
+            raise ValueError("Workspace name cannot be empty.")
+        ws_id = f"ws_{uuid.uuid4().hex[:12]}"
+        now = _utc_now_iso()
+        norm_tags = _normalize_tags(tags)
+        self._conn.execute(
+            """
+            INSERT INTO workspaces
+            (id, name, description, notes, tags_json, pinned, is_default, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+            """,
+            (
+                ws_id,
+                clean_name,
+                str(description or ""),
+                str(notes or ""),
+                _safe_json_dumps(norm_tags),
+                1 if pinned else 0,
+                now,
+                now,
+            ),
+        )
+        return ws_id
+
     def create_workspace(
         self,
         name: str,
@@ -637,30 +660,14 @@ class WorkspaceStore:
         pinned: bool = False,
     ) -> dict[str, Any]:
         """Create a new workspace and return its serialized representation."""
-        clean_name = (name or "").strip()
-        if not clean_name:
-            raise ValueError("Workspace name cannot be empty.")
-        ws_id = f"ws_{uuid.uuid4().hex[:12]}"
-        now = _utc_now_iso()
-        norm_tags = _normalize_tags(tags)
         with self._lock:
             with self._conn:
-                self._conn.execute(
-                    """
-                    INSERT INTO workspaces
-                    (id, name, description, notes, tags_json, pinned, is_default, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-                    """,
-                    (
-                        ws_id,
-                        clean_name,
-                        str(description or ""),
-                        str(notes or ""),
-                        _safe_json_dumps(norm_tags),
-                        1 if pinned else 0,
-                        now,
-                        now,
-                    ),
+                ws_id = self._insert_workspace_in_tx(
+                    name,
+                    description=description,
+                    tags=tags,
+                    notes=notes,
+                    pinned=pinned,
                 )
             self._write_index_mirror()
             ws = self.get_workspace(ws_id)
@@ -758,6 +765,152 @@ class WorkspaceStore:
     # Saved Samples & Analysis Snapshots
     # ------------------------------------------------------------------
 
+    def _save_sample_in_tx(self, ws_id: str, sample_dict: dict[str, Any]) -> str:
+        if not isinstance(sample_dict, dict):
+            raise ValueError("sample_dict must be a dictionary.")
+
+        now = _utc_now_iso()
+        raw_sha = str(sample_dict.get("sha256") or "").strip().lower()
+        raw_id = str(sample_dict.get("sample_id") or sample_dict.get("id") or "").strip()
+
+        existing_row: sqlite3.Row | None = None
+        if raw_sha:
+            existing_row = self._conn.execute(
+                "SELECT * FROM samples WHERE workspace_id = ? AND sha256 = ?",
+                (ws_id, raw_sha),
+            ).fetchone()
+        if existing_row is None and raw_id:
+            existing_row = self._conn.execute(
+                "SELECT * FROM samples WHERE sample_id = ?",
+                (raw_id,),
+            ).fetchone()
+            # If raw_id belongs to a different workspace, allocate a fresh sample_id
+            # so samples stay isolated per workspace.
+            if existing_row is not None and existing_row["workspace_id"] != ws_id:
+                existing_row = None
+                raw_id = ""
+
+        existing = self._row_to_sample(existing_row) if existing_row is not None else None
+
+        if existing is not None:
+            sample_id = existing["sample_id"]
+            created_at = existing["created_at"]
+        else:
+            sample_id = raw_id or f"smp_{uuid.uuid4().hex[:12]}"
+            created_at = str(sample_dict.get("created_at") or now)
+
+        filename = str(
+            sample_dict.get("filename")
+            or sample_dict.get("name")
+            or (existing["filename"] if existing else "unknown")
+        )
+        sha256 = raw_sha or (existing["sha256"] if existing else "")
+        kind = str(sample_dict.get("kind") or (existing["kind"] if existing else "apk"))
+        size_bytes = int(
+            sample_dict["size_bytes"]
+            if "size_bytes" in sample_dict and sample_dict["size_bytes"] is not None
+            else (existing["size_bytes"] if existing else 0)
+        )
+        source_path = str(
+            sample_dict.get("source_path")
+            if sample_dict.get("source_path") is not None
+            else (
+                sample_dict.get("path")
+                if sample_dict.get("path") is not None
+                else (existing["source_path"] if existing else "")
+            )
+        )
+
+        def _pick(key: str, alt_key: str | None = None) -> Any:
+            if key in sample_dict and sample_dict[key] is not None:
+                return sample_dict[key]
+            if alt_key and alt_key in sample_dict and sample_dict[alt_key] is not None:
+                return sample_dict[alt_key]
+            return existing[key] if existing else None
+
+        scan_result = _pick("scan_result")
+        inspect_result = _pick("inspect_result")
+        vmp_result = _pick("vmp_result")
+        xref_result = _pick("xref_result")
+        repair_result = _pick("repair_result", "repair_diffs")
+
+        notes = (
+            str(sample_dict["notes"])
+            if "notes" in sample_dict and sample_dict["notes"] is not None
+            else (existing["notes"] if existing else "")
+        )
+        bookmarks = (
+            _normalize_bookmarks(sample_dict["bookmarks"])
+            if "bookmarks" in sample_dict and sample_dict["bookmarks"] is not None
+            else (existing["bookmarks"] if existing else [])
+        )
+        ai_analyses = (
+            _normalize_ai_list(sample_dict["ai_analyses"])
+            if "ai_analyses" in sample_dict and sample_dict["ai_analyses"] is not None
+            else (existing["ai_analyses"] if existing else [])
+        )
+
+        if existing is not None:
+            self._conn.execute(
+                """
+                UPDATE samples
+                SET filename = ?, sha256 = ?, kind = ?, size_bytes = ?, source_path = ?,
+                    scan_result_json = ?, inspect_result_json = ?, vmp_result_json = ?,
+                    xref_result_json = ?, repair_result_json = ?,
+                    notes = ?, bookmarks_json = ?, ai_analyses_json = ?, updated_at = ?
+                WHERE sample_id = ?
+                """,
+                (
+                    filename,
+                    sha256,
+                    kind,
+                    size_bytes,
+                    source_path,
+                    _safe_json_dumps(scan_result) if scan_result is not None else None,
+                    _safe_json_dumps(inspect_result) if inspect_result is not None else None,
+                    _safe_json_dumps(vmp_result) if vmp_result is not None else None,
+                    _safe_json_dumps(xref_result) if xref_result is not None else None,
+                    _safe_json_dumps(repair_result) if repair_result is not None else None,
+                    notes,
+                    _safe_json_dumps(bookmarks),
+                    _safe_json_dumps(ai_analyses),
+                    now,
+                    sample_id,
+                ),
+            )
+        else:
+            self._conn.execute(
+                """
+                INSERT INTO samples
+                (sample_id, workspace_id, filename, sha256, kind, size_bytes, source_path,
+                 scan_result_json, inspect_result_json, vmp_result_json, xref_result_json,
+                 repair_result_json, notes, bookmarks_json, ai_analyses_json,
+                 created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    sample_id,
+                    ws_id,
+                    filename,
+                    sha256,
+                    kind,
+                    size_bytes,
+                    source_path,
+                    _safe_json_dumps(scan_result) if scan_result is not None else None,
+                    _safe_json_dumps(inspect_result) if inspect_result is not None else None,
+                    _safe_json_dumps(vmp_result) if vmp_result is not None else None,
+                    _safe_json_dumps(xref_result) if xref_result is not None else None,
+                    _safe_json_dumps(repair_result) if repair_result is not None else None,
+                    notes,
+                    _safe_json_dumps(bookmarks),
+                    _safe_json_dumps(ai_analyses),
+                    created_at,
+                    now,
+                ),
+            )
+        self._touch_workspace(ws_id, now)
+        return sample_id
+
     def save_sample(self, workspace_id: str, sample_dict: dict[str, Any]) -> dict[str, Any]:
         """Upsert a sample snapshot into ``workspace_id`` keyed by ``(workspace_id, sha256)``.
 
@@ -770,166 +923,55 @@ class WorkspaceStore:
 
         with self._lock:
             ws_id = self._ensure_workspace_exists(workspace_id)
-            now = _utc_now_iso()
-
-            raw_sha = str(sample_dict.get("sha256") or "").strip().lower()
-            raw_id = str(sample_dict.get("sample_id") or sample_dict.get("id") or "").strip()
-
-            existing_row: sqlite3.Row | None = None
-            if raw_sha:
-                existing_row = self._conn.execute(
-                    "SELECT * FROM samples WHERE workspace_id = ? AND sha256 = ?",
-                    (ws_id, raw_sha),
-                ).fetchone()
-            if existing_row is None and raw_id:
-                existing_row = self._conn.execute(
-                    "SELECT * FROM samples WHERE sample_id = ?",
-                    (raw_id,),
-                ).fetchone()
-                # If raw_id belongs to a different workspace, allocate a fresh sample_id
-                # so samples stay isolated per workspace.
-                if existing_row is not None and existing_row["workspace_id"] != ws_id:
-                    existing_row = None
-                    raw_id = ""
-
-            existing = self._row_to_sample(existing_row) if existing_row is not None else None
-
-            if existing is not None:
-                sample_id = existing["sample_id"]
-                created_at = existing["created_at"]
-            else:
-                sample_id = raw_id or f"smp_{uuid.uuid4().hex[:12]}"
-                created_at = str(sample_dict.get("created_at") or now)
-
-            filename = str(
-                sample_dict.get("filename")
-                or sample_dict.get("name")
-                or (existing["filename"] if existing else "unknown")
-            )
-            sha256 = raw_sha or (existing["sha256"] if existing else "")
-            kind = str(sample_dict.get("kind") or (existing["kind"] if existing else "apk"))
-            size_bytes = int(
-                sample_dict["size_bytes"]
-                if "size_bytes" in sample_dict and sample_dict["size_bytes"] is not None
-                else (existing["size_bytes"] if existing else 0)
-            )
-            source_path = str(
-                sample_dict.get("source_path")
-                if sample_dict.get("source_path") is not None
-                else (
-                    sample_dict.get("path")
-                    if sample_dict.get("path") is not None
-                    else (existing["source_path"] if existing else "")
-                )
-            )
-
-            def _pick(key: str, alt_key: str | None = None) -> Any:
-                if key in sample_dict and sample_dict[key] is not None:
-                    return sample_dict[key]
-                if alt_key and alt_key in sample_dict and sample_dict[alt_key] is not None:
-                    return sample_dict[alt_key]
-                return existing[key] if existing else None
-
-            scan_result = _pick("scan_result")
-            inspect_result = _pick("inspect_result")
-            vmp_result = _pick("vmp_result")
-            xref_result = _pick("xref_result")
-            repair_result = _pick("repair_result", "repair_diffs")
-
-            notes = (
-                str(sample_dict["notes"])
-                if "notes" in sample_dict and sample_dict["notes"] is not None
-                else (existing["notes"] if existing else "")
-            )
-            bookmarks = (
-                _normalize_bookmarks(sample_dict["bookmarks"])
-                if "bookmarks" in sample_dict and sample_dict["bookmarks"] is not None
-                else (existing["bookmarks"] if existing else [])
-            )
-            ai_analyses = (
-                _normalize_ai_list(sample_dict["ai_analyses"])
-                if "ai_analyses" in sample_dict and sample_dict["ai_analyses"] is not None
-                else (existing["ai_analyses"] if existing else [])
-            )
-
             with self._conn:
-                if existing is not None:
-                    self._conn.execute(
-                        """
-                        UPDATE samples
-                        SET filename = ?, sha256 = ?, kind = ?, size_bytes = ?, source_path = ?,
-                            scan_result_json = ?, inspect_result_json = ?, vmp_result_json = ?,
-                            xref_result_json = ?, repair_result_json = ?,
-                            notes = ?, bookmarks_json = ?, ai_analyses_json = ?, updated_at = ?
-                        WHERE sample_id = ?
-                        """,
-                        (
-                            filename,
-                            sha256,
-                            kind,
-                            size_bytes,
-                            source_path,
-                            _safe_json_dumps(scan_result) if scan_result is not None else None,
-                            _safe_json_dumps(inspect_result) if inspect_result is not None else None,
-                            _safe_json_dumps(vmp_result) if vmp_result is not None else None,
-                            _safe_json_dumps(xref_result) if xref_result is not None else None,
-                            _safe_json_dumps(repair_result) if repair_result is not None else None,
-                            notes,
-                            _safe_json_dumps(bookmarks),
-                            _safe_json_dumps(ai_analyses),
-                            now,
-                            sample_id,
-                        ),
-                    )
-                else:
-                    self._conn.execute(
-                        """
-                        INSERT INTO samples
-                        (sample_id, workspace_id, filename, sha256, kind, size_bytes, source_path,
-                         scan_result_json, inspect_result_json, vmp_result_json, xref_result_json,
-                         repair_result_json, notes, bookmarks_json, ai_analyses_json,
-                         created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            sample_id,
-                            ws_id,
-                            filename,
-                            sha256,
-                            kind,
-                            size_bytes,
-                            source_path,
-                            _safe_json_dumps(scan_result) if scan_result is not None else None,
-                            _safe_json_dumps(inspect_result) if inspect_result is not None else None,
-                            _safe_json_dumps(vmp_result) if vmp_result is not None else None,
-                            _safe_json_dumps(xref_result) if xref_result is not None else None,
-                            _safe_json_dumps(repair_result) if repair_result is not None else None,
-                            notes,
-                            _safe_json_dumps(bookmarks),
-                            _safe_json_dumps(ai_analyses),
-                            created_at,
-                            now,
-                        ),
-                    )
-                self._touch_workspace(ws_id, now)
-
+                sample_id = self._save_sample_in_tx(ws_id, sample_dict)
             result = self.get_sample(sample_id, workspace_id=ws_id)
             assert result is not None
             return result
 
-    def list_samples(self, workspace_id: str | None = None) -> list[dict[str, Any]]:
-        """List saved samples, optionally filtered by ``workspace_id``."""
+    def list_samples(
+        self,
+        workspace_id: str | None = None,
+        *,
+        include_results: bool = True,
+    ) -> list[dict[str, Any]]:
+        """List saved samples, optionally filtered by ``workspace_id``.
+
+        Pass ``include_results=False`` to fetch lightweight metadata rows without
+        loading or deserializing multi-MB analysis result JSON columns.
+        """
         with self._lock:
+            if include_results:
+                if workspace_id:
+                    rows = self._conn.execute(
+                        "SELECT * FROM samples WHERE workspace_id = ? ORDER BY updated_at DESC",
+                        (workspace_id,),
+                    ).fetchall()
+                else:
+                    rows = self._conn.execute(
+                        "SELECT * FROM samples ORDER BY updated_at DESC"
+                    ).fetchall()
+                return [self._row_to_sample(r) for r in rows]
+
+            cols = (
+                "sample_id, workspace_id, filename, sha256, kind, size_bytes, source_path, "
+                "notes, bookmarks_json, created_at, updated_at, "
+                "(scan_result_json IS NOT NULL) AS has_scan, "
+                "(inspect_result_json IS NOT NULL) AS has_inspect, "
+                "(vmp_result_json IS NOT NULL) AS has_vmp, "
+                "(xref_result_json IS NOT NULL) AS has_xref, "
+                "(repair_result_json IS NOT NULL) AS has_repair"
+            )
             if workspace_id:
                 rows = self._conn.execute(
-                    "SELECT * FROM samples WHERE workspace_id = ? ORDER BY updated_at DESC",
+                    f"SELECT {cols} FROM samples WHERE workspace_id = ? ORDER BY updated_at DESC",
                     (workspace_id,),
                 ).fetchall()
             else:
                 rows = self._conn.execute(
-                    "SELECT * FROM samples ORDER BY updated_at DESC"
+                    f"SELECT {cols} FROM samples ORDER BY updated_at DESC"
                 ).fetchall()
-            return [self._row_to_sample(r) for r in rows]
+            return [self._row_to_sample_summary(r) for r in rows]
 
     def get_sample(
         self,
@@ -1002,6 +1044,75 @@ class WorkspaceStore:
     # Pipeline Run History
     # ------------------------------------------------------------------
 
+    def _save_pipeline_run_in_tx(self, ws_id: str, run_dict: dict[str, Any]) -> str:
+        if not isinstance(run_dict, dict):
+            raise ValueError("run_dict must be a dictionary.")
+        now = _utc_now_iso()
+        run_id = str(run_dict.get("id") or run_dict.get("run_id") or f"run_{uuid.uuid4().hex[:12]}")
+        sample_id = run_dict.get("sample_id")
+        if sample_id is not None:
+            sample_id = str(sample_id)
+        name = str(run_dict.get("name") or run_dict.get("kind") or "pipeline")
+        stage = str(run_dict.get("stage") or "")
+        status = str(run_dict.get("status") or "completed")
+        started_at = str(run_dict.get("started_at") or now)
+        finished_at = str(run_dict.get("finished_at") or "")
+        duration_ms = int(run_dict.get("duration_ms") or 0)
+        summary = str(run_dict.get("summary") or "")
+        error = str(run_dict.get("error") or "")
+        stages = run_dict.get("stages") if isinstance(run_dict.get("stages"), list) else []
+        payload = dict(run_dict.get("payload") or {})
+        known_keys = {
+            "id", "run_id", "workspace_id", "sample_id", "name", "stage", "status",
+            "started_at", "finished_at", "duration_ms", "summary", "error",
+            "stages", "payload", "created_at",
+        }
+        for k, v in run_dict.items():
+            if k not in known_keys and k not in payload:
+                payload[k] = v
+
+        created_at = str(run_dict.get("created_at") or now)
+
+        self._conn.execute(
+            """
+            INSERT INTO pipeline_runs
+            (id, workspace_id, sample_id, name, stage, status, started_at, finished_at,
+             duration_ms, summary, error, stages_json, payload_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                workspace_id = excluded.workspace_id,
+                sample_id = excluded.sample_id,
+                name = excluded.name,
+                stage = excluded.stage,
+                status = excluded.status,
+                started_at = excluded.started_at,
+                finished_at = excluded.finished_at,
+                duration_ms = excluded.duration_ms,
+                summary = excluded.summary,
+                error = excluded.error,
+                stages_json = excluded.stages_json,
+                payload_json = excluded.payload_json
+            """,
+            (
+                run_id,
+                ws_id,
+                sample_id,
+                name,
+                stage,
+                status,
+                started_at,
+                finished_at,
+                duration_ms,
+                summary,
+                error,
+                _safe_json_dumps(stages),
+                _safe_json_dumps(payload),
+                created_at,
+            ),
+        )
+        self._touch_workspace(ws_id, now)
+        return run_id
+
     def save_pipeline_run(self, workspace_id: str, run_dict: dict[str, Any]) -> dict[str, Any]:
         """Persist or update a pipeline run entry in ``workspace_id``."""
         if not isinstance(run_dict, dict):
@@ -1009,73 +1120,8 @@ class WorkspaceStore:
 
         with self._lock:
             ws_id = self._ensure_workspace_exists(workspace_id)
-            now = _utc_now_iso()
-            run_id = str(run_dict.get("id") or run_dict.get("run_id") or f"run_{uuid.uuid4().hex[:12]}")
-            sample_id = run_dict.get("sample_id")
-            if sample_id is not None:
-                sample_id = str(sample_id)
-            name = str(run_dict.get("name") or run_dict.get("kind") or "pipeline")
-            stage = str(run_dict.get("stage") or "")
-            status = str(run_dict.get("status") or "completed")
-            started_at = str(run_dict.get("started_at") or now)
-            finished_at = str(run_dict.get("finished_at") or "")
-            duration_ms = int(run_dict.get("duration_ms") or 0)
-            summary = str(run_dict.get("summary") or "")
-            error = str(run_dict.get("error") or "")
-            stages = run_dict.get("stages") if isinstance(run_dict.get("stages"), list) else []
-            payload = dict(run_dict.get("payload") or {})
-            # Preserve any extra caller-supplied fields inside payload
-            known_keys = {
-                "id", "run_id", "workspace_id", "sample_id", "name", "stage", "status",
-                "started_at", "finished_at", "duration_ms", "summary", "error",
-                "stages", "payload", "created_at",
-            }
-            for k, v in run_dict.items():
-                if k not in known_keys and k not in payload:
-                    payload[k] = v
-
-            created_at = str(run_dict.get("created_at") or now)
-
             with self._conn:
-                self._conn.execute(
-                    """
-                    INSERT INTO pipeline_runs
-                    (id, workspace_id, sample_id, name, stage, status, started_at, finished_at,
-                     duration_ms, summary, error, stages_json, payload_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        workspace_id = excluded.workspace_id,
-                        sample_id = excluded.sample_id,
-                        name = excluded.name,
-                        stage = excluded.stage,
-                        status = excluded.status,
-                        started_at = excluded.started_at,
-                        finished_at = excluded.finished_at,
-                        duration_ms = excluded.duration_ms,
-                        summary = excluded.summary,
-                        error = excluded.error,
-                        stages_json = excluded.stages_json,
-                        payload_json = excluded.payload_json
-                    """,
-                    (
-                        run_id,
-                        ws_id,
-                        sample_id,
-                        name,
-                        stage,
-                        status,
-                        started_at,
-                        finished_at,
-                        duration_ms,
-                        summary,
-                        error,
-                        _safe_json_dumps(stages),
-                        _safe_json_dumps(payload),
-                        created_at,
-                    ),
-                )
-                self._touch_workspace(ws_id, now)
-
+                run_id = self._save_pipeline_run_in_tx(ws_id, run_dict)
             row = self._conn.execute(
                 "SELECT * FROM pipeline_runs WHERE id = ?",
                 (run_id,),
@@ -1112,14 +1158,13 @@ class WorkspaceStore:
     # AI Analysis History
     # ------------------------------------------------------------------
 
-    def save_ai_analysis(
+    def _save_ai_analysis_in_tx(
         self,
-        workspace_id: str,
+        ws_id: str,
         sample_id: str | None,
         module: str,
         analysis_dict: dict[str, Any] | Any,
-    ) -> dict[str, Any]:
-        """Persist an AI analysis entry and mirror a summary onto the sample if present."""
+    ) -> str:
         if hasattr(analysis_dict, "to_dict") and callable(analysis_dict.to_dict):
             data = dict(analysis_dict.to_dict())
         elif isinstance(analysis_dict, dict):
@@ -1128,91 +1173,100 @@ class WorkspaceStore:
             raise ValueError("analysis_dict must be a dict or expose .to_dict().")
 
         clean_module = (module or data.get("module") or "general").strip()
-        with self._lock:
-            ws_id = self._ensure_workspace_exists(workspace_id)
-            now = _utc_now_iso()
-            aid = str(data.get("id") or f"ai_{uuid.uuid4().hex[:12]}")
-            sid = str(sample_id) if sample_id is not None else None
-            provider = str(data.get("provider") or "")
-            model = str(data.get("model") or "")
-            lang = str(data.get("lang") or "zh")
-            title = str(data.get("title") or "")
-            summary = str(data.get("summary") or "")
-            markdown = str(data.get("markdown") or "")
-            latency_ms = int(data.get("latency_ms") or 0)
-            usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
-            created_at = str(data.get("created_at") or now)
+        now = _utc_now_iso()
+        aid = str(data.get("id") or f"ai_{uuid.uuid4().hex[:12]}")
+        sid = str(sample_id) if sample_id is not None else None
+        provider = str(data.get("provider") or "")
+        model = str(data.get("model") or "")
+        lang = str(data.get("lang") or "zh")
+        title = str(data.get("title") or "")
+        summary = str(data.get("summary") or "")
+        markdown = str(data.get("markdown") or "")
+        latency_ms = int(data.get("latency_ms") or 0)
+        usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        created_at = str(data.get("created_at") or now)
 
-            with self._conn:
+        self._conn.execute(
+            """
+            INSERT INTO ai_analyses
+            (id, workspace_id, sample_id, module, provider, model, lang,
+             title, summary, markdown, latency_ms, usage_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                workspace_id = excluded.workspace_id,
+                sample_id = excluded.sample_id,
+                module = excluded.module,
+                provider = excluded.provider,
+                model = excluded.model,
+                lang = excluded.lang,
+                title = excluded.title,
+                summary = excluded.summary,
+                markdown = excluded.markdown,
+                latency_ms = excluded.latency_ms,
+                usage_json = excluded.usage_json
+            """,
+            (
+                aid,
+                ws_id,
+                sid,
+                clean_module,
+                provider,
+                model,
+                lang,
+                title,
+                summary,
+                markdown,
+                latency_ms,
+                _safe_json_dumps(usage),
+                created_at,
+            ),
+        )
+
+        # Mirror compact reference into the sample's ai_analyses list when sample exists.
+        if sid:
+            srow = self._conn.execute(
+                "SELECT ai_analyses_json FROM samples WHERE sample_id = ? AND workspace_id = ?",
+                (sid, ws_id),
+            ).fetchone()
+            if srow is not None:
+                existing_list = _normalize_ai_list(
+                    _safe_json_loads(srow["ai_analyses_json"], [])
+                )
+                entry = {
+                    "id": aid,
+                    "module": clean_module,
+                    "provider": provider,
+                    "model": model,
+                    "lang": lang,
+                    "title": title,
+                    "summary": summary,
+                    "markdown": markdown,
+                    "latency_ms": latency_ms,
+                    "usage": usage,
+                    "created_at": created_at,
+                }
+                filtered = [x for x in existing_list if x.get("id") != aid]
+                filtered.insert(0, entry)
                 self._conn.execute(
-                    """
-                    INSERT INTO ai_analyses
-                    (id, workspace_id, sample_id, module, provider, model, lang,
-                     title, summary, markdown, latency_ms, usage_json, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(id) DO UPDATE SET
-                        workspace_id = excluded.workspace_id,
-                        sample_id = excluded.sample_id,
-                        module = excluded.module,
-                        provider = excluded.provider,
-                        model = excluded.model,
-                        lang = excluded.lang,
-                        title = excluded.title,
-                        summary = excluded.summary,
-                        markdown = excluded.markdown,
-                        latency_ms = excluded.latency_ms,
-                        usage_json = excluded.usage_json
-                    """,
-                    (
-                        aid,
-                        ws_id,
-                        sid,
-                        clean_module,
-                        provider,
-                        model,
-                        lang,
-                        title,
-                        summary,
-                        markdown,
-                        latency_ms,
-                        _safe_json_dumps(usage),
-                        created_at,
-                    ),
+                    "UPDATE samples SET ai_analyses_json = ?, updated_at = ? WHERE sample_id = ?",
+                    (_safe_json_dumps(filtered[:50]), now, sid),
                 )
 
-                # Mirror compact reference into the sample's ai_analyses list when sample exists.
-                if sid:
-                    srow = self._conn.execute(
-                        "SELECT ai_analyses_json FROM samples WHERE sample_id = ? AND workspace_id = ?",
-                        (sid, ws_id),
-                    ).fetchone()
-                    if srow is not None:
-                        existing_list = _normalize_ai_list(
-                            _safe_json_loads(srow["ai_analyses_json"], [])
-                        )
-                        entry = {
-                            "id": aid,
-                            "module": clean_module,
-                            "provider": provider,
-                            "model": model,
-                            "lang": lang,
-                            "title": title,
-                            "summary": summary,
-                            "markdown": markdown,
-                            "latency_ms": latency_ms,
-                            "usage": usage,
-                            "created_at": created_at,
-                        }
-                        filtered = [x for x in existing_list if x.get("id") != aid]
-                        filtered.insert(0, entry)
-                        # Keep up to 50 most recent inline snapshots per sample
-                        self._conn.execute(
-                            "UPDATE samples SET ai_analyses_json = ?, updated_at = ? WHERE sample_id = ?",
-                            (_safe_json_dumps(filtered[:50]), now, sid),
-                        )
+        self._touch_workspace(ws_id, now)
+        return aid
 
-                self._touch_workspace(ws_id, now)
-
+    def save_ai_analysis(
+        self,
+        workspace_id: str,
+        sample_id: str | None,
+        module: str,
+        analysis_dict: dict[str, Any] | Any,
+    ) -> dict[str, Any]:
+        """Persist an AI analysis entry and mirror a summary onto the sample if present."""
+        with self._lock:
+            ws_id = self._ensure_workspace_exists(workspace_id)
+            with self._conn:
+                aid = self._save_ai_analysis_in_tx(ws_id, sample_id, module, analysis_dict)
             row = self._conn.execute(
                 "SELECT * FROM ai_analyses WHERE id = ?",
                 (aid,),
@@ -1299,49 +1353,50 @@ class WorkspaceStore:
             raise ValueError("Workspace bundle lists ('samples', 'pipeline_runs', 'ai_analyses') must be arrays.")
 
         with self._lock:
-            restored_ws = self.create_workspace(
-                name=base_name,
-                description=str(ws_meta.get("description") or ""),
-                tags=_normalize_tags(ws_meta.get("tags")),
-                notes=str(ws_meta.get("notes") or ""),
-                pinned=bool(ws_meta.get("pinned", False)),
-            )
-            new_ws_id = restored_ws["id"]
+            with self._conn:
+                new_ws_id = self._insert_workspace_in_tx(
+                    name=base_name,
+                    description=str(ws_meta.get("description") or ""),
+                    tags=_normalize_tags(ws_meta.get("tags")),
+                    notes=str(ws_meta.get("notes") or ""),
+                    pinned=bool(ws_meta.get("pinned", False)),
+                )
 
-            sample_id_map: dict[str, str] = {}
-            for item in samples_raw:
-                if not isinstance(item, dict):
-                    continue
-                old_sid = str(item.get("sample_id") or item.get("id") or "")
-                new_sid = f"smp_{uuid.uuid4().hex[:12]}"
-                sample_copy = dict(item)
-                sample_copy["sample_id"] = new_sid
-                sample_copy.pop("id", None)
-                saved = self.save_sample(new_ws_id, sample_copy)
-                if old_sid:
-                    sample_id_map[old_sid] = saved["sample_id"]
+                sample_id_map: dict[str, str] = {}
+                for item in samples_raw:
+                    if not isinstance(item, dict):
+                        continue
+                    old_sid = str(item.get("sample_id") or item.get("id") or "")
+                    new_sid = f"smp_{uuid.uuid4().hex[:12]}"
+                    sample_copy = dict(item)
+                    sample_copy["sample_id"] = new_sid
+                    sample_copy.pop("id", None)
+                    saved_sid = self._save_sample_in_tx(new_ws_id, sample_copy)
+                    if old_sid:
+                        sample_id_map[old_sid] = saved_sid
 
-            for run in runs_raw:
-                if not isinstance(run, dict):
-                    continue
-                run_copy = dict(run)
-                run_copy["id"] = f"run_{uuid.uuid4().hex[:12]}"
-                run_copy.pop("run_id", None)
-                old_sid = run_copy.get("sample_id")
-                if old_sid is not None:
-                    run_copy["sample_id"] = sample_id_map.get(str(old_sid), str(old_sid))
-                self.save_pipeline_run(new_ws_id, run_copy)
+                for run in runs_raw:
+                    if not isinstance(run, dict):
+                        continue
+                    run_copy = dict(run)
+                    run_copy["id"] = f"run_{uuid.uuid4().hex[:12]}"
+                    run_copy.pop("run_id", None)
+                    old_sid = run_copy.get("sample_id")
+                    if old_sid is not None:
+                        run_copy["sample_id"] = sample_id_map.get(str(old_sid), str(old_sid))
+                    self._save_pipeline_run_in_tx(new_ws_id, run_copy)
 
-            for ana in analyses_raw:
-                if not isinstance(ana, dict):
-                    continue
-                ana_copy = dict(ana)
-                ana_copy["id"] = f"ai_{uuid.uuid4().hex[:12]}"
-                old_sid = ana_copy.get("sample_id")
-                mapped_sid = sample_id_map.get(str(old_sid), str(old_sid)) if old_sid is not None else None
-                module = str(ana_copy.get("module") or "general")
-                self.save_ai_analysis(new_ws_id, mapped_sid, module, ana_copy)
+                for ana in analyses_raw:
+                    if not isinstance(ana, dict):
+                        continue
+                    ana_copy = dict(ana)
+                    ana_copy["id"] = f"ai_{uuid.uuid4().hex[:12]}"
+                    old_sid = ana_copy.get("sample_id")
+                    mapped_sid = sample_id_map.get(str(old_sid), str(old_sid)) if old_sid is not None else None
+                    module = str(ana_copy.get("module") or "general")
+                    self._save_ai_analysis_in_tx(new_ws_id, mapped_sid, module, ana_copy)
 
+            self._write_index_mirror()
             final_ws = self.get_workspace(new_ws_id)
             assert final_ws is not None
             return final_ws

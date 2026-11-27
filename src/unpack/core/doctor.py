@@ -16,6 +16,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from unpack import __version__ as UNPACK_VERSION
+from unpack.logging_config import get_logger
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -116,7 +119,8 @@ def _pkg_version(dist_name: str, import_name: str | None = None) -> tuple[bool, 
     try:
         imported = __import__(mod)
         return True, str(getattr(imported, "__version__", "installed"))
-    except Exception:
+    except Exception as exc:
+        log.debug("Optional dependency %s not importable: %s", mod, exc)
         return False, ""
 
 
@@ -134,7 +138,8 @@ def _probe_tool(binary: str, version_args: list[str], timeout: float) -> tuple[b
         raw = (proc.stdout or proc.stderr or "").strip()
         first_line = raw.splitlines()[0].strip() if raw else ""
         return True, path, first_line[:80]
-    except Exception:
+    except Exception as exc:
+        log.debug("Version probe failed for %s: %s", binary, exc)
         return True, path, ""
 
 
@@ -143,7 +148,8 @@ def _safe_adb_shell(serial: str, cmd: str, timeout: float, root: bool = False) -
 
     try:
         return adb_shell(serial, cmd, timeout=int(max(1, round(timeout))), root=root)
-    except Exception:
+    except Exception as exc:
+        log.debug("Doctor adb_shell failed (%s): %s", cmd, exc)
         return ""
 
 

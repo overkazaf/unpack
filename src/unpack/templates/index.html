@@ -167,14 +167,25 @@
     </div>
   </aside>
 
-  <!-- Modal Backdrop (Doctor) -->
+  <!-- Modal Backdrop (Doctor / Workspaces / AI Settings) -->
   <div class="modal-backdrop" id="modalBackdrop" hidden>
-    <div class="modal-dialog" id="modalDialog" role="dialog" aria-modal="true">
+    <div class="modal-dialog" id="modalDialog" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
       <div class="modal-header">
         <h3 id="modalTitle">Modal</h3>
         <button class="btn btn-ghost btn-xs" id="btnCloseModal" type="button" aria-label="Close">✕</button>
       </div>
       <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- Lightweight Confirm / Prompt Dialog Backdrop -->
+  <div class="modal-backdrop dialog-backdrop" id="dialogBackdrop" hidden>
+    <div class="modal-dialog modal-dialog-sm" id="dialogBox" role="alertdialog" aria-modal="true" aria-labelledby="dialogTitle">
+      <div class="modal-header">
+        <h3 id="dialogTitle">Confirm</h3>
+        <button class="btn btn-ghost btn-xs" id="btnCloseDialog" type="button" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body" id="dialogBody"></div>
     </div>
   </div>
 

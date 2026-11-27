@@ -133,10 +133,18 @@
       const res = await global.UnpackAPI.getAiConfig();
       Store.aiConfig = res.config || null;
       Store.aiPresets = res.presets || [];
+      Store.degraded.ai = false;
       updateStatusIndicators();
       if (settingsOpen) renderSettingsModal();
       return res;
-    } catch (_) {
+    } catch (err) {
+      Store.degraded.ai = true;
+      document.querySelectorAll("[data-ai-dot]").forEach((dot) => {
+        dot.className = "status-dot fail";
+      });
+      document.querySelectorAll("[data-ai-status-text]").forEach((el) => {
+        el.textContent = t("status.degraded");
+      });
       return null;
     }
   }

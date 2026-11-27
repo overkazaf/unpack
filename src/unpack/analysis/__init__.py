@@ -16,6 +16,13 @@ from unpack.analysis.disasm import (
     FullDalvikDisassembler,
     Instruction,
 )
+from unpack.analysis.ioc import (
+    ANTI_ANALYSIS_RE,
+    IP_RE,
+    SECRET_RE,
+    URL_RE,
+    categorize_string,
+)
 from unpack.analysis.native import ElfSectionInfo, NativeAnalyzer, NativeLibInfo, shannon_entropy
 from unpack.analysis.vmp import MethodClassification, VmpDetector, VmpReport
 from unpack.analysis.xref import XrefBuilder, XrefReport
@@ -24,6 +31,7 @@ __all__ = [
     "DalvikDecoder", "Instruction", "FullDalvikDisassembler", "DecodedInstruction",
     "DexInspector", "DexOverview", "PackageNode", "ClassSummary", "ClassPage",
     "FieldSummary", "MethodSummary", "ClassDetail", "MethodDisassembly", "StringHit",
+    "URL_RE", "IP_RE", "SECRET_RE", "ANTI_ANALYSIS_RE", "categorize_string",
     "NativeAnalyzer", "NativeLibInfo", "ElfSectionInfo", "shannon_entropy",
     "VmpDetector", "VmpReport", "MethodClassification",
     "XrefBuilder", "XrefReport",

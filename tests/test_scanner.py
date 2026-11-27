@@ -98,3 +98,39 @@ class TestScanResultSerialization:
         result = scanner.scan(p, verbose=True)
         report = result.to_report()
         assert "UNPACK SCAN REPORT" in report
+
+
+class TestSignaturesExtractionAndExitStack:
+    def test_signatures_reexported_from_scanner(self):
+        from unpack.core.scanner import PACKER_SIGNATURES as scanner_sigs
+        from unpack.core.signatures import PACKER_SIGNATURES as sig_db
+
+        assert scanner_sigs is sig_db
+        assert len(sig_db) == 24
+
+    def test_extra_apks_closed_on_exception(self, scanner, tmp_path, monkeypatch):
+        import zipfile
+
+        base_apk = tmp_path / "base.apk"
+        split_apk = tmp_path / "split_arm64.apk"
+        with zipfile.ZipFile(base_apk, "w") as zf:
+            zf.writestr("AndroidManifest.xml", b"manifest")
+        with zipfile.ZipFile(split_apk, "w") as zf:
+            zf.writestr("lib/arm64-v8a/libjiagu.so", b"\x00" * 32)
+
+        opened: list[zipfile.ZipFile] = []
+        orig_zip = zipfile.ZipFile
+
+        def _tracking_zip(*args, **kwargs):
+            zf = orig_zip(*args, **kwargs)
+            opened.append(zf)
+            return zf
+
+        monkeypatch.setattr("unpack.core.scanner.zipfile.ZipFile", _tracking_zip)
+        monkeypatch.setattr(scanner, "_check_so", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
+
+        with pytest.raises(RuntimeError, match="boom"):
+            scanner.scan(base_apk, extra_apks=[split_apk])
+
+        assert len(opened) == 2
+        assert all(zf.fp is None for zf in opened)

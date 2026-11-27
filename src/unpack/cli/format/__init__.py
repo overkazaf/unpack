@@ -1,0 +1,95 @@
+"""Rich Design System & domain renderers for the `unpack` CLI."""
+
+from __future__ import annotations
+
+from unpack.cli.format.ai_workspace import (
+    print_ai_analysis,
+    print_ai_config,
+    print_ai_test_result,
+    print_workspace_detail,
+    print_workspace_list,
+)
+from unpack.cli.format.components import (
+    render_error,
+    render_header,
+    render_kv_card,
+    render_next_steps,
+    render_pipeline_step,
+    render_table,
+    render_tree,
+    render_wizard_step,
+)
+from unpack.cli.format.dex import (
+    print_inspect_apk,
+    print_inspect_dex,
+    print_repair_summary,
+    print_report,
+    print_verify_result,
+    print_verify_summary,
+    print_vmp_summary,
+    print_xref_summary,
+)
+from unpack.cli.format.pipeline import render_pipeline_blueprint
+from unpack.cli.format.scan import (
+    print_doctor_report,
+    print_scan_result,
+    print_verbose,
+)
+from unpack.cli.format.theme import (
+    C_ACCENT,
+    C_DIM,
+    C_FAIL,
+    C_HEADER,
+    C_INFO,
+    C_LABEL,
+    C_OK,
+    C_WARN,
+    UNPACK_THEME,
+    confidence_bar,
+    create_console,
+    format_bytes,
+    render_severity_badge,
+    safe,
+)
+
+__all__ = [
+    "C_ACCENT",
+    "C_DIM",
+    "C_FAIL",
+    "C_HEADER",
+    "C_INFO",
+    "C_LABEL",
+    "C_OK",
+    "C_WARN",
+    "UNPACK_THEME",
+    "confidence_bar",
+    "create_console",
+    "format_bytes",
+    "print_ai_analysis",
+    "print_ai_config",
+    "print_ai_test_result",
+    "print_doctor_report",
+    "print_inspect_apk",
+    "print_inspect_dex",
+    "print_repair_summary",
+    "print_report",
+    "print_scan_result",
+    "print_verbose",
+    "print_verify_result",
+    "print_verify_summary",
+    "print_vmp_summary",
+    "print_workspace_detail",
+    "print_workspace_list",
+    "print_xref_summary",
+    "render_error",
+    "render_header",
+    "render_kv_card",
+    "render_next_steps",
+    "render_pipeline_blueprint",
+    "render_pipeline_step",
+    "render_severity_badge",
+    "render_table",
+    "render_tree",
+    "render_wizard_step",
+    "safe",
+]

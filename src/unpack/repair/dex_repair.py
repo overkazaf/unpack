@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-import hashlib
 import struct
-import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from unpack.repair.dex_parser import DexFile, VALID_MAGICS, HEADER_SIZE, is_cdex
+from unpack.repair.dex_parser import (
+    DexFile,
+    HEADER_SIZE,
+    VALID_MAGICS,
+    compute_dex_checksum,
+    compute_dex_signature,
+    is_cdex,
+)
 from unpack.repair.verifier import DexVerifier, VerifyResult
 
 
@@ -383,7 +388,7 @@ class DexRepairPipeline:
     @staticmethod
     def _fix_signature(data: bytearray, actions: list[str]) -> bytearray:
         current_sig = bytes(data[12:32])
-        computed_sig = hashlib.sha1(bytes(data[32:])).digest()
+        computed_sig = compute_dex_signature(data)
         if current_sig != computed_sig:
             data[12:32] = computed_sig
             actions.append("fixed SHA-1 signature")
@@ -392,7 +397,7 @@ class DexRepairPipeline:
     @staticmethod
     def _fix_checksum(data: bytearray, fmt: str, actions: list[str]) -> bytearray:
         current = struct.unpack_from(f"{fmt}I", data, 8)[0]
-        computed = zlib.adler32(bytes(data[12:])) & 0xFFFFFFFF
+        computed = compute_dex_checksum(data)
         if current != computed:
             struct.pack_into(f"{fmt}I", data, 8, computed)
             actions.append(f"fixed Adler32 checksum: {current:#010x} -> {computed:#010x}")

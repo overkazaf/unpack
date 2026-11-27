@@ -9,8 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from unpack.engines.base import BaseEngine, DumpResult, EngineType
-from unpack.utils.adb import adb_cmd, adb_shell, check_root, get_device_serial
+from unpack.logging_config import get_logger
+from unpack.utils.adb import adb_cmd, adb_shell, check_root, get_device_serial, validate_pid
 from unpack.utils.apk import validate_package_name
+
+log = get_logger(__name__)
 
 DEVICE_DUMP_DIR = "/data/local/tmp/unpack_ebpf"
 DEVICE_SCRIPT_PATH = "/data/local/tmp/unpack_ebpf.bt"
@@ -18,8 +21,21 @@ DEVICE_SCRIPT_PATH = "/data/local/tmp/unpack_ebpf.bt"
 _LIBART_PATHS = [
     "/apex/com.android.art/lib64/libart.so",
     "/apex/com.android.art/lib/libart.so",
+    "/apex/com.android.runtime/lib64/libart.so",
+    "/apex/com.android.runtime/lib/libart.so",
     "/system/lib64/libart.so",
     "/system/lib/libart.so",
+]
+
+# On Android 10+ (APEX ART), DexFile & DexFileLoader live in libdexfile.so
+# while libart.so only contains undefined (UND, offset=0) imports for them.
+_LIBDEXFILE_PATHS = [
+    "/apex/com.android.art/lib64/libdexfile.so",
+    "/apex/com.android.art/lib/libdexfile.so",
+    "/apex/com.android.runtime/lib64/libdexfile.so",
+    "/apex/com.android.runtime/lib/libdexfile.so",
+    "/system/lib64/libdexfile.so",
+    "/system/lib/libdexfile.so",
 ]
 
 _SYMBOL_PATTERNS: dict[str, list[re.Pattern]] = {
@@ -48,7 +64,9 @@ _SYMBOL_PATTERNS: dict[str, list[re.Pattern]] = {
 class _SymbolInfo:
     name: str
     offset: str
+    library: str = ""
     probeable: bool = False
+    probe_target: str = ""
 
 
 _BPFTRACE_TEMPLATE = r"""
@@ -131,11 +149,15 @@ fi
 def _push_file(serial: str, local_path: str, device_path: str):
     tmp_dest = f"/data/local/tmp/_unpack_push_{Path(device_path).name}"
     adb_cmd(serial, "push", local_path, tmp_dest, timeout=30)
-    adb_shell(serial, f"mv {tmp_dest} {device_path}", root=True)
+    adb_shell(
+        serial,
+        f"mv {shlex.quote(tmp_dest)} {shlex.quote(device_path)}",
+        root=True,
+    )
 
 
-def _find_libart_path(serial: str) -> str | None:
-    for path in _LIBART_PATHS:
+def _find_library_path(serial: str, candidates: list[str]) -> str | None:
+    for path in candidates:
         try:
             out = adb_shell(serial, f"test -f {path} && echo exists", root=True)
             if "exists" in out:
@@ -145,54 +167,114 @@ def _find_libart_path(serial: str) -> str | None:
     return None
 
 
-def _find_libart_symbols(serial: str) -> dict[str, _SymbolInfo]:
-    libart = _find_libart_path(serial)
-    if not libart:
-        return {}
+def _find_libart_path(serial: str) -> str | None:
+    return _find_library_path(serial, _LIBART_PATHS)
 
+
+def _find_libdexfile_path(serial: str) -> str | None:
+    return _find_library_path(serial, _LIBDEXFILE_PATHS)
+
+
+def _read_elf_symbols_output(serial: str, lib_path: str) -> str:
     try:
-        out = adb_shell(serial, f"readelf -sW {libart}", timeout=30, root=True)
+        return adb_shell(serial, f"readelf -sW {lib_path}", timeout=30, root=True)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         try:
-            out = adb_shell(serial, f"toybox readelf -sW {libart}", timeout=30, root=True)
+            return adb_shell(serial, f"toybox readelf -sW {lib_path}", timeout=30, root=True)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            return {}
+            return ""
 
+
+def _parse_readelf_symbols(
+    out: str,
+    lib_path: str,
+    target_keys: tuple[str, ...] | None = None,
+) -> dict[str, _SymbolInfo]:
+    """Parse ``readelf -sW`` output, skipping undefined (UND / 0x0) and non-FUNC symbols."""
     symbols: dict[str, _SymbolInfo] = {}
+    keys = target_keys or tuple(_SYMBOL_PATTERNS.keys())
     for line in out.splitlines():
         parts = line.split()
         if len(parts) < 8:
             continue
-        sym_name = parts[-1]
+        sym_type = parts[3].upper()
+        ndx = parts[6].upper()
+        # Skip undefined imports (e.g. DexFileLoader::Open imported into libart.so from libdexfile.so)
+        if ndx == "UND" or sym_type != "FUNC":
+            continue
         try:
-            sym_value = parts[1]
-        except IndexError:
-            sym_value = "0"
-        for logical_name, patterns in _SYMBOL_PATTERNS.items():
+            sym_val_int = int(parts[1], 16)
+        except ValueError:
+            continue
+        if sym_val_int == 0:
+            continue
+        # Strip ELF symbol version suffix (e.g. sym@@LIBDEXFILE_1)
+        sym_name = parts[7].split("@", 1)[0]
+        for logical_name in keys:
             if logical_name in symbols:
                 continue
-            for pat in patterns:
+            for pat in _SYMBOL_PATTERNS[logical_name]:
                 if pat.match(sym_name):
-                    offset = f"0x{int(sym_value, 16):x}" if sym_value != "0" else "0x0"
-                    symbols[logical_name] = _SymbolInfo(name=sym_name, offset=offset)
+                    symbols[logical_name] = _SymbolInfo(
+                        name=sym_name,
+                        offset=f"0x{sym_val_int:x}",
+                        library=lib_path,
+                    )
                     break
+    return symbols
+
+
+def _find_libart_symbols(serial: str) -> dict[str, _SymbolInfo]:
+    symbols: dict[str, _SymbolInfo] = {}
+
+    # On Android 10+, DexFile::DexFile and DexFileLoader::Open* are defined in libdexfile.so
+    libdexfile = _find_libdexfile_path(serial)
+    if libdexfile:
+        dex_out = _read_elf_symbols_output(serial, libdexfile)
+        if dex_out:
+            symbols.update(
+                _parse_readelf_symbols(
+                    dex_out,
+                    libdexfile,
+                    target_keys=("dexfile_ctor", "dexfile_open"),
+                )
+            )
+
+    libart = _find_libart_path(serial)
+    if libart:
+        art_out = _read_elf_symbols_output(serial, libart)
+        if art_out:
+            remaining = tuple(k for k in _SYMBOL_PATTERNS if k not in symbols)
+            if remaining:
+                symbols.update(_parse_readelf_symbols(art_out, libart, target_keys=remaining))
 
     return symbols
+
+
+def _has_uprobe_match(out: str) -> bool:
+    if "ERROR" in out:
+        return False
+    return any(line.strip().startswith("uprobe:") for line in out.splitlines())
 
 
 def _verify_symbols_probeable(
     serial: str, libart: str, symbols: dict[str, _SymbolInfo], bpftrace_bin: str,
 ) -> dict[str, _SymbolInfo]:
     for logical_name, info in symbols.items():
+        target_lib = info.library or libart
+        info.probeable = False
+        info.probe_target = ""
+
         try:
             out = adb_shell(
                 serial,
-                f"{bpftrace_bin} -l 'uprobe:{libart}:{info.name}' 2>&1",
+                f"{bpftrace_bin} -l 'uprobe:{target_lib}:{info.name}' 2>&1",
                 root=True,
                 timeout=10,
             )
-            if "uprobe:" in out and "ERROR" not in out:
+            if _has_uprobe_match(out):
                 info.probeable = True
+                info.probe_target = info.name
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
             pass
 
@@ -200,12 +282,13 @@ def _verify_symbols_probeable(
             try:
                 out = adb_shell(
                     serial,
-                    f"{bpftrace_bin} -l 'uprobe:{libart}:{info.offset}' 2>&1",
+                    f"{bpftrace_bin} -l 'uprobe:{target_lib}:{info.offset}' 2>&1",
                     root=True,
                     timeout=10,
                 )
-                if "uprobe:" in out and "ERROR" not in out:
+                if _has_uprobe_match(out):
                     info.probeable = True
+                    info.probe_target = info.offset
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
                 pass
 
@@ -255,8 +338,8 @@ def _check_kernel_ebpf(serial: str) -> bool:
 
 
 def _get_probe_target(info: _SymbolInfo) -> str:
-    if info.probeable:
-        return info.name
+    if info.probe_target:
+        return info.probe_target
     if info.offset != "0x0":
         return info.offset
     return info.name
@@ -267,31 +350,20 @@ def _generate_bpftrace_script(
 ) -> str:
     probes = []
 
-    if "dexfile_open" in symbols:
-        target = _get_probe_target(symbols["dexfile_open"])
+    def _emit_probe(key: str, template: str) -> None:
+        info = symbols.get(key)
+        if not info or not info.probeable:
+            return
+        target_lib = info.library or libart
+        target = _get_probe_target(info)
         probes.append(
-            _UPROBE_DEXFILE_OPEN.format(libart=libart, probe_target=target)
+            template.format(libart=target_lib, probe_target=target, dump_dir=DEVICE_DUMP_DIR)
         )
 
-    if "dexfile_ctor" in symbols:
-        target = _get_probe_target(symbols["dexfile_ctor"])
-        probes.append(
-            _UPROBE_DEXFILE_CTOR.format(
-                libart=libart, probe_target=target, dump_dir=DEVICE_DUMP_DIR,
-            )
-        )
-
-    if "define_class" in symbols:
-        target = _get_probe_target(symbols["define_class"])
-        probes.append(
-            _UPROBE_DEFINE_CLASS.format(libart=libart, probe_target=target)
-        )
-
-    if "register_dexfile" in symbols:
-        target = _get_probe_target(symbols["register_dexfile"])
-        probes.append(
-            _UPROBE_REGISTER_DEXFILE.format(libart=libart, probe_target=target)
-        )
+    _emit_probe("dexfile_open", _UPROBE_DEXFILE_OPEN)
+    _emit_probe("dexfile_ctor", _UPROBE_DEXFILE_CTOR)
+    _emit_probe("define_class", _UPROBE_DEFINE_CLASS)
+    _emit_probe("register_dexfile", _UPROBE_REGISTER_DEXFILE)
 
     return _BPFTRACE_TEMPLATE.format(
         dump_dir=DEVICE_DUMP_DIR,
@@ -399,23 +471,27 @@ class EbpfEngine(BaseEngine):
 
         usable = [
             k for k in ("dexfile_ctor", "dexfile_open", "register_dexfile")
-            if k in symbols and (symbols[k].probeable or symbols[k].offset != "0x0")
+            if k in symbols and symbols[k].probeable
         ]
         if not usable:
             not_probeable = {
-                k: {"name": v.name, "offset": v.offset}
+                k: {"library": v.library, "name": v.name, "offset": v.offset}
                 for k, v in symbols.items()
             }
             result.error = (
-                f"no probeable symbols found. Symbols detected but not traceable: "
-                f"{not_probeable}. Try pushing a newer bpftrace or check "
-                f"/sys/kernel/tracing/available_filter_functions."
+                f"no probeable symbols found in libdexfile.so/libart.so. "
+                f"Detected symbols could not be attached by bpftrace: {not_probeable}. "
+                f"Try switching engine to frida or memory."
             )
             return result
 
         script_content = _generate_bpftrace_script(libart, symbols)
 
-        adb_shell(serial, f"mkdir -p {DEVICE_DUMP_DIR} && chmod 777 {DEVICE_DUMP_DIR}", root=True)
+        adb_shell(
+            serial,
+            f"mkdir -p {shlex.quote(DEVICE_DUMP_DIR)} && chmod 700 {shlex.quote(DEVICE_DUMP_DIR)}",
+            root=True,
+        )
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".bt", delete=False) as f:
             f.write(script_content)
@@ -512,8 +588,8 @@ class EbpfEngine(BaseEngine):
 
         try:
             pid_out = adb_shell(serial, f"pidof {safe_pkg}", root=False, timeout=5)
-            target_pid = pid_out.strip().split()[0]
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError):
+            target_pid = validate_pid(pid_out.strip().split()[0])
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError, ValueError):
             target_pid = None
 
         if target_pid:
@@ -592,18 +668,18 @@ class EbpfEngine(BaseEngine):
             kill_patterns.append(bpftrace_bin)
         for pat in kill_patterns:
             try:
-                adb_shell(serial, f"pkill -f '{pat}' || true", root=True, timeout=5)
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                pass
+                adb_shell(serial, f"pkill -f {shlex.quote(pat)} || true", root=True, timeout=5)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                log.debug("eBPF cleanup pkill ignored for %s: %s", pat, exc)
         try:
-            adb_shell(serial, f"rm -f {DEVICE_SCRIPT_PATH}", root=True, timeout=5)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            pass
+            adb_shell(serial, f"rm -f {shlex.quote(DEVICE_SCRIPT_PATH)}", root=True, timeout=5)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            log.debug("eBPF cleanup rm ignored: %s", exc)
 
 
-def _parse_dump_entries(log: str) -> list[tuple[int, int, int]]:
+def _parse_dump_entries(log_text: str) -> list[tuple[int, int, int]]:
     entries = []
-    for line in log.splitlines():
+    for line in log_text.splitlines():
         line = line.strip()
         if not line.startswith("EBPF_DUMP:"):
             continue
@@ -614,7 +690,7 @@ def _parse_dump_entries(log: str) -> list[tuple[int, int, int]]:
             pid = int(parts[1])
             base_addr = int(parts[2], 16)
             size = int(parts[3])
-            if size > 112 and size < 100 * 1024 * 1024:
+            if pid > 0 and base_addr >= 0 and 112 < size < 100 * 1024 * 1024:
                 entries.append((pid, base_addr, size))
         except (ValueError, IndexError):
             continue

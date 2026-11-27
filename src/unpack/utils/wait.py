@@ -4,6 +4,11 @@ import subprocess
 import time
 from dataclasses import dataclass, field
 
+from unpack.logging_config import get_logger
+from unpack.utils.adb import adb_shell, validate_pid
+
+log = get_logger(__name__)
+
 
 @dataclass
 class WaitResult:
@@ -34,6 +39,7 @@ class SmartWaiter:
         self._min_wait = min_wait
 
     def wait(self, serial: str, pid: str) -> WaitResult:
+        safe_pid = validate_pid(pid)
         t0 = time.monotonic()
         thread_counts: list[int] = []
         stable_count = 0
@@ -49,7 +55,7 @@ class SmartWaiter:
                     thread_counts=thread_counts,
                 )
 
-            count = self._get_thread_count(serial, pid)
+            count = self._get_thread_count(serial, safe_pid)
             if count is None:
                 return WaitResult(
                     waited_seconds=elapsed,
@@ -72,7 +78,7 @@ class SmartWaiter:
                     thread_counts=thread_counts,
                 )
 
-            if elapsed >= self._min_wait and self._check_logcat_ready(serial, pid):
+            if elapsed >= self._min_wait and self._check_logcat_ready(serial, safe_pid):
                 return WaitResult(
                     waited_seconds=elapsed,
                     reason="logcat_ready",
@@ -83,21 +89,27 @@ class SmartWaiter:
 
     def _get_thread_count(self, serial: str, pid: str) -> int | None:
         try:
-            out = subprocess.check_output(
-                ["adb", "-s", serial, "shell", f"ls /proc/{pid}/task 2>/dev/null | wc -l"],
-                text=True, timeout=5,
-            ).strip()
-            count = int(out)
+            safe_pid = validate_pid(pid)
+            out = adb_shell(
+                serial,
+                f"ls /proc/{safe_pid}/task 2>/dev/null | wc -l",
+                timeout=5,
+                root=False,
+            )
+            count = int(out.strip())
             return count if count > 0 else None
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError):
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, OSError) as exc:
+            log.debug("SmartWaiter thread count probe failed for pid=%s: %s", pid, exc)
             return None
 
     def _check_logcat_ready(self, serial: str, pid: str) -> bool:
         try:
-            out = subprocess.check_output(
-                ["adb", "-s", serial, "shell",
-                 f"logcat -d --pid={pid} -t 50 2>/dev/null"],
-                text=True, timeout=5,
+            safe_pid = validate_pid(pid)
+            out = adb_shell(
+                serial,
+                f"logcat -d --pid={safe_pid} -t 50 2>/dev/null",
+                timeout=5,
+                root=False,
             )
             lower = out.lower()
             for kw in _PACKER_DONE_KEYWORDS:
@@ -105,6 +117,6 @@ class SmartWaiter:
                     return True
             if lower.count("displayed") >= 1:
                 return True
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            pass
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, OSError) as exc:
+            log.debug("SmartWaiter logcat probe failed for pid=%s: %s", pid, exc)
         return False

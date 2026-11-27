@@ -477,3 +477,66 @@ def test_concurrent_thread_safety(tmp_path: Path) -> None:
         assert len(store.list_ai_analyses(limit=100)) == 40
     finally:
         store.close()
+
+
+def test_import_workspace_json_is_atomic_on_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """P1 reliability: mid-import failure must roll back the entire workspace transaction."""
+    with WorkspaceStore(tmp_path / "atomic_studio") as store:
+        ws = store.create_workspace("Original")
+        smp = store.save_sample(ws["id"], {"filename": "app.apk", "sha256": "1" * 64, "size_bytes": 100})
+        store.save_pipeline_run(ws["id"], {"sample_id": smp["sample_id"], "name": "scan", "status": "succeeded"})
+        store.save_ai_analysis(ws["id"], smp["sample_id"], "scan", {"markdown": "ok"})
+
+        bundle = store.export_workspace_json(ws["id"])
+        before_ws_ids = {w["id"] for w in store.list_workspaces()}
+        before_sample_count = len(store.list_samples())
+        before_run_count = len(store.list_pipeline_runs(limit=100))
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("Simulated mid-import crash")
+
+        monkeypatch.setattr(store, "_save_ai_analysis_in_tx", _boom)
+
+        with pytest.raises(RuntimeError, match="Simulated mid-import crash"):
+            store.import_workspace_json(bundle, name_override="Should Rollback")
+
+        # Entire transaction rolled back: no orphan workspace, samples, or runs
+        assert {w["id"] for w in store.list_workspaces()} == before_ws_ids
+        assert len(store.list_samples()) == before_sample_count
+        assert len(store.list_pipeline_runs(limit=100)) == before_run_count
+
+
+def test_list_samples_lightweight_mode_omits_result_blobs(tmp_path: Path) -> None:
+    """P1 performance: include_results=False returns metadata + presence flags without JSON blobs."""
+    with WorkspaceStore(tmp_path / "lightweight_studio") as store:
+        ws = store.create_workspace("Light")
+        store.save_sample(
+            ws["id"],
+            {
+                "filename": "heavy.apk",
+                "sha256": "2" * 64,
+                "size_bytes": 5555,
+                "scan_result": {"packer_name": "360加固保", "big_blob": "X" * 5000},
+                "inspect_result": {"risk_score": 40},
+                "notes": "metadata note",
+            },
+        )
+
+        light = store.list_samples(ws["id"], include_results=False)
+        assert len(light) == 1
+        row = light[0]
+        assert row["filename"] == "heavy.apk"
+        assert row["notes"] == "metadata note"
+        assert row["scan_result"] is None
+        assert row["inspect_result"] is None
+        assert row["vmp_result"] is None
+        assert row["has_scan"] is True
+        assert row["has_inspect"] is True
+        assert row["has_vmp"] is False
+        assert row["has_xref"] is False
+        assert row["has_repair"] is False
+
+        # Default include_results=True preserves full blobs
+        full = store.list_samples(ws["id"])
+        assert full[0]["scan_result"]["packer_name"] == "360加固保"
+        assert full[0]["inspect_result"]["risk_score"] == 40

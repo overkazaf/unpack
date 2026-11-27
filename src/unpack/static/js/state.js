@@ -95,8 +95,9 @@
     sseSource: null,
     drawerOpen: false,
 
-    // Loading flags
+    // Loading & degraded flags
     busy: {},
+    degraded: {},
   };
 
   Store.setTheme = function (theme) {

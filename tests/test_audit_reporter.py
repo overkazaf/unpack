@@ -307,3 +307,83 @@ class TestRenderers:
         assert "PIE, NX, RELRO:full, CANARY" in html_out
         assert "fixed checksum, recomputed sha1" in html_out
         assert ">7</td>" in html_out
+
+    def test_no_duplicate_manifest_or_signing_findings_from_apk_inspector(self):
+        """P0 regression: ApkInspector findings must not be double-counted with UNPACK-APK-*."""
+        inspect_from_core = {
+            "file": "debug_app.apk",
+            "sha256": "aa" * 32,
+            "manifest": {
+                "package": "com.example.debug",
+                "debuggable": True,
+                "allow_backup": True,
+                "uses_cleartext_traffic": True,
+            },
+            "signing": {
+                "schemes": ["v1"],
+                "is_debug_cert": True,
+                "certificates": [{"subject": "CN=Android Debug"}],
+            },
+            "findings": [
+                {
+                    "rule_id": "APK-MANIFEST-001",
+                    "severity": "high",
+                    "category": "manifest",
+                    "title": "Application is debuggable",
+                    "description": "debuggable=true",
+                },
+                {
+                    "rule_id": "APK-MANIFEST-002",
+                    "severity": "medium",
+                    "category": "manifest",
+                    "title": "Application allows ADB backup",
+                    "description": "allowBackup=true",
+                },
+                {
+                    "rule_id": "APK-MANIFEST-003",
+                    "severity": "medium",
+                    "category": "network",
+                    "title": "Cleartext HTTP traffic explicitly permitted",
+                    "description": "usesCleartextTraffic=true",
+                },
+                {
+                    "rule_id": "APK-SIGN-001",
+                    "severity": "high",
+                    "category": "signing",
+                    "title": "Signed with Android Debug certificate",
+                    "description": "debug cert",
+                },
+            ],
+            "risk_score": 50,
+        }
+        audit = Reporter().build_audit_report("debug_app.apk", inspect=inspect_from_core)
+        rule_ids = [f.rule_id for f in audit.findings]
+        assert len(rule_ids) == 4
+        assert set(rule_ids) == {
+            "APK-MANIFEST-001",
+            "APK-MANIFEST-002",
+            "APK-MANIFEST-003",
+            "APK-SIGN-001",
+        }
+        # Must NOT have synthesized duplicate UNPACK-APK-001/002/003/005
+        assert not ({"UNPACK-APK-001", "UNPACK-APK-002", "UNPACK-APK-003", "UNPACK-APK-005"} & set(rule_ids))
+        # Risk score: 2*high(18) + 2*medium(9) = 54 (not doubled to 100!)
+        assert audit.risk_score == 54
+
+    def test_reporting_package_facade_exports_match(self):
+        import unpack.core.reporter as facade
+        import unpack.core.reporting as pkg
+
+        for sym in (
+            "Reporter",
+            "ReportGenerator",
+            "QualityReport",
+            "AuditReport",
+            "AuditFinding",
+            "render_html",
+            "render_markdown",
+            "render_sarif",
+            "render_sarif_json",
+            "render_json",
+        ):
+            assert getattr(facade, sym) is getattr(pkg, sym)

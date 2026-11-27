@@ -53,6 +53,9 @@
     if (badgesEl) {
       if (s) {
         const parts = [UI.kindBadge(s.kind), UI.badge(UI.fmtBytes(s.size_bytes), "muted")];
+        if (s.file_available === false) {
+          parts.push(`<span class="badge badge-violet" title="${UI.esc(t("samples.badge.offline_tip"))}">${UI.esc(t("samples.badge.offline"))}</span>`);
+        }
         if (s.scan_result && s.scan_result.packer_name) {
           parts.push(UI.badge(s.scan_result.packer_name, "accent"));
           parts.push(UI.protectionBadge(s.scan_result.protection_level));
@@ -125,14 +128,13 @@
 
     const localSearch = document.getElementById("localSearchInput");
     if (localSearch) {
+      let localTimer = null;
       localSearch.addEventListener("input", (e) => {
         Store.localFilter = e.target.value;
-        render();
-        const again = document.getElementById("localSearchInput");
-        if (again) {
-          again.focus();
-          again.setSelectionRange(again.value.length, again.value.length);
-        }
+        clearTimeout(localTimer);
+        localTimer = setTimeout(() => {
+          if (!Views.updateLocalLibraryTable()) render();
+        }, 60);
       });
     }
 
@@ -140,7 +142,7 @@
     if (localKind) {
       localKind.addEventListener("change", (e) => {
         Store.localKindFilter = e.target.value;
-        render();
+        if (!Views.updateLocalLibraryTable()) render();
       });
     }
 
@@ -177,14 +179,13 @@
 
     const vmpSearch = document.getElementById("vmpSearchInput");
     if (vmpSearch) {
+      let vmpTimer = null;
       vmpSearch.addEventListener("input", (e) => {
         Store.vmpSearch = e.target.value;
-        render();
-        const again = document.getElementById("vmpSearchInput");
-        if (again) {
-          again.focus();
-          again.setSelectionRange(again.value.length, again.value.length);
-        }
+        clearTimeout(vmpTimer);
+        vmpTimer = setTimeout(() => {
+          if (!Views.updateVmpStubsTable()) render();
+        }, 60);
       });
     }
 
@@ -261,6 +262,7 @@
     try {
       const doc = await API.doctor(checkDevices);
       Store.doctor = doc;
+      Store.degraded.doctor = false;
       const dot = document.getElementById("doctorDot");
       const meta = document.getElementById("doctorEnginesMeta");
       if (dot) {
@@ -273,7 +275,12 @@
         meta.textContent = t("nav.engines_meta", { ready, total: engs.length });
       }
       return doc;
-    } catch (_) {
+    } catch (err) {
+      Store.degraded.doctor = true;
+      const dot = document.getElementById("doctorDot");
+      const meta = document.getElementById("doctorEnginesMeta");
+      if (dot) dot.className = "status-dot fail";
+      if (meta) meta.textContent = t("status.degraded");
       return null;
     }
   }
@@ -369,7 +376,15 @@
     }
   }
 
-  async function deleteSample(id) {
+  async function deleteSample(id, name) {
+    const label = name || (Store.samples || []).find((s) => s.id === id)?.name || id;
+    const confirmed = await UI.confirmModal({
+      title: t("dialog.confirm_delete_title"),
+      message: t("dialog.confirm_delete_sample", { name: label }),
+      confirmText: t("dialog.confirm_btn"),
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       await API.deleteSample(id);
       if (Store.activeSampleId === id) {
@@ -636,8 +651,12 @@
     try {
       const res = await API.listJobs();
       Store.jobs = res.jobs || [];
+      Store.degraded.jobs = false;
       render();
-    } catch (_) {}
+    } catch (err) {
+      Store.degraded.jobs = true;
+      UI.toast(t("toast.load_failed", { target: t("ctx.tasks"), error: err.message || "error" }), "warn");
+    }
   }
 
   function subscribeJob(jobId) {
@@ -741,6 +760,22 @@
   // =========================================================================
 
   let paletteItems = [];
+  let paletteSelectedIdx = 0;
+
+  function updatePaletteSelection(nextIdx) {
+    const visibleCount = Math.min(14, paletteItems.length);
+    if (!visibleCount) return;
+    paletteSelectedIdx = ((nextIdx % visibleCount) + visibleCount) % visibleCount;
+    const list = document.getElementById("paletteList");
+    if (!list) return;
+    list.querySelectorAll("[data-palette-idx]").forEach((el) => {
+      const active = Number(el.dataset.paletteIdx) === paletteSelectedIdx;
+      el.classList.toggle("selected", active);
+      if (active && typeof el.scrollIntoView === "function") {
+        el.scrollIntoView({ block: "nearest" });
+      }
+    });
+  }
 
   function buildPaletteCommands() {
     const cmds = [
@@ -780,6 +815,7 @@
     if (!list) return;
     const q = (query || "").trim().toLowerCase();
     paletteItems = buildPaletteCommands().filter((c) => !q || `${c.label} ${c.cat}`.toLowerCase().includes(q));
+    paletteSelectedIdx = 0;
     list.innerHTML = paletteItems
       .slice(0, 14)
       .map(
@@ -960,7 +996,7 @@
       } else if (action === "select-sample") {
         selectSample(act.dataset.id, "overview");
       } else if (action === "delete-sample") {
-        deleteSample(act.dataset.id);
+        deleteSample(act.dataset.id, act.dataset.name);
       } else if (action === "import-local") {
         importLocal(act.dataset.path);
       } else if (action === "run-scan") {
@@ -1026,6 +1062,10 @@
     document.getElementById("modalBackdrop")?.addEventListener("click", (e) => {
       if (e.target.id === "modalBackdrop") UI.closeModal();
     });
+    document.getElementById("btnCloseDialog")?.addEventListener("click", () => UI.closeDialog(null));
+    document.getElementById("dialogBackdrop")?.addEventListener("click", (e) => {
+      if (e.target.id === "dialogBackdrop") UI.closeDialog(null);
+    });
     document.getElementById("onboardBackdrop")?.addEventListener("click", (e) => {
       if (e.target.id === "onboardBackdrop") Onboarding?.closeWelcomeModal();
     });
@@ -1042,10 +1082,17 @@
     });
     document.getElementById("paletteInput")?.addEventListener("input", (e) => renderPalette(e.target.value));
     document.getElementById("paletteInput")?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && paletteItems.length) {
+      if (e.key === "ArrowDown") {
         e.preventDefault();
+        updatePaletteSelection(paletteSelectedIdx + 1);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        updatePaletteSelection(paletteSelectedIdx - 1);
+      } else if (e.key === "Enter" && paletteItems.length) {
+        e.preventDefault();
+        const chosen = paletteItems[paletteSelectedIdx] || paletteItems[0];
         closePalette();
-        paletteItems[0].run();
+        if (chosen) chosen.run();
       }
     });
 
@@ -1058,6 +1105,11 @@
         return;
       }
       if (e.key === "Escape") {
+        const dlg = document.getElementById("dialogBackdrop");
+        if (dlg && !dlg.hidden) {
+          UI.closeDialog(null);
+          return;
+        }
         closePalette();
         UI.closeModal();
         if (Onboarding?.isWelcomeOpen()) Onboarding.closeWelcomeModal();

@@ -21,6 +21,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from unpack.logging_config import get_logger
+
+log = get_logger(__name__)
+
 # ELF constants
 _ELF_MAGIC = b"\x7fELF"
 _ELFCLASS32 = 1
@@ -448,8 +452,8 @@ class NativeAnalyzer:
             extra_syms = {s.name for s in binary.exported_symbols if s.name}
             extra_syms.update(s.name for s in binary.imported_symbols if s.name)
             self._classify_symbols(extra_syms, info)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("Optional LIEF enrichment failed for %s: %s", info.name, exc)
 
     @staticmethod
     def _classify_symbols(symbols: set[str], info: NativeLibInfo) -> None:

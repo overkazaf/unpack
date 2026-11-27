@@ -17,6 +17,11 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
+from unpack.logging_config import get_logger
+from unpack.utils.adb import adb_shell, validate_pid
+
+log = get_logger(__name__)
+
 # ---------------------------------------------------------------------------
 # Thread classification
 # ---------------------------------------------------------------------------
@@ -97,10 +102,6 @@ class FingerprintResult:
 
 
 # ---------------------------------------------------------------------------
-from unpack.utils.adb import adb_shell
-
-
-# ---------------------------------------------------------------------------
 # PackerFingerprint
 # ---------------------------------------------------------------------------
 
@@ -109,16 +110,17 @@ class PackerFingerprint:
     """Probes a live process over ADB to build a :class:`FingerprintResult`."""
 
     def probe(self, serial: str, pid: str) -> FingerprintResult:
+        safe_pid = validate_pid(pid)
         result = FingerprintResult()
 
-        maps_text = self._safe_shell(serial, f"cat /proc/{pid}/maps")
+        maps_text = self._safe_shell(serial, f"cat /proc/{safe_pid}/maps", root=True)
         result.dalvik_anon_regions = self._count_dalvik_anon(maps_text)
         result.custom_linker_ns = self._has_custom_linker_ns(maps_text)
 
-        status_text = self._safe_shell(serial, f"cat /proc/{pid}/status")
+        status_text = self._safe_shell(serial, f"cat /proc/{safe_pid}/status", root=True)
         result.has_ptrace_protection = self._has_ptrace(status_text)
 
-        comms = self._read_thread_comms(serial, pid)
+        comms = self._read_thread_comms(serial, safe_pid)
         result.thread_count = len(comms)
         result.watchdog_threads = self._find_watchdog_threads(comms)
 
@@ -126,15 +128,17 @@ class PackerFingerprint:
 
     # -- probing helpers ----------------------------------------------------
 
-    def _safe_shell(self, serial: str, cmd: str, root: bool = False) -> str:
+    def _safe_shell(self, serial: str, cmd: str, root: bool = True) -> str:
         try:
             return adb_shell(serial, cmd, root=root)
-        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            log.debug("PackerFingerprint adb_shell failed (%s): %s", cmd, exc)
             return ""
 
     def _read_thread_comms(self, serial: str, pid: str) -> list[str]:
+        safe_pid = validate_pid(pid)
         out = self._safe_shell(
-            serial, f"for f in /proc/{pid}/task/*/comm; do cat \"$f\"; done"
+            serial, f"for f in /proc/{safe_pid}/task/*/comm; do cat \"$f\"; done", root=True
         )
         if not out:
             return []

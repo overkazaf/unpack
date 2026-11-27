@@ -570,6 +570,20 @@
       "ai.mod.pipeline_issue.desc": "Diagnose preflight blockers, stage warnings, or execution failures with copyable recovery commands.",
       "palette.cmd.ai": "Configure AI Model Provider",
       "palette.cmd.workspace": "Manage Workspaces & Session Backups",
+
+      // Confirm / Prompt Dialogs, Snapshot-Only & Degraded States
+      "dialog.confirm_delete_title": "Confirm Deletion",
+      "dialog.confirm_delete_sample": "Remove sample \"{name}\" from this workspace? Saved analysis metadata for this sample will be removed.",
+      "dialog.confirm_delete_ws": "Delete workspace \"{name}\"? All saved samples, pipeline runs, and AI analyses inside it will be permanently deleted.",
+      "dialog.confirm_btn": "Delete",
+      "dialog.cancel_btn": "Cancel",
+      "dialog.rename_ws_title": "Rename Workspace",
+      "dialog.rename_ws_ph": "Enter new workspace name",
+      "dialog.save_btn": "Save",
+      "samples.badge.offline": "SNAPSHOT ONLY",
+      "samples.badge.offline_tip": "Original file missing on disk. Re-upload or re-mount from Local Library to run fresh scans or live unpacking.",
+      "status.degraded": "Degraded",
+      "toast.load_failed": "Failed to load {target}: {error}",
     },
 
     zh: {
@@ -1134,6 +1148,20 @@
       "ai.mod.pipeline_issue.desc": "结合阶段状态、预检告警与环境诊断 Doctor，定位根因并提供可直接复制执行的排查命令。",
       "palette.cmd.ai": "配置 AI 模型提供商",
       "palette.cmd.workspace": "管理持久化工作区与 JSON 备份",
+
+      // Confirm / Prompt Dialogs, Snapshot-Only & Degraded States
+      "dialog.confirm_delete_title": "确认删除",
+      "dialog.confirm_delete_sample": "确定从当前工作区移除样本「{name}」吗？该样本保存的分析快照与记录将被移除。",
+      "dialog.confirm_delete_ws": "确定删除工作区「{name}」吗？其中的样本记录、管线历史和 AI 研判结果将被永久删除。",
+      "dialog.confirm_btn": "确认删除",
+      "dialog.cancel_btn": "取消",
+      "dialog.rename_ws_title": "重命名工作区",
+      "dialog.rename_ws_ph": "输入新的工作区名称",
+      "dialog.save_btn": "保存",
+      "samples.badge.offline": "仅保留快照",
+      "samples.badge.offline_tip": "原始文件已不在磁盘原路径，可在样本库重新上传或挂载以恢复全新扫描与真机脱壳。",
+      "status.degraded": "连接降级",
+      "toast.load_failed": "加载{target}失败：{error}",
     },
   };
 

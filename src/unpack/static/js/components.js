@@ -153,14 +153,19 @@
     }, 3600);
   }
 
+  let modalPrevFocus = null;
+
   function openModal(title, bodyHtml) {
     const backdrop = document.getElementById("modalBackdrop");
     const tEl = document.getElementById("modalTitle");
     const bEl = document.getElementById("modalBody");
     if (!backdrop || !tEl || !bEl) return;
+    if (backdrop.hidden) modalPrevFocus = document.activeElement;
     tEl.textContent = title;
     bEl.innerHTML = bodyHtml;
     backdrop.hidden = false;
+    const closeBtn = document.getElementById("btnCloseModal");
+    if (closeBtn) closeBtn.focus();
   }
 
   function closeModal() {
@@ -168,6 +173,96 @@
     if (backdrop) backdrop.hidden = true;
     if (global.UnpackWorkspace) global.UnpackWorkspace.onModalClosed();
     if (global.UnpackAI) global.UnpackAI.onModalClosed();
+    if (modalPrevFocus && typeof modalPrevFocus.focus === "function") {
+      try {
+        modalPrevFocus.focus();
+      } catch (_) {}
+      modalPrevFocus = null;
+    }
+  }
+
+  let activeDialogResolve = null;
+  let dialogPrevFocus = null;
+
+  function closeDialog(result = null) {
+    const backdrop = document.getElementById("dialogBackdrop");
+    if (backdrop) backdrop.hidden = true;
+    const resolver = activeDialogResolve;
+    activeDialogResolve = null;
+    if (dialogPrevFocus && typeof dialogPrevFocus.focus === "function") {
+      try {
+        dialogPrevFocus.focus();
+      } catch (_) {}
+      dialogPrevFocus = null;
+    }
+    if (resolver) resolver(result);
+  }
+
+  function confirmModal({ title, message, confirmText, cancelText, danger = true }) {
+    const backdrop = document.getElementById("dialogBackdrop");
+    const tEl = document.getElementById("dialogTitle");
+    const bEl = document.getElementById("dialogBody");
+    if (!backdrop || !tEl || !bEl) return Promise.resolve(false);
+    if (activeDialogResolve) closeDialog(false);
+
+    dialogPrevFocus = document.activeElement;
+    tEl.textContent = title || t("dialog.confirm_delete_title");
+    bEl.innerHTML = `
+      <p class="dialog-msg">${esc(message || "")}</p>
+      <div class="dialog-actions">
+        <button class="btn btn-subtle btn-sm" type="button" id="dialogBtnCancel">${esc(cancelText || t("dialog.cancel_btn"))}</button>
+        <button class="btn ${danger ? "btn-danger" : "btn-primary"} btn-sm" type="button" id="dialogBtnOk">${esc(confirmText || t("dialog.confirm_btn"))}</button>
+      </div>
+    `;
+    backdrop.hidden = false;
+
+    return new Promise((resolve) => {
+      activeDialogResolve = resolve;
+      const okBtn = document.getElementById("dialogBtnOk");
+      const cancelBtn = document.getElementById("dialogBtnCancel");
+      okBtn?.addEventListener("click", () => closeDialog(true), { once: true });
+      cancelBtn?.addEventListener("click", () => closeDialog(false), { once: true });
+      (cancelBtn || okBtn)?.focus();
+    });
+  }
+
+  function promptModal({ title, value = "", placeholder = "", confirmText, cancelText }) {
+    const backdrop = document.getElementById("dialogBackdrop");
+    const tEl = document.getElementById("dialogTitle");
+    const bEl = document.getElementById("dialogBody");
+    if (!backdrop || !tEl || !bEl) return Promise.resolve(null);
+    if (activeDialogResolve) closeDialog(null);
+
+    dialogPrevFocus = document.activeElement;
+    tEl.textContent = title || t("dialog.rename_ws_title");
+    bEl.innerHTML = `
+      <input type="text" class="input" id="dialogPromptInput" value="${esc(value)}" placeholder="${esc(placeholder)}" style="width:100%">
+      <div class="dialog-actions">
+        <button class="btn btn-subtle btn-sm" type="button" id="dialogBtnCancel">${esc(cancelText || t("dialog.cancel_btn"))}</button>
+        <button class="btn btn-primary btn-sm" type="button" id="dialogBtnOk">${esc(confirmText || t("dialog.save_btn"))}</button>
+      </div>
+    `;
+    backdrop.hidden = false;
+
+    return new Promise((resolve) => {
+      activeDialogResolve = resolve;
+      const inp = document.getElementById("dialogPromptInput");
+      const okBtn = document.getElementById("dialogBtnOk");
+      const cancelBtn = document.getElementById("dialogBtnCancel");
+      const submit = () => closeDialog((inp?.value || "").trim());
+      okBtn?.addEventListener("click", submit, { once: true });
+      cancelBtn?.addEventListener("click", () => closeDialog(null), { once: true });
+      inp?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          submit();
+        }
+      });
+      if (inp) {
+        inp.focus();
+        inp.select();
+      }
+    });
   }
 
   global.UnpackUI = {
@@ -186,5 +281,8 @@
     toast,
     openModal,
     closeModal,
+    closeDialog,
+    confirmModal,
+    promptModal,
   };
 })(window);

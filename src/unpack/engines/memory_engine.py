@@ -9,186 +9,32 @@ import time
 from pathlib import Path
 
 from unpack.engines.base import BaseEngine, DumpResult, EngineType
-from unpack.utils.adb import adb_cmd, adb_shell, check_root, get_device_serial
+from unpack.logging_config import get_logger
+from unpack.utils.adb import (
+    adb_cmd,
+    adb_shell,
+    check_root,
+    get_device_serial,
+    parse_dex_map_regions,
+    read_proc_mem,
+    validate_pid,
+)
 from unpack.utils.apk import validate_package_name
+
+log = get_logger(__name__)
 
 DEVICE_DUMP_DIR = "/data/local/tmp/unpack_memscan"
 DEVICE_SCRIPT_PATH = "/data/local/tmp/unpack_memscan.sh"
-
-_MEMSCAN_SCRIPT = r"""#!/system/bin/sh
-# UNPACK memory-scan DEX/SO dumper (optimised)
-# Usage: sh unpack_memscan.sh <package> <outdir> [wait_secs] [scan_timeout]
-PKG="$1"; OUTDIR="$2"; WAIT="${3:-8}"; SCAN_TIMEOUT="${4:-60}"
-
-[ -z "$PKG" ] || [ -z "$OUTDIR" ] && { echo "MEMSCAN_ERR: usage: $0 <pkg> <outdir> [wait] [timeout]"; exit 1; }
-
-mkdir -p "$OUTDIR" "$OUTDIR/so"
-
-am force-stop "$PKG" 2>/dev/null; sleep 1
-monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
-echo "MEMSCAN: launched $PKG, waiting ${WAIT}s..."
-sleep "$WAIT"
-
-PID=$(pidof "$PKG" 2>/dev/null | awk '{print $1}')
-[ -z "$PID" ] && { echo "MEMSCAN_ERR: process not found"; exit 1; }
-echo "MEMSCAN: pid=$PID"
-
-MAPS="/proc/$PID/maps"
-MEM="/proc/$PID/mem"
-IDX=0; SO_IDX=0
-SEEN=""
-START_TS=$(date +%s)
-
-hex2dec() {
-    # Convert hex string to decimal, handling 64-bit values on Android
-    # toybox printf can't handle %lu, use bc instead
-    HEX=$(echo "$1" | tr 'a-f' 'A-F')
-    echo "ibase=16; $HEX" | bc 2>/dev/null || echo 0
-}
-
-read_le32_at() {
-    # Read LE uint32 at given decimal offset from /proc/pid/mem
-    RAW=$(dd if="$MEM" bs=1 skip="$1" count=4 2>/dev/null | od -A n -t x1 2>/dev/null | tr -d ' \n')
-    [ ${#RAW} -lt 8 ] && echo 0 && return
-    HEX="${RAW:6:2}${RAW:4:2}${RAW:2:2}${RAW:0:2}"
-    HEX_UPPER=$(echo "$HEX" | tr 'a-f' 'A-F')
-    echo "ibase=16; $HEX_UPPER" | bc 2>/dev/null || echo 0
-}
-
-check_timeout() {
-    NOW=$(date +%s)
-    ELAPSED=$((NOW - START_TS))
-    [ "$ELAPSED" -gt "$SCAN_TIMEOUT" ] && { echo "MEMSCAN: timeout after ${ELAPSED}s"; exit 0; }
-}
-
-# ── Phase 1: DEX dump ──
-# Only scan regions likely to contain unpacked DEX:
-#   - *.vdex / *.apk mapped files (not under /system/ /apex/ /vendor/)
-#   - [anon:dalvik-* anonymous mappings (runtime allocations)
-#   - anonymous rw regions (packers often mmap DEX into anonymous pages)
-grep -E '\.vdex|\.apk|\[anon:dalvik|\[anon:\.bss|r..p 00000000 00:00 0' "$MAPS" | \
-grep -v '/system/\|/apex/\|/vendor/\|/product/\|jit-\|boot\.\|dalvik-main space\|dalvik-free list\|dalvik-large\|dalvik-Sentinel\|dalvik-Card\|dalvik-Mark\|dalvik-Region\|dalvik-live stack\|dalvik-allocspace\|LinearAlloc' | \
-while IFS= read -r LINE; do
-    check_timeout
-
-    RANGE=$(echo "$LINE" | awk '{print $1}')
-    START_HEX=${RANGE%%-*}
-    END_HEX=${RANGE##*-}
-    START_DEC=$(hex2dec "$START_HEX") || continue
-    END_DEC=$(hex2dec "$END_HEX") || continue
-    [ "$START_DEC" = "0" ] && continue
-    [ "$END_DEC" = "0" ] && continue
-    REGION_SIZE=$((END_DEC - START_DEC))
-
-    [ "$REGION_SIZE" -lt 256 ] && continue
-    [ "$REGION_SIZE" -gt 268435456 ] && continue
-
-    # Check for DEX magic at region start
-    MAGIC=$(dd if="$MEM" bs=1 skip="$START_DEC" count=4 2>/dev/null | od -A n -t x1 2>/dev/null | tr -d ' \n')
-    case "$MAGIC" in
-        6465780a) ;;
-        *)
-            # For VDEX files: DEX is embedded after a header.
-            # VDEX magic is "vdex" (76 64 65 78). Try to find DEX inside.
-            case "$MAGIC" in
-                7664657[08])
-                    # Scan at known VDEX header offsets (varies by version)
-                    for VOFF in 28 32 36 40 64; do
-                        INNER=$(dd if="$MEM" bs=1 skip=$((START_DEC + VOFF)) count=4 2>/dev/null | od -A n -t x1 2>/dev/null | tr -d ' \n')
-                        case "$INNER" in
-                            6465780a)
-                                START_DEC=$((START_DEC + VOFF))
-                                REGION_SIZE=$((REGION_SIZE - VOFF))
-                                MAGIC="6465780a"
-                                break
-                                ;;
-                        esac
-                    done
-                    [ "$MAGIC" != "6465780a" ] && continue
-                    ;;
-                *) continue ;;
-            esac
-            ;;
-    esac
-
-    FILE_SIZE=$(read_le32_at $((START_DEC + 32)))
-    [ "$FILE_SIZE" -lt 112 ] && continue
-    [ "$FILE_SIZE" -gt 104857600 ] && continue
-    [ "$FILE_SIZE" -gt "$REGION_SIZE" ] && FILE_SIZE="$REGION_SIZE"
-
-    # Validate header_size (offset 36) should be 0x70 = 112
-    HDR_SIZE=$(read_le32_at $((START_DEC + 36)))
-    [ "$HDR_SIZE" -ne 112 ] && continue
-
-    # Dedup by file_size + first 32 bytes
-    DEDUP=$(dd if="$MEM" bs=1 skip="$START_DEC" count=32 2>/dev/null | od -A n -t x1 2>/dev/null | tr -d ' \n')
-    DKEY="${FILE_SIZE}_${DEDUP}"
-    case "$SEEN" in *"$DKEY"*) continue ;; esac
-    SEEN="$SEEN|$DKEY"
-
-    OUTFILE="$OUTDIR/mem_$(printf '%03d' $IDX).dex"
-    dd if="$MEM" bs=4096 skip=$((START_DEC / 4096)) count=$(( (FILE_SIZE + 4095) / 4096 )) 2>/dev/null | \
-        dd bs=1 skip=$((START_DEC % 4096)) count="$FILE_SIZE" of="$OUTFILE" 2>/dev/null
-
-    if [ -s "$OUTFILE" ]; then
-        FMAGIC=$(od -A n -t x1 -N 4 "$OUTFILE" 2>/dev/null | tr -d ' \n')
-        if [ "$FMAGIC" = "6465780a" ]; then
-            echo "MEMSCAN_DEX: $OUTFILE size=$FILE_SIZE base=0x$START_HEX"
-            IDX=$((IDX + 1))
-        else
-            rm -f "$OUTFILE"
-        fi
-    else
-        rm -f "$OUTFILE"
-    fi
-done
-
-echo "MEMSCAN_DONE: dumped $IDX DEX file(s)"
-
-# ── Phase 2: SO dump (decrypted native libs) ──
-check_timeout
-SO_SEEN=""
-grep 'r-xp' "$MAPS" | \
-grep -v '/system/\|/apex/\|/vendor/\|/product/\|libc\.so\|libc++\|libm\.so\|libdl\.so\|liblog\.so\|libz\.so\|linker' | \
-grep '/data/' | \
-while IFS= read -r LINE; do
-    check_timeout
-
-    PATHNAME=$(echo "$LINE" | awk '{print $6}')
-    [ -z "$PATHNAME" ] && continue
-    case "$SO_SEEN" in *"$PATHNAME"*) continue ;; esac
-    SO_SEEN="$SO_SEEN|$PATHNAME"
-
-    RANGE=$(echo "$LINE" | awk '{print $1}')
-    START_HEX=${RANGE%%-*}; END_HEX=${RANGE##*-}
-    START_DEC=$(printf '%d' "0x$START_HEX" 2>/dev/null) || continue
-    END_DEC=$(printf '%d' "0x$END_HEX" 2>/dev/null) || continue
-    SIZE=$((END_DEC - START_DEC))
-
-    [ "$SIZE" -lt 64 ] && continue
-    [ "$SIZE" -gt 209715200 ] && continue
-
-    HEADER=$(dd if="$MEM" bs=1 skip="$START_DEC" count=4 2>/dev/null | od -A n -t x1 2>/dev/null | tr -d ' \n')
-    [ "$HEADER" != "7f454c46" ] && continue
-
-    SO_NAME=$(basename "$PATHNAME")
-    SO_FILE="$OUTDIR/so/$SO_NAME"
-    dd if="$MEM" bs=4096 skip=$((START_DEC / 4096)) count=$(( (SIZE + 4095) / 4096 )) 2>/dev/null | \
-        dd bs=1 skip=$((START_DEC % 4096)) count="$SIZE" of="$SO_FILE" 2>/dev/null
-
-    [ -s "$SO_FILE" ] && { echo "MEMSCAN_SO: $SO_FILE size=$SIZE path=$PATHNAME"; SO_IDX=$((SO_IDX + 1)); } || rm -f "$SO_FILE"
-done
-
-echo "MEMSCAN_SO_DONE: dumped $SO_IDX SO file(s)"
-"""
 
 
 def _find_child_pids(serial: str, parent_pid: str) -> list[str]:
     """Find child PIDs of parent_pid via pgrep -P (for multi-process packers)."""
     try:
-        out = adb_shell(serial, f"pgrep -P {parent_pid}", root=True, timeout=5)
+        safe_pid = validate_pid(parent_pid)
+        out = adb_shell(serial, f"pgrep -P {safe_pid}", root=True, timeout=5)
         return [p.strip() for p in out.splitlines() if p.strip().isdigit()]
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+    except (ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        log.debug("Failed to list child PIDs for %s: %s", parent_pid, exc)
         return []
 
 
@@ -307,8 +153,8 @@ class MemoryEngine(BaseEngine):
 
         try:
             pid_out = adb_shell(serial, f"pidof {safe_pkg}", root=False, timeout=5)
-            pid = pid_out.strip().split()[0]
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError):
+            pid = validate_pid(pid_out.strip().split()[0])
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError, ValueError):
             result.error = f"process not found for {package_name}"
             return result
 
@@ -327,37 +173,18 @@ class MemoryEngine(BaseEngine):
         seen_hashes: set[str] = set()
         total_targets = 0
 
-        for scan_pid in all_pids:
+        for raw_pid in all_pids:
             try:
+                scan_pid = validate_pid(raw_pid)
                 maps_text = adb_shell(
                     serial, f"cat /proc/{scan_pid}/maps", root=True, timeout=10
                 )
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            except (ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                log.debug("Failed reading /proc/%s/maps: %s", raw_pid, exc)
                 continue
 
-            targets = []
-            for line in maps_text.splitlines():
-                parts = line.split()
-                if len(parts) < 1:
-                    continue
-                path = parts[-1] if len(parts) > 5 else ""
-                if not any(k in path for k in [".vdex", ".apk", ".dex"]):
-                    if "[anon:dalvik-" not in line:
-                        continue
-                if any(k in path for k in ["/system/", "/apex/", "/vendor/", "/product/"]):
-                    continue
-                addr_range = parts[0]
-                try:
-                    start_hex, end_hex = addr_range.split("-")
-                    start = int(start_hex, 16)
-                    end = int(end_hex, 16)
-                except ValueError:
-                    continue
-                size = end - start
-                if size < 256 or size > 256 * 1024 * 1024:
-                    continue
-                perms = parts[1] if len(parts) > 1 else ""
-                targets.append((start, size, path, perms))
+            regions = parse_dex_map_regions(maps_text)
+            targets = [(r.start, r.size, r.path, r.perms) for r in regions]
 
             total_targets += len(targets)
             if not targets:
@@ -481,37 +308,24 @@ class MemoryEngine(BaseEngine):
 
     def _read_mem(self, serial: str, pid: str, addr: int, size: int) -> bytes:
         try:
-            raw = subprocess.check_output(
-                ["adb", "-s", serial, "shell", "su", "-c",
-                 f"dd if=/proc/{pid}/mem bs=1 skip={addr} count={size} 2>/dev/null"],
-                timeout=10,
-            )
-            return raw
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return read_proc_mem(serial, pid, addr, size, block_size=1, timeout=10)
+        except ValueError as exc:
+            log.debug("_read_mem rejected invalid pid %r: %s", pid, exc)
             return b""
 
     def _dump_mem_to_file(
         self, serial: str, pid: str, addr: int, size: int, local_path: Path,
     ):
-        bs = 4096
-        skip_blocks = addr // bs
-        offset = addr % bs
-        blocks = (size + offset + bs - 1) // bs
         try:
-            raw = subprocess.check_output(
-                ["adb", "-s", serial, "shell", "su", "-c",
-                 f"dd if=/proc/{pid}/mem bs={bs} skip={skip_blocks} count={blocks} 2>/dev/null"],
-                timeout=60,
-            )
-            data = raw[offset : offset + size]
+            data = read_proc_mem(serial, pid, addr, size, block_size=4096, timeout=60)
             if len(data) > 112:
                 local_path.write_bytes(data)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            pass
+        except (ValueError, OSError) as exc:
+            log.debug("_dump_mem_to_file failed for pid=%s addr=%#x: %s", pid, addr, exc)
 
     def _cleanup(self, serial: str):
         for path in (DEVICE_SCRIPT_PATH, DEVICE_DUMP_DIR):
             try:
-                adb_shell(serial, f"rm -rf {path}", root=True, timeout=5)
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-                pass
+                adb_shell(serial, f"rm -rf {shlex.quote(path)}", root=True, timeout=5)
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                log.debug("MemoryEngine cleanup ignored for %s: %s", path, exc)

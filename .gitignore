@@ -6,10 +6,15 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+.ruff_cache/
+.DS_Store
+out/
+unpacked/
 test_apks/
 e2e_test/
 bpftrace-linux-arm64
 benchmark_results.json
 *.dex
 result.json
+.claude/settings.local.json
 .claude/worktrees/

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-import hashlib
 import struct
-import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from unpack.repair.dex_parser import DexFile, EncodedMethod, HEADER_SIZE
+from unpack.repair.dex_parser import (
+    DexFile,
+    EncodedMethod,
+    HEADER_SIZE,
+    compute_dex_checksum,
+    compute_dex_signature,
+)
 
 
 @dataclass
@@ -191,12 +195,10 @@ class CodeItemMerger:
 
     @staticmethod
     def _fix_signature(data: bytearray) -> bytearray:
-        computed = hashlib.sha1(bytes(data[32:])).digest()
-        data[12:32] = computed
+        data[12:32] = compute_dex_signature(data)
         return data
 
     @staticmethod
     def _fix_checksum(data: bytearray, fmt: str) -> bytearray:
-        computed = zlib.adler32(bytes(data[12:])) & 0xFFFFFFFF
-        struct.pack_into(f"{fmt}I", data, 8, computed)
+        struct.pack_into(f"{fmt}I", data, 8, compute_dex_checksum(data))
         return data

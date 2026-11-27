@@ -4,224 +4,18 @@ import time
 from pathlib import Path
 
 from unpack.engines.base import BaseEngine, DumpResult, EngineType
+from unpack.engines.frida_scripts import (
+    FRIDA_ANTI_DETECT_JS,
+    check_frida_usb_available,
+    format_frida_error,
+)
+from unpack.logging_config import get_logger
 from unpack.utils.apk import validate_package_name
+from unpack.utils.fs import sanitize_filename
 
-_FRIDA_SCRIPT = r"""
-'use strict';
+log = get_logger(__name__)
 
-// ════════════════════════════════════════════════
-// Anti-detection — runs FIRST, before anything else.
-// Every Interceptor.attach here fires synchronously
-// on script load, so packer watchdog threads that
-// start on process resume will already see hooked
-// libc functions.
-// ════════════════════════════════════════════════
-
-var antiDetect = {
-    enabled: true,
-    _mapsOpenFds: {},
-    _statusFds: {},
-
-    hideFromMaps: function () {
-        var self = this;
-        var openPtr = Module.findExportByName('libc.so', 'open');
-        var open64Ptr = Module.findExportByName('libc.so', 'open64');
-        var readPtr = Module.findExportByName('libc.so', 'read');
-        if (!readPtr) return;
-
-        var hookOpen = function (ptr) {
-            if (!ptr) return;
-            Interceptor.attach(ptr, {
-                onEnter: function (args) {
-                    try {
-                        var path = args[0].readUtf8String();
-                        if (path && (path.indexOf('/proc/self/maps') !== -1 ||
-                                     path.indexOf('/proc/self/smaps') !== -1 ||
-                                     path.indexOf('/proc/self/map_files') !== -1)) {
-                            this._isMaps = true;
-                        }
-                    } catch (e) {}
-                },
-                onLeave: function (retval) {
-                    if (this._isMaps) {
-                        this._isMaps = false;
-                        var fd = retval.toInt32();
-                        if (fd >= 0) self._mapsOpenFds[fd] = true;
-                    }
-                }
-            });
-        };
-        hookOpen(openPtr);
-        hookOpen(open64Ptr);
-
-        Interceptor.attach(readPtr, {
-            onEnter: function (args) {
-                this._fd = args[0].toInt32();
-                this._buf = args[1];
-            },
-            onLeave: function (retval) {
-                if (!self._mapsOpenFds[this._fd]) return;
-                var n = retval.toInt32();
-                if (n <= 0) return;
-                try {
-                    var content = this._buf.readUtf8String(n);
-                    if (!content) return;
-                    if (content.indexOf('frida') !== -1 ||
-                        content.indexOf('gadget') !== -1 ||
-                        content.indexOf('linjector') !== -1) {
-                        var filtered = content.split('\n').filter(function (line) {
-                            var lower = line.toLowerCase();
-                            return lower.indexOf('frida') === -1 &&
-                                   lower.indexOf('gadget') === -1 &&
-                                   lower.indexOf('linjector') === -1;
-                        }).join('\n');
-                        this._buf.writeUtf8String(filtered);
-                        retval.replace(filtered.length);
-                    }
-                } catch (e) {}
-            }
-        });
-    },
-
-    blockWatchdogSignals: function () {
-        var sigactionPtr = Module.findExportByName('libc.so', 'sigaction');
-        if (!sigactionPtr) return;
-        Interceptor.attach(sigactionPtr, {
-            onEnter: function (args) {
-                var sig = args[0].toInt32();
-                // SIGTRAP=5, SIGABRT=6, SIGTERM=15
-                if (sig === 5 || sig === 6 || sig === 15) {
-                    this._block = true;
-                }
-            },
-            onLeave: function (retval) {
-                if (this._block) {
-                    retval.replace(0);
-                    this._block = false;
-                }
-            }
-        });
-    },
-
-    renameFridaThread: function () {
-        var prctlPtr = Module.findExportByName('libc.so', 'prctl');
-        if (!prctlPtr) return;
-        Interceptor.attach(prctlPtr, {
-            onEnter: function (args) {
-                if (args[0].toInt32() === 15) { // PR_SET_NAME
-                    try {
-                        var name = args[1].readUtf8String();
-                        if (name && (name.indexOf('gmain') !== -1 ||
-                                     name.indexOf('frida') !== -1 ||
-                                     name.indexOf('gadget') !== -1 ||
-                                     name.indexOf('linjector') !== -1 ||
-                                     name.indexOf('pool-frida') !== -1)) {
-                            args[1].writeUtf8String('Binder:main');
-                        }
-                    } catch (e) {}
-                }
-            }
-        });
-    },
-
-    hideDefaultPort: function () {
-        var connectPtr = Module.findExportByName('libc.so', 'connect');
-        if (!connectPtr) return;
-        Interceptor.attach(connectPtr, {
-            onEnter: function (args) {
-                try {
-                    var family = args[1].readU16();
-                    if (family === 2) { // AF_INET
-                        var port = (args[1].add(2).readU8() << 8) | args[1].add(3).readU8();
-                        if (port === 27042 || port === 27043) {
-                            args[1].add(2).writeU8(0);
-                            args[1].add(3).writeU8(0);
-                        }
-                    }
-                } catch (e) {}
-            }
-        });
-    },
-
-    hideTracerPid: function () {
-        var self = this;
-        var openPtr = Module.findExportByName('libc.so', 'open');
-        var readPtr = Module.findExportByName('libc.so', 'read');
-        if (!openPtr || !readPtr) return;
-        // We reuse the existing open hook by piggybacking on the fd tracking.
-        // The open hook is already installed by hideFromMaps; we add status fd
-        // tracking in a separate Interceptor so both coexist.
-        Interceptor.attach(openPtr, {
-            onEnter: function (args) {
-                try {
-                    var path = args[0].readUtf8String();
-                    if (path && path.indexOf('/proc/self/status') !== -1) {
-                        this._isStatus = true;
-                    }
-                } catch (e) {}
-            },
-            onLeave: function (retval) {
-                if (this._isStatus) {
-                    this._isStatus = false;
-                    var fd = retval.toInt32();
-                    if (fd >= 0) self._statusFds[fd] = true;
-                }
-            }
-        });
-
-        Interceptor.attach(readPtr, {
-            onEnter: function (args) {
-                this._statusFd = args[0].toInt32();
-                this._statusBuf = args[1];
-            },
-            onLeave: function (retval) {
-                if (!self._statusFds[this._statusFd]) return;
-                var n = retval.toInt32();
-                if (n <= 0) return;
-                try {
-                    var content = this._statusBuf.readUtf8String(n);
-                    if (content && content.indexOf('TracerPid') !== -1) {
-                        var fixed = content.replace(/TracerPid:\s*\d+/, 'TracerPid:\t0');
-                        this._statusBuf.writeUtf8String(fixed);
-                    }
-                } catch (e) {}
-            }
-        });
-    },
-
-    neutralizeTimingChecks: function () {
-        var gettimeofdayPtr = Module.findExportByName('libc.so', 'gettimeofday');
-        if (!gettimeofdayPtr) return;
-        // Light touch: just installing the hook adds a breakpoint overhead
-        // that the packer's timing check sees as "being debugged". We record
-        // initial time and clamp drift so the measured delta stays below the
-        // packer's threshold (usually 200-500ms).
-        var firstSec = 0;
-        Interceptor.attach(gettimeofdayPtr, {
-            onLeave: function (retval) {
-                // no-op currently; presence of the hook is enough to detect
-                // some naive timing checks that look for Interceptor artifacts
-            }
-        });
-    },
-
-    apply: function () {
-        if (!this.enabled) return;
-        // Order matters: maps and port hiding must be first
-        this.hideFromMaps();
-        this.hideDefaultPort();
-        this.hideTracerPid();
-        this.blockWatchdogSignals();
-        this.renameFridaThread();
-        this.neutralizeTimingChecks();
-        // Java-level hooks are deferred — they need the VM to be ready
-    }
-};
-
-// ═══ Anti-detect runs IMMEDIATELY on script load ═══
-antiDetect.apply();
-
-
+_FRIDA_DUMP_BODY = r"""
 // ════════════════════════════════════════════════
 // DEX dump engine
 // ════════════════════════════════════════════════
@@ -542,6 +336,8 @@ function pollScan() {
 setTimeout(pollScan, 1000);
 """
 
+_FRIDA_SCRIPT = "'use strict';\n" + FRIDA_ANTI_DETECT_JS + "\nantiDetect.apply();\n" + _FRIDA_DUMP_BODY
+
 
 class FridaEngine(BaseEngine):
     engine_type = EngineType.FRIDA
@@ -552,24 +348,11 @@ class FridaEngine(BaseEngine):
         self._frida = None
         self._unavailable_reason: str | None = None
 
-    @property
-    def unavailable_reason(self) -> str | None:
-        return self._unavailable_reason
-
     def is_available(self) -> bool:
-        try:
-            import frida
-
-            self._frida = frida
-            frida.get_usb_device(timeout=3)
-            self._unavailable_reason = None
-            return True
-        except ImportError:
-            self._unavailable_reason = "frida not installed (pip install -e '.[frida]')"
-            return False
-        except Exception as exc:
-            self._unavailable_reason = f"no USB Frida device reachable ({exc})"
-            return False
+        available, frida_mod, reason = check_frida_usb_available(timeout=3.0)
+        self._frida = frida_mod
+        self._unavailable_reason = reason
+        return available
 
     def dump(
         self,
@@ -619,20 +402,24 @@ class FridaEngine(BaseEngine):
                 if message["type"] == "send":
                     payload = message["payload"]
                     if payload.get("type") == "dex" and data:
-                        idx = payload["index"]
-                        tag = payload.get("tag", "unknown")
-                        out = output_dir / f"classes_{idx:03d}_{tag}.dex"
+                        idx = int(payload.get("index", len(dex_files) + 1))
+                        raw_tag = str(payload.get("tag", "unknown"))
+                        safe_tag = sanitize_filename(raw_tag, fallback="unknown", max_length=64)
+                        out = output_dir / f"classes_{idx:03d}_{safe_tag}.dex"
                         out.write_bytes(data)
                         dex_files.append(out)
                     elif payload.get("type") == "so" and data:
                         so_dir = output_dir / "so"
                         so_dir.mkdir(parents=True, exist_ok=True)
-                        name = payload.get("name", f"lib_{payload['index']:03d}.so")
-                        out = so_dir / name
+                        idx = int(payload.get("index", len(so_files) + 1))
+                        raw_name = str(payload.get("name", f"lib_{idx:03d}.so"))
+                        safe_name = sanitize_filename(raw_name, fallback=f"lib_{idx:03d}.so")
+                        out = so_dir / safe_name
                         out.write_bytes(data)
                         so_files.append(out)
                 elif message["type"] == "error":
                     process_alive = False
+                    log.debug("Frida script error message: %s", message.get("description", ""))
 
             script = session.create_script(script_src)
             script.on("message", on_message)
@@ -641,8 +428,9 @@ class FridaEngine(BaseEngine):
             # Resume AFTER hooks are armed
             device.resume(pid)
 
-            from unpack.utils.wait import SmartWaiter
             from unpack.utils.adb import get_device_serial as _get_serial
+            from unpack.utils.wait import SmartWaiter
+
             _serial = device_serial or _get_serial()
             if _serial:
                 waiter = SmartWaiter(
@@ -655,12 +443,12 @@ class FridaEngine(BaseEngine):
 
             try:
                 script.unload()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("Frida script unload ignored: %s", exc)
             try:
                 device.kill(pid)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("Frida process kill ignored for pid=%s: %s", pid, exc)
 
             result.dex_files = dex_files
             result.so_files = so_files
@@ -675,7 +463,8 @@ class FridaEngine(BaseEngine):
                     result.error = "No DEX files captured — packer may have blocked injection"
 
         except Exception as exc:
-            result.error = str(exc)
+            result.error = format_frida_error(exc)
+            log.debug("FridaEngine.dump failed for %s: %s", package_name, exc)
 
         result.duration_ms = int((time.monotonic_ns() - t0) / 1_000_000)
         return result

@@ -14,7 +14,6 @@ installations.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import struct
 import warnings
@@ -25,8 +24,12 @@ from typing import Any
 
 from unpack.analysis.native import NativeAnalyzer, NativeLibInfo, shannon_entropy
 from unpack.core.errors import ApkValidationError, ErrorCode, UnpackError
+from unpack.logging_config import get_logger
 from unpack.repair.verifier import DexVerifier
-from unpack.utils.apk import find_sibling_splits, get_package_name
+from unpack.utils.apk import find_sibling_splits, get_package_name, silence_androguard_logs
+from unpack.utils.fs import file_sha256
+
+logger = get_logger(__name__)
 
 # Android dangerous permissions (AOSP protectionLevel=dangerous)
 _DANGEROUS_PERMISSIONS: dict[str, tuple[str, str]] = {
@@ -338,12 +341,7 @@ class ApkInspectResult:
         }
 
 
-def _file_sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(131072), b""):
-            h.update(chunk)
-    return h.hexdigest()
+_file_sha256 = file_sha256
 
 
 def _detect_apk_sig_block_schemes(apk_path: Path) -> tuple[bool, bool, bool]:
@@ -413,7 +411,8 @@ def _parse_v1_certs(zf: zipfile.ZipFile, entries: list[str]) -> list[Certificate
         try:
             raw = zf.read(entry)
             loaded = pkcs7.load_der_pkcs7_certificates(raw)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Failed parsing PKCS7 certificate %s: %s", entry, exc)
             continue
         for cert in loaded:
             sha256 = cert.fingerprint(hashes.SHA256()).hex()
@@ -573,12 +572,7 @@ class ApkInspector:
     ) -> None:
         andro_ok = False
         try:
-            os.environ.setdefault("LOGURU_LEVEL", "ERROR")
-            try:
-                from loguru import logger as _lg
-                _lg.disable("androguard")
-            except ImportError:
-                pass
+            silence_androguard_logs()
             from androguard.core.apk import APK as AndroAPK
 
             with warnings.catch_warnings():
@@ -594,7 +588,8 @@ class ApkInspector:
                 m.compile_sdk = _safe_int(a.get_attribute_value("manifest", "compileSdkVersion"))
                 try:
                     m.app_name = str(a.get_app_name() or "")
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Failed reading app_name from manifest: %s", exc)
                     m.app_name = ""
                 m.application_class = str(a.get_attribute_value("application", "name") or "")
                 m.debuggable = bool(_parse_bool_attr(a.get_attribute_value("application", "debuggable"), False))

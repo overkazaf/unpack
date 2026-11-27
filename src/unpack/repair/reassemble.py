@@ -5,7 +5,10 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from unpack.logging_config import get_logger
 from unpack.repair.dex_parser import DexFile
+
+log = get_logger(__name__)
 
 # Matches classes.dex, classes2.dex, classes10.dex, ... at the root of the APK zip.
 _DEX_NAME_RE = re.compile(r"^classes\d*\.dex$")
@@ -48,7 +51,8 @@ class DexClassLister:
                 data = zf.read(name)
                 try:
                     result[name] = self.list_classes(data)
-                except Exception:
+                except Exception as exc:
+                    log.debug("DexClassLister skipping corrupt entry %s: %s", name, exc)
                     result[name] = []
         return result
 

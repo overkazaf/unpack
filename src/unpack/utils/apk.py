@@ -1,12 +1,30 @@
 from __future__ import annotations
 
+import os
 import re
 import struct
+import warnings
 import zipfile
 from pathlib import Path
 
+from unpack.logging_config import get_logger
+from unpack.utils.adb import adb_cmd, adb_shell
+
+log = get_logger(__name__)
+
 _PACKAGE_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)+$")
 _MAX_PACKAGE_NAME_LEN = 255
+
+
+def silence_androguard_logs() -> None:
+    """Suppress verbose loguru output emitted by androguard on import/parse."""
+    os.environ.setdefault("LOGURU_LEVEL", "ERROR")
+    try:
+        from loguru import logger as _lg
+
+        _lg.disable("androguard")
+    except ImportError:
+        pass
 
 
 def validate_package_name(name: str) -> str:
@@ -31,21 +49,17 @@ def validate_package_name(name: str) -> str:
 
 def get_package_name(apk_path: Path) -> str | None:
     try:
-        import os as _os
-        _os.environ.setdefault("LOGURU_LEVEL", "ERROR")
-        try:
-            from loguru import logger as _lg
-            _lg.disable("androguard")
-        except ImportError:
-            pass
-        import warnings as _warnings
+        silence_androguard_logs()
         from androguard.core.apk import APK
-        with _warnings.catch_warnings():
-            _warnings.simplefilter("ignore")
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
             a = APK(str(apk_path))
             return a.get_package()
     except ImportError:
         pass
+    except Exception as exc:
+        log.debug("androguard get_package_name fallback for %s: %s", apk_path, exc)
 
     return _parse_package_from_binary_manifest(apk_path)
 
@@ -156,7 +170,11 @@ def pull_all_splits(
     device_serial: str | None,
     output_dir: Path,
 ) -> list[Path]:
+    import shlex
     import subprocess
+
+    from unpack.utils.adb import get_device_serial
+    from unpack.utils.fs import sanitize_filename
 
     # `adb shell <args...>` concatenates its arguments into a single command
     # line that is executed by a shell on the DEVICE side, so passing an
@@ -164,33 +182,30 @@ def pull_all_splits(
     # built shell command, even though this call uses list-form subprocess.
     validate_package_name(package_name)
 
-    cmd_base = ["adb"]
-    if device_serial:
-        cmd_base += ["-s", device_serial]
-
-    try:
-        out = subprocess.check_output(
-            cmd_base + ["shell", "pm", "path", package_name],
-            text=True, timeout=10,
-        )
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+    serial = device_serial or get_device_serial()
+    if not serial:
         return []
 
+    try:
+        out = adb_shell(serial, f"pm path {shlex.quote(package_name)}", timeout=10, root=False)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        log.debug("pull_all_splits pm path failed for %s: %s", package_name, exc)
+        return []
+
+    output_dir.mkdir(parents=True, exist_ok=True)
     pulled: list[Path] = []
     for line in out.strip().splitlines():
         device_path = line.strip().removeprefix("package:")
         if not device_path:
             continue
-        name = Path(device_path).name
+        name = sanitize_filename(Path(device_path).name, fallback="split.apk")
         local_path = output_dir / name
         try:
-            subprocess.check_call(
-                cmd_base + ["pull", device_path, str(local_path)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120,
-            )
+            adb_cmd(serial, "pull", device_path, str(local_path), timeout=120)
             if local_path.exists():
                 pulled.append(local_path)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+            log.debug("pull_all_splits pull failed for %s: %s", device_path, exc)
             continue
 
     return pulled

@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import os
 import socket
-import tempfile
 import threading
 import time
 import urllib.error
@@ -18,11 +17,17 @@ import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from unpack import __version__
 from unpack.core.errors import ErrorCode, UnpackError
+from unpack.logging_config import get_logger
+from unpack.utils.fs import atomic_write_json, resolve_unpack_home, utc_now_iso
+
+logger = get_logger(__name__)
+
+_ALLOWED_AI_URL_SCHEMES: frozenset[str] = frozenset({"http", "https"})
 
 DEFAULT_MAX_CONTEXT_CHARS = 12000
 DEFAULT_TIMEOUT_SECONDS = 60.0
@@ -128,17 +133,24 @@ def list_provider_presets() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+_utc_now_iso = utc_now_iso
+_resolve_unpack_home = resolve_unpack_home
 
 
-def _resolve_unpack_home(base_dir: str | Path | None = None) -> Path:
-    if base_dir is not None:
-        return Path(base_dir).expanduser()
-    env_home = os.environ.get("UNPACK_HOME", "").strip()
-    if env_home:
-        return Path(env_home).expanduser()
-    return Path.home() / ".unpack"
+def validate_ai_base_url(url: str, *, allow_empty: bool = False) -> str:
+    """Validate that an AI endpoint base URL strictly uses ``http://`` or ``https://``."""
+    cleaned = (url or "").strip().rstrip("/")
+    if not cleaned:
+        if allow_empty:
+            return ""
+        raise ValueError("AI base_url must be a valid http:// or https:// URL.")
+    parsed = urllib.parse.urlsplit(cleaned)
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in _ALLOWED_AI_URL_SCHEMES or not parsed.hostname:
+        raise ValueError(
+            f"Unsupported AI base_url ({cleaned!r}): only http:// and https:// endpoints with a valid host are allowed."
+        )
+    return cleaned
 
 
 def _normalize_lang(lang: str | None) -> str:
@@ -187,30 +199,7 @@ def _sanitize_headers_public(headers: dict[str, str]) -> dict[str, str]:
 
 
 def _atomic_write_json_secure(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    serialized = json.dumps(payload, indent=2, ensure_ascii=False)
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-        dir=str(path.parent),
-    )
-    tmp_path = Path(tmp_name)
-    try:
-        if os.name == "posix":
-            os.fchmod(fd, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(serialized)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp_path, path)
-        if os.name == "posix":
-            os.chmod(path, 0o600)
-    except Exception:
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise
+    atomic_write_json(path, payload, mode=0o600)
 
 
 def _parse_bool_env(raw: str | None, default: bool = True) -> bool:
@@ -254,7 +243,7 @@ class AIConfig:
         preset = _get_preset(self.provider)
         if not self.base_url and preset["base_url"]:
             self.base_url = preset["base_url"]
-        self.base_url = self.base_url.strip().rstrip("/")
+        self.base_url = validate_ai_base_url(self.base_url, allow_empty=True)
         if not self.model and preset["default_model"]:
             self.model = preset["default_model"]
         self.model = self.model.strip()
@@ -279,6 +268,10 @@ class AIConfig:
         if not self.enabled:
             return False
         if not self.base_url or not self.model:
+            return False
+        try:
+            validate_ai_base_url(self.base_url, allow_empty=False)
+        except ValueError:
             return False
         if self.requires_api_key and not self.api_key:
             return False
@@ -353,7 +346,8 @@ class AIConfigStore:
             raw = self.config_path.read_text(encoding="utf-8")
             parsed = json.loads(raw)
             return parsed if isinstance(parsed, dict) else {}
-        except (OSError, ValueError, json.JSONDecodeError):
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            logger.debug("Ignoring unreadable AI config at %s: %s", self.config_path, exc)
             return {}
 
     def load(self) -> AIConfig:
@@ -560,6 +554,20 @@ def _ensure_config_ready(cfg: AIConfig, lang: str = "zh") -> None:
             code=ErrorCode.ENGINE_UNAVAILABLE,
             hint="Configure Base URL in Studio AI Settings or set UNPACK_AI_BASE_URL.",
         )
+    try:
+        validate_ai_base_url(cfg.base_url, allow_empty=False)
+    except ValueError as exc:
+        if norm_lang == "zh":
+            raise UnpackError(
+                f"AI 接口地址无效：{exc}",
+                code=ErrorCode.ENGINE_UNAVAILABLE,
+                hint="Base URL 仅支持 http:// 或 https:// 协议并需包含合法主机名。",
+            ) from exc
+        raise UnpackError(
+            str(exc),
+            code=ErrorCode.ENGINE_UNAVAILABLE,
+            hint="Use a valid http:// or https:// Base URL.",
+        ) from exc
     if not cfg.model:
         if norm_lang == "zh":
             raise UnpackError(
@@ -657,7 +665,7 @@ def _build_provider_request(
     headers: dict[str, str] = {
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": "UNPACK-Studio/1.0",
+        "User-Agent": f"UNPACK-Studio/{__version__}",
     }
     headers.update(cfg.extra_headers)
 
@@ -802,8 +810,8 @@ def _invoke_chat_completion(
         err_body = b""
         try:
             err_body = exc.read()
-        except Exception:
-            pass
+        except Exception as read_exc:
+            logger.debug("Failed reading HTTP error body: %s", read_exc)
         detail = _extract_error_detail(err_body, api_key=cfg.api_key)
         raise UnpackError(
             f"AI provider HTTP {exc.code}: {detail or exc.reason}",
@@ -873,14 +881,20 @@ def test_connection(
     lang: str = "zh",
 ) -> dict[str, Any]:
     """Verify AI provider connectivity with a minimal prompt."""
-    if config is None:
-        cfg = (config_store or AIConfigStore()).load()
-    elif isinstance(config, dict):
-        cfg = AIConfig.from_dict(config)
-    else:
-        cfg = config
-
+    provider_hint = ""
+    model_hint = ""
     try:
+        if config is None:
+            cfg = (config_store or AIConfigStore()).load()
+        elif isinstance(config, dict):
+            provider_hint = str(config.get("provider") or "custom")
+            model_hint = str(config.get("model") or "")
+            cfg = AIConfig.from_dict(config)
+        else:
+            cfg = config
+        provider_hint = cfg.provider
+        model_hint = cfg.model
+
         reply, _usage, latency_ms = _invoke_chat_completion(
             cfg,
             system_prompt="You are a connectivity probe. Reply briefly.",
@@ -900,12 +914,22 @@ def test_connection(
     except UnpackError as exc:
         return {
             "ok": False,
-            "provider": cfg.provider,
-            "model": cfg.model,
+            "provider": provider_hint,
+            "model": model_hint,
             "latency_ms": 0,
             "reply_preview": "",
             "error": exc.message,
             "hint": exc.hint,
+        }
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "provider": provider_hint,
+            "model": model_hint,
+            "latency_ms": 0,
+            "reply_preview": "",
+            "error": str(exc),
+            "hint": "Use a valid http:// or https:// Base URL.",
         }
 
 
@@ -968,11 +992,33 @@ def _dump_budgeted_json(obj: Any, max_chars: int = DEFAULT_MAX_CONTEXT_CHARS) ->
     return compact[:cut] + notice
 
 
+def _is_security_native_lib(lib: dict[str, Any]) -> bool:
+    """Return True if a ``NativeLibInfo`` dict carries any security/packer/hardening indicator."""
+    return bool(
+        lib.get("is_security_related")
+        or lib.get("vmp_indicators")
+        or lib.get("dex2c_indicators")
+        or lib.get("anti_debug_indicators")
+        or lib.get("crypto_indicators")
+        or lib.get("risk_flags")
+        or lib.get("security_indicators")
+    )
+
+
+def _is_dangerous_permission(perm: dict[str, Any]) -> bool:
+    """Return True if a ``PermissionInfo`` dict represents a dangerous permission."""
+    level = str(perm.get("protection_level") or perm.get("level") or "").strip().lower()
+    return level == "dangerous" or bool(perm.get("dangerous"))
+
+
 def _serialize_scan_context(
     scan: dict[str, Any],
     inspect: dict[str, Any] | None,
     max_chars: int,
 ) -> str:
+    matched_sigs = scan.get("matched_signatures")
+    if matched_sigs is None:
+        matched_sigs = scan.get("matched_files")
     ctx: dict[str, Any] = {
         "scan": {
             "packer_name": scan.get("packer_name"),
@@ -986,14 +1032,14 @@ def _serialize_scan_context(
             "details": _truncate_str(scan.get("details"), 500),
             "evidence": _compact_value(scan.get("evidence") or [], max_items=25, max_str=220),
             "score_breakdown": _compact_value(scan.get("score_breakdown") or [], max_items=20),
-            "matched_files": _compact_value(scan.get("matched_files") or [], max_items=25, max_str=160),
+            "matched_signatures": _compact_value(matched_sigs or [], max_items=25, max_str=160),
         }
     }
     if inspect:
         sec_libs = [
             lib
             for lib in (inspect.get("native_libs") or [])
-            if isinstance(lib, dict) and lib.get("security_indicators")
+            if isinstance(lib, dict) and _is_security_native_lib(lib)
         ]
         ctx["inspect_summary"] = {
             "file": inspect.get("file"),
@@ -1067,7 +1113,7 @@ def _serialize_vmp_native_context(
         prioritized = sorted(
             [lib for lib in native_libs if isinstance(lib, dict)],
             key=lambda x: (
-                0 if x.get("security_indicators") else 1,
+                0 if _is_security_native_lib(x) else 1,
                 -int(x.get("size_bytes") or 0),
             ),
         )
@@ -1101,7 +1147,7 @@ def _serialize_security_context(
 
     perms = inspect.get("permissions") or []
     dangerous_perms = [
-        p for p in perms if isinstance(p, dict) and str(p.get("level", "")).lower() == "dangerous"
+        p for p in perms if isinstance(p, dict) and _is_dangerous_permission(p)
     ]
     components = inspect.get("components") or {}
     exported_summary: dict[str, list[str]] = {}
@@ -1435,6 +1481,7 @@ __all__ = [
     "list_provider_presets",
     "mask_api_key",
     "is_masked_api_key",
+    "validate_ai_base_url",
     "AIConfig",
     "AIConfigStore",
     "AIAnalysisResult",

@@ -5,7 +5,15 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from unpack.engines.frida_scripts import (
+    FRIDA_ANTI_DETECT_JS,
+    check_frida_usb_available,
+    format_frida_error,
+)
+from unpack.logging_config import get_logger
 from unpack.utils.apk import validate_package_name
+
+log = get_logger(__name__)
 
 
 @dataclass
@@ -20,152 +28,7 @@ class ActiveInvokeResult:
     duration_ms: int = 0
 
 
-_ANTI_DETECT_BLOCK = r"""
-'use strict';
-
-// ── Anti-detection (MUST run first, before packer's watchdog starts) ──
-
-(function() {
-    // 1. Hide /proc/self/maps from frida detection
-    var openPtr = Module.findExportByName('libc.so', 'open');
-    var readPtr = Module.findExportByName('libc.so', 'read');
-    if (openPtr) {
-        var mapsTargets = {};
-        Interceptor.attach(openPtr, {
-            onEnter: function(args) {
-                try {
-                    var path = args[0].readUtf8String();
-                    if (path && (path.indexOf('/proc/self/maps') !== -1 || path.indexOf('/proc/self/smaps') !== -1)) {
-                        this._filterMaps = true;
-                    }
-                } catch(e) {}
-            },
-            onLeave: function(retval) {
-                if (this._filterMaps) {
-                    mapsTargets[retval.toInt32()] = true;
-                    this._filterMaps = false;
-                }
-            }
-        });
-        if (readPtr) {
-            Interceptor.attach(readPtr, {
-                onEnter: function(args) {
-                    this._fd = args[0].toInt32();
-                    this._buf = args[1];
-                    this._size = args[2].toInt32();
-                },
-                onLeave: function(retval) {
-                    if (!mapsTargets[this._fd]) return;
-                    var n = retval.toInt32();
-                    if (n <= 0) return;
-                    try {
-                        var content = this._buf.readUtf8String(n);
-                        var filtered = content.split('\n').filter(function(line) {
-                            return line.indexOf('frida') === -1 && line.indexOf('gadget') === -1 &&
-                                   line.indexOf('linjector') === -1 && line.indexOf('agent') === -1;
-                        }).join('\n');
-                        this._buf.writeUtf8String(filtered);
-                        retval.replace(filtered.length);
-                    } catch(e) {}
-                }
-            });
-        }
-    }
-
-    // 2. Hide default Frida port 27042
-    var connectPtr = Module.findExportByName('libc.so', 'connect');
-    if (connectPtr) {
-        Interceptor.attach(connectPtr, {
-            onEnter: function(args) {
-                try {
-                    var family = args[1].readU16();
-                    if (family === 2) { // AF_INET
-                        var port = (args[1].add(2).readU8() << 8) | args[1].add(3).readU8();
-                        if (port === 27042 || port === 27043) {
-                            args[1].add(2).writeU8(0);
-                            args[1].add(3).writeU8(0);
-                        }
-                    }
-                } catch(e) {}
-            }
-        });
-    }
-
-    // 3. Block watchdog signals (SIGTERM/SIGABRT/SIGTRAP)
-    var sigactionPtr = Module.findExportByName('libc.so', 'sigaction');
-    if (sigactionPtr) {
-        Interceptor.attach(sigactionPtr, {
-            onEnter: function(args) {
-                var sig = args[0].toInt32();
-                if (sig === 15 || sig === 6 || sig === 5) this._block = true;
-            },
-            onLeave: function(retval) {
-                if (this._block) { retval.replace(0); this._block = false; }
-            }
-        });
-    }
-
-    // 4. TracerPid bypass
-    if (openPtr && readPtr) {
-        var statusFds = {};
-        Interceptor.attach(openPtr, {
-            onEnter: function(args) {
-                try {
-                    var p = args[0].readUtf8String();
-                    if (p && p.indexOf('/proc/self/status') !== -1) this._isStatus = true;
-                } catch(e) {}
-            },
-            onLeave: function(retval) {
-                if (this._isStatus) { statusFds[retval.toInt32()] = true; this._isStatus = false; }
-            }
-        });
-        Interceptor.attach(readPtr, {
-            onEnter: function(args) {
-                this._fd2 = args[0].toInt32();
-                this._buf2 = args[1];
-            },
-            onLeave: function(retval) {
-                if (!statusFds[this._fd2]) return;
-                var n = retval.toInt32();
-                if (n <= 0) return;
-                try {
-                    var s = this._buf2.readUtf8String(n);
-                    var fixed = s.replace(/TracerPid:\s*\d+/, 'TracerPid:\t0');
-                    this._buf2.writeUtf8String(fixed);
-                } catch(e) {}
-            }
-        });
-    }
-
-    // 5. Rename frida threads
-    var prctlPtr = Module.findExportByName('libc.so', 'prctl');
-    if (prctlPtr) {
-        Interceptor.attach(prctlPtr, {
-            onEnter: function(args) {
-                if (args[0].toInt32() === 15) { // PR_SET_NAME
-                    try {
-                        var name = args[1].readUtf8String();
-                        if (name && (name.indexOf('gmain') !== -1 || name.indexOf('frida') !== -1 || name.indexOf('gadget') !== -1)) {
-                            args[1].writeUtf8String('Binder:main');
-                        }
-                    } catch(e) {}
-                }
-            }
-        });
-    }
-
-    // 6. Timing attack mitigation
-    var gettimeofdayPtr = Module.findExportByName('libc.so', 'gettimeofday');
-    if (gettimeofdayPtr) {
-        var callCount = 0;
-        Interceptor.attach(gettimeofdayPtr, {
-            onLeave: function(retval) {
-                callCount++;
-            }
-        });
-    }
-})();
-"""
+_ANTI_DETECT_BLOCK = "'use strict';\n" + FRIDA_ANTI_DETECT_JS + "\nantiDetect.apply();\n"
 
 _ACTIVE_INVOKE_SCRIPT = r"""
 // ════════════════════════════════════════════════════════
@@ -587,14 +450,16 @@ class ActiveInvoker:
         self._anti_detect = anti_detect
         self._wait_seconds = wait_seconds
         self._harvest_delay = harvest_delay
+        self._unavailable_reason: str | None = None
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        return self._unavailable_reason
 
     def is_available(self) -> bool:
-        try:
-            import frida
-            frida.get_usb_device(timeout=3)
-            return True
-        except (ImportError, Exception):
-            return False
+        available, _frida, reason = check_frida_usb_available(timeout=3.0)
+        self._unavailable_reason = reason
+        return available
 
     def invoke(
         self,
@@ -608,7 +473,8 @@ class ActiveInvoker:
         try:
             result = self._do_invoke(package_name, output_dir, device_serial, result)
         except Exception as exc:
-            result.error = str(exc)
+            result.error = format_frida_error(exc)
+            log.debug("ActiveInvoker.invoke failed for %s: %s", package_name, exc)
         finally:
             result.duration_ms = int((time.monotonic_ns() - t0) / 1_000_000)
 
@@ -693,12 +559,12 @@ class ActiveInvoker:
 
         try:
             script.unload()
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("ActiveInvoker script unload ignored: %s", exc)
         try:
             device.kill(pid)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.debug("ActiveInvoker process kill ignored for pid=%s: %s", pid, exc)
 
         result.code_items = code_items
         result.success = len(code_items) > 0
@@ -762,6 +628,11 @@ class MemoryActiveInvoker:
         t0 = time.monotonic_ns()
 
         try:
+            if not package_name:
+                result.error = "package_name is required for active invocation"
+                return result
+            validate_package_name(package_name)
+
             from unpack.utils.exerciser import AppExerciser
 
             exerciser = AppExerciser(
@@ -774,6 +645,7 @@ class MemoryActiveInvoker:
 
         except Exception as exc:
             result.error = str(exc)
+            log.debug("MemoryActiveInvoker.invoke failed for %s: %s", package_name, exc)
         finally:
             result.duration_ms = int((time.monotonic_ns() - t0) / 1_000_000)
 

@@ -41,7 +41,7 @@ _FIELD = "field"
 # opcode -> (mnemonic, format, ref_kind or None)
 OPCODE_TABLE: dict[int, tuple[str, str, str | None]] = {
     0x00: ("nop", "10x", None),
-    0x0e: ("return-void", "11x", None),
+    0x0e: ("return-void", "10x", None),
     0x0f: ("return", "11x", None),
     0x10: ("return-wide", "11x", None),
     0x11: ("return-object", "11x", None),
@@ -544,8 +544,12 @@ class FullDalvikDisassembler:
     ) -> tuple[str, int | None]:
         n = len(chunk)
         b1 = chunk[1] if n > 1 else 0
-        u16 = lambda o: int.from_bytes(chunk[o : o + 2], "little") if o + 2 <= n else 0
-        u32 = lambda o: int.from_bytes(chunk[o : o + 4], "little") if o + 4 <= n else 0
+
+        def u16(o: int) -> int:
+            return int.from_bytes(chunk[o : o + 2], "little") if o + 2 <= n else 0
+
+        def u32(o: int) -> int:
+            return int.from_bytes(chunk[o : o + 4], "little") if o + 4 <= n else 0
 
         if fmt == "10x":
             return "", None

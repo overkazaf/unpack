@@ -15,8 +15,10 @@ from pathlib import Path
 from typing import Any
 
 from unpack.analysis.disasm import DecodedInstruction, FullDalvikDisassembler
+from unpack.analysis.ioc import categorize_string
 from unpack.analysis.native import shannon_entropy
 from unpack.analysis.vmp import MethodClassification, VmpDetector
+from unpack.logging_config import get_logger
 from unpack.repair.dex_parser import (
     ClassDef,
     DexFile,
@@ -25,14 +27,8 @@ from unpack.repair.dex_parser import (
 )
 from unpack.repair.verifier import DexVerifier
 
-_URL_RE = re.compile(r"https?://[^\s'\"<>]{4,}", re.IGNORECASE)
-_IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-_SECRET_RE = re.compile(
-    r"(?:AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z\-_]{35}|-----BEGIN (?:RSA |EC )?PRIVATE KEY-----|"
-    r"(?:api[_-]?key|secret|token|password)\s*[:=]\s*['\"]?[A-Za-z0-9_\-]{8,})",
-    re.IGNORECASE,
-)
-_SHELL_RE = re.compile(r"(?:/system/bin/su|/sbin/su|frida-server|/proc/self/maps|libfrida)", re.IGNORECASE)
+log = get_logger(__name__)
+
 _DEX_ENTRY_RE = re.compile(r"^classes\d*\.dex$")
 
 
@@ -312,7 +308,8 @@ class DexInspector:
             for name in dex_names:
                 try:
                     inspectors[name] = cls.from_bytes(zf.read(name), name=name)
-                except Exception:
+                except Exception as exc:
+                    log.debug("DexInspector.from_apk skipping corrupt entry %s: %s", name, exc)
                     continue
         return inspectors
 
@@ -336,7 +333,7 @@ class DexInspector:
         target_cls: str | None = None
         target_meth: str | None = None
         if 0 < ci.insns_size <= self._vmp.MAX_VMP_STUB_UNITS:
-            t_idx = self._vmp._invoke_target(ci.insns, ci.insns_size)
+            t_idx = self._vmp.first_invoke_target(ci.insns, ci.insns_size)
             if t_idx is not None:
                 target_cls, target_meth = self.dex.get_method_full(t_idx)
 
@@ -662,12 +659,4 @@ class DexInspector:
 
     @staticmethod
     def _categorize_string(value: str) -> str:
-        if _SECRET_RE.search(value):
-            return "secret"
-        if _URL_RE.search(value):
-            return "url"
-        if _SHELL_RE.search(value):
-            return "anti_analysis"
-        if _IP_RE.search(value):
-            return "ip"
-        return "plain"
+        return categorize_string(value)

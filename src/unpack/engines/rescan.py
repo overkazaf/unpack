@@ -10,7 +10,11 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from unpack.utils.apk import validate_package_name
+from unpack.logging_config import get_logger
+from unpack.utils.adb import adb_run, adb_shell, parse_dex_map_regions, read_proc_mem, validate_pid
+from unpack.utils.apk import silence_androguard_logs, validate_package_name
+
+log = get_logger(__name__)
 
 # Suffix -> component type. Order doesn't matter since suffixes are
 # mutually exclusive in practice (a class name ends with at most one
@@ -92,27 +96,23 @@ class ComponentExtractor:
 
     def _extract_via_androguard(self, apk_path: Path) -> list[str]:
         try:
-            import os as _os
-            _os.environ.setdefault("LOGURU_LEVEL", "ERROR")
-            try:
-                from loguru import logger as _lg
-                _lg.disable("androguard")
-            except ImportError:
-                pass
+            silence_androguard_logs()
             from androguard.core.apk import APK
         except ImportError:
             return []
 
         try:
             a = APK(str(apk_path))
-        except Exception:
+        except Exception as exc:
+            log.debug("androguard APK parse failed for %s: %s", apk_path, exc)
             return []
 
         names: list[str] = []
         for getter in ("get_activities", "get_services", "get_receivers", "get_providers"):
             try:
                 names.extend(getattr(a, getter)())
-            except Exception:
+            except Exception as exc:
+                log.debug("androguard %s failed for %s: %s", getter, apk_path, exc)
                 continue
         return names
 
@@ -253,32 +253,20 @@ class IncrementalRescanner:
         if not name:
             return
 
-        target = f"{shlex.quote(package_name)}/{name}"
+        safe_target = shlex.quote(f"{package_name}/{name}")
+        safe_uri = shlex.quote(f"content://{name}")
 
         try:
             if comp_type == "activity":
-                subprocess.run(
-                    ["adb", "-s", serial, "shell", "am", "start", "-n", target],
-                    timeout=10, capture_output=True,
-                )
+                adb_run(serial, "shell", "am", "start", "-n", safe_target, timeout=10)
             elif comp_type == "service":
-                subprocess.run(
-                    ["adb", "-s", serial, "shell", "am", "startservice", "-n", target],
-                    timeout=10, capture_output=True,
-                )
+                adb_run(serial, "shell", "am", "startservice", "-n", safe_target, timeout=10)
             elif comp_type == "receiver":
-                subprocess.run(
-                    ["adb", "-s", serial, "shell", "am", "broadcast", "-n", target],
-                    timeout=10, capture_output=True,
-                )
+                adb_run(serial, "shell", "am", "broadcast", "-n", safe_target, timeout=10)
             elif comp_type == "provider":
-                subprocess.run(
-                    ["adb", "-s", serial, "shell", "content", "query",
-                     "--uri", f"content://{name}"],
-                    timeout=10, capture_output=True,
-                )
-        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, OSError):
-            pass
+                adb_run(serial, "shell", "content", "query", "--uri", safe_uri, timeout=10)
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
+            log.debug("Component trigger failed for %s (%s): %s", name, comp_type, exc)
 
     def _rescan_pid_memory(
         self,
@@ -296,53 +284,27 @@ class IncrementalRescanner:
         new_files: list[Path] = []
 
         try:
-            # `adb shell <args...>` joins its arguments into a single
-            # command line executed by a shell on the DEVICE side, so this
-            # list-form subprocess call is just as exploitable as an
-            # f-string built shell command -- quote defensively.
-            pid_out = subprocess.check_output(
-                ["adb", "-s", serial, "shell", "pidof", shlex.quote(package_name)],
-                text=True, timeout=5,
-            ).strip()
-            pid = pid_out.split()[0]
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError, OSError):
+            pid_out = adb_shell(
+                serial,
+                f"pidof {shlex.quote(package_name)}",
+                root=False,
+                timeout=5,
+            )
+            pid = validate_pid(pid_out.split()[0])
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, IndexError, ValueError, OSError) as exc:
+            log.debug("Failed to resolve PID for %s: %s", package_name, exc)
             return new_files
 
         try:
-            maps_text = subprocess.check_output(
-                ["adb", "-s", serial, "shell", "su", "-c", f"cat /proc/{pid}/maps"],
-                text=True, timeout=10,
-            )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            maps_text = adb_shell(serial, f"cat /proc/{pid}/maps", root=True, timeout=10)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+            log.debug("Failed reading /proc/%s/maps: %s", pid, exc)
             return new_files
 
         output_dir.mkdir(parents=True, exist_ok=True)
         idx = 0
-        for line in maps_text.splitlines():
-            parts = line.split()
-            if not parts:
-                continue
-            path = parts[-1] if len(parts) > 5 else ""
-            if "[anon:dalvik-" not in line and not any(
-                k in path for k in (".vdex", ".apk", ".dex")
-            ):
-                continue
-            if any(k in path for k in ("/system/", "/apex/", "/vendor/", "/product/")):
-                continue
-
-            addr_range = parts[0]
-            try:
-                start_hex, end_hex = addr_range.split("-")
-                start = int(start_hex, 16)
-                end = int(end_hex, 16)
-            except ValueError:
-                continue
-
-            size = end - start
-            if size < 256 or size > 256 * 1024 * 1024:
-                continue
-
-            data = self._read_region(serial, pid, start, min(size, 50 * 1024 * 1024))
+        for region in parse_dex_map_regions(maps_text):
+            data = self._read_region(serial, pid, region.start, min(region.size, 50 * 1024 * 1024))
             if len(data) < 112 or data[:4] not in (b"dex\n", b"cdex"):
                 continue
 
@@ -361,16 +323,8 @@ class IncrementalRescanner:
         return new_files
 
     def _read_region(self, serial: str, pid: str, addr: int, size: int) -> bytes:
-        bs = 4096
-        skip_blocks = addr // bs
-        offset = addr % bs
-        blocks = (size + offset + bs - 1) // bs
         try:
-            raw = subprocess.check_output(
-                ["adb", "-s", serial, "shell", "su", "-c",
-                 f"dd if=/proc/{pid}/mem bs={bs} skip={skip_blocks} count={blocks} 2>/dev/null"],
-                timeout=30,
-            )
-            return raw[offset:offset + size]
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+            return read_proc_mem(serial, pid, addr, size, block_size=4096, timeout=30)
+        except ValueError as exc:
+            log.debug("_read_region rejected invalid pid %r: %s", pid, exc)
             return b""

@@ -8,7 +8,13 @@ from types import SimpleNamespace
 from typer.testing import CliRunner
 
 from unpack import __version__
-from unpack.cli import EXIT_NOT_FOUND, EXIT_OK, app
+from unpack.cli import (
+    EXIT_DUMP_FAILED,
+    EXIT_ERROR,
+    EXIT_NOT_FOUND,
+    EXIT_OK,
+    app,
+)
 
 runner = CliRunner()
 
@@ -185,3 +191,131 @@ class TestPipePurityAndFormats:
         assert (out_dir / "report.json").exists()
         assert html_path.exists()
         assert html_path.read_text().startswith("<!DOCTYPE html>")
+
+
+class TestCommercialRefactorRegressions:
+    def test_dump_post_dedup_uses_unique_dex_list_for_repair(
+        self, synthetic_dex_bytes, tmp_path, monkeypatch
+    ):
+        """P0 regression: duplicate DEX unlinked by dedup must not crash repair."""
+        apk = _make_mini_apk(tmp_path / "dup.apk", synthetic_dex_bytes)
+        out_dir = tmp_path / "unpacked"
+
+        def _fake_dispatch(self, apk, scan_result, output_dir, **kwargs):
+            d1 = output_dir / "classes_000.dex"
+            d2 = output_dir / "classes_001.dex"
+            d1.write_bytes(synthetic_dex_bytes)
+            d2.write_bytes(synthetic_dex_bytes)  # exact duplicate -> dedup unlinks one
+            return SimpleNamespace(dex_files=[d1, d2], duration_ms=50, error=None)
+
+        monkeypatch.setattr("unpack.core.dispatcher.Dispatcher.dispatch", _fake_dispatch)
+
+        res = runner.invoke(app, ["dump", str(apk), "-o", str(out_dir)])
+        assert res.exit_code == EXIT_OK
+        assert (out_dir / "report.json").exists()
+        assert "Removed 1 duplicate" in res.output
+
+    def test_dump_deep_post_dedup_and_null_pkg_guard(
+        self, synthetic_dex_bytes, tmp_path, monkeypatch
+    ):
+        """P0 regression: --deep merges only unique DEXs and guards None pkg_name."""
+        apk = _make_mini_apk(tmp_path / "dup_deep.apk", synthetic_dex_bytes)
+        out_dir = tmp_path / "unpacked_deep"
+
+        def _fake_dispatch(self, apk, scan_result, output_dir, **kwargs):
+            d1 = output_dir / "classes_000.dex"
+            d2 = output_dir / "classes_001.dex"
+            d1.write_bytes(synthetic_dex_bytes)
+            d2.write_bytes(synthetic_dex_bytes)
+            return SimpleNamespace(dex_files=[d1, d2], duration_ms=40, error=None)
+
+        merged_paths: list[Path] = []
+
+        class _FakeInvoker:
+            def __init__(self, **kwargs):
+                pass
+
+            def invoke(self, **kwargs):
+                return SimpleNamespace(code_items={"m": b"\x00"}, error=None)
+
+        class _FakeMerger:
+            def merge(self, dex_path, code_items):
+                assert dex_path.exists(), f"stale unlinked DEX passed to merger: {dex_path}"
+                merged_paths.append(dex_path)
+                return SimpleNamespace(methods_merged=1, methods_still_nop=0)
+
+        monkeypatch.setattr("unpack.core.dispatcher.Dispatcher.dispatch", _fake_dispatch)
+        monkeypatch.setattr("unpack.utils.apk.get_package_name", lambda _p: "com.example.app")
+        monkeypatch.setattr("unpack.engines.active_invoke.ActiveInvoker", _FakeInvoker)
+        monkeypatch.setattr("unpack.repair.codeitem_merger.CodeItemMerger", _FakeMerger)
+
+        res = runner.invoke(app, ["dump", str(apk), "-o", str(out_dir), "--deep"])
+        assert res.exit_code == EXIT_OK
+        assert len(merged_paths) == 1
+
+        # Also verify MemoryActiveInvoker is NOT called when pkg_name is None
+        mem_called: list[bool] = []
+
+        class _FailIfCalledMemInvoker:
+            def invoke(self, **kwargs):
+                mem_called.append(True)
+                raise AssertionError("MemoryActiveInvoker should not be invoked when pkg_name is None")
+
+        out_dir2 = tmp_path / "unpacked_nopkg"
+        monkeypatch.setattr("unpack.utils.apk.get_package_name", lambda _p: None)
+        monkeypatch.setattr("unpack.utils.adb.get_device_serial", lambda: "EMU-5554")
+        monkeypatch.setattr(
+            "unpack.engines.active_invoke.MemoryActiveInvoker",
+            _FailIfCalledMemInvoker,
+        )
+
+        res2 = runner.invoke(app, ["dump", str(apk), "-o", str(out_dir2), "--deep"])
+        assert res2.exit_code == EXIT_OK
+        assert mem_called == []
+
+    def test_dump_failed_returns_exit_dump_failed(self, synthetic_dex_bytes, tmp_path, monkeypatch):
+        """P0 regression: dump returning zero DEXs must exit with EXIT_DUMP_FAILED (4)."""
+        apk = _make_mini_apk(tmp_path / "fail.apk", synthetic_dex_bytes)
+        out_dir = tmp_path / "out_fail"
+
+        def _fake_dispatch(self, apk, scan_result, output_dir, **kwargs):
+            return SimpleNamespace(dex_files=[], duration_ms=12, error="no engine succeeded")
+
+        monkeypatch.setattr("unpack.core.dispatcher.Dispatcher.dispatch", _fake_dispatch)
+
+        res = runner.invoke(app, ["dump", str(apk), "-o", str(out_dir)])
+        assert res.exit_code == EXIT_DUMP_FAILED
+
+    def test_global_log_level_flag(self):
+        import logging
+
+        pkg_logger = logging.getLogger("unpack")
+        prev_level = pkg_logger.level
+        try:
+            res = runner.invoke(
+                app,
+                ["--log-level", "debug", "doctor", "--no-devices", "--json", "-"],
+            )
+            assert res.exit_code == EXIT_OK
+            assert pkg_logger.level == logging.DEBUG
+            # Stdout must stay pure JSON even at DEBUG log level
+            data = json.loads(res.stdout)
+            assert "checks" in data
+
+            res_bad = runner.invoke(app, ["--log-level", "not_a_level", "doctor", "--no-devices"])
+            assert res_bad.exit_code == EXIT_ERROR
+        finally:
+            pkg_logger.setLevel(prev_level)
+
+    def test_packaging_metadata_and_py_typed(self):
+        import tomllib
+
+        repo_root = Path(__file__).resolve().parents[1]
+        assert (repo_root / "src" / "unpack" / "py.typed").is_file()
+        with (repo_root / "pyproject.toml").open("rb") as fh:
+            meta = tomllib.load(fh)
+        assert "version" in meta["project"]["dynamic"]
+        assert meta["tool"]["hatch"]["version"]["path"] == "src/unpack/__init__.py"
+        analysis_deps = meta["project"]["optional-dependencies"]["analysis"]
+        assert any(dep.startswith("cryptography") for dep in analysis_deps)
+

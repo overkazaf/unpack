@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 from pathlib import Path
 
-log = logging.getLogger(__name__)
+from unpack.logging_config import get_logger
+from unpack.utils.fs import file_sha256
+
+log = get_logger(__name__)
 
 
 def _quick_key(path: Path) -> str:
     size = path.stat().st_size
-    head = path.read_bytes()[:32]
+    with path.open("rb") as fh:
+        head = fh.read(32)
     return f"{size}:{hashlib.md5(head).hexdigest()}"
 
 
@@ -22,7 +25,8 @@ def dedup_dex_files(dex_dir: Path) -> list[Path]:
     for p in dex_files:
         try:
             key = _quick_key(p)
-        except OSError:
+        except OSError as exc:
+            log.debug("dedup skipping unreadable file %s: %s", p, exc)
             continue
         quick_groups.setdefault(key, []).append(p)
 
@@ -36,7 +40,7 @@ def dedup_dex_files(dex_dir: Path) -> list[Path]:
             continue
 
         for p in group:
-            h = hashlib.sha256(p.read_bytes()).hexdigest()
+            h = file_sha256(p)
             if h in seen_hashes:
                 removed.append(p)
                 p.unlink()

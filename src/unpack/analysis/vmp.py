@@ -23,7 +23,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from unpack.logging_config import get_logger
 from unpack.repair.dex_parser import CodeItem, DexFile
+
+log = get_logger(__name__)
 
 # Dalvik invoke-kind opcodes: invoke-virtual, invoke-super, invoke-direct,
 # invoke-static, invoke-interface. All share the 35c instruction format
@@ -238,8 +241,8 @@ class VmpDetector:
 
         return has_invoke, non_trivial_ops, invoke_offset
 
-    def _invoke_target(self, insns: bytes, insns_size: int) -> int | None:
-        """Return the method_idx referenced by the first invoke in insns, if any."""
+    def first_invoke_target(self, insns: bytes, insns_size: int) -> int | None:
+        """Return the method_idx referenced by the first invoke in ``insns``, if any."""
         _, _, invoke_offset = self._scan(insns, insns_size)
         if invoke_offset is None:
             return None
@@ -247,7 +250,10 @@ class VmpDetector:
         idx_off = invoke_offset + 2
         if idx_off + 2 > len(insns):
             return None
-        return int.from_bytes(insns[idx_off:idx_off + 2], "little")
+        return int.from_bytes(insns[idx_off : idx_off + 2], "little")
+
+    def _invoke_target(self, insns: bytes, insns_size: int) -> int | None:
+        return self.first_invoke_target(insns, insns_size)
 
     def analyze_dex(self, dex_data: bytes) -> VmpReport:
         """Classify every method with a code body in a single DEX blob."""
@@ -255,7 +261,8 @@ class VmpDetector:
 
         try:
             dex = DexFile.parse(dex_data)
-        except Exception:
+        except Exception as exc:
+            log.debug("VmpDetector.analyze_dex parse failed: %s", exc)
             return report
 
         for cdef in dex.class_defs:

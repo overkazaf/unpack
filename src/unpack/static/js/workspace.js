@@ -21,10 +21,17 @@
       const res = await API.listWorkspaces();
       Store.workspaces = res.workspaces || [];
       Store.activeWorkspaceId = res.active_workspace_id || "default";
+      Store.degraded.workspaces = false;
       await refreshHistory(Store.activeWorkspaceId);
       renderSidebarWidget();
       if (managerOpen) renderManagerModal();
-    } catch (_) {}
+    } catch (err) {
+      Store.degraded.workspaces = true;
+      renderSidebarWidget();
+      if (global.UnpackUI) {
+        global.UnpackUI.toast(t("toast.load_failed", { target: t("ws.label"), error: err.message || "error" }), "warn");
+      }
+    }
   }
 
   async function refreshHistory(wsId) {
@@ -38,7 +45,9 @@
         pipeline_runs: hist.pipeline_runs || [],
         ai_analyses: hist.ai_analyses || [],
       };
-    } catch (_) {}
+    } catch (err) {
+      Store.degraded.workspaceHistory = true;
+    }
   }
 
   async function activateWorkspace(wsId) {
@@ -95,7 +104,12 @@
   }
 
   async function renameWorkspace(wsId, currentName) {
-    const next = window.prompt(t("ws.modal.rename"), currentName || "");
+    const next = await global.UnpackUI.promptModal({
+      title: t("dialog.rename_ws_title"),
+      value: currentName || "",
+      placeholder: t("dialog.rename_ws_ph"),
+      confirmText: t("dialog.save_btn"),
+    });
     if (!next || !next.trim() || next.trim() === currentName) return;
     try {
       await global.UnpackAPI.updateWorkspace(wsId, { name: next.trim() });
@@ -107,7 +121,15 @@
     }
   }
 
-  async function deleteWorkspace(wsId) {
+  async function deleteWorkspace(wsId, wsName) {
+    const label = wsName || (global.UnpackStore.workspaces || []).find((w) => w.id === wsId)?.name || wsId;
+    const confirmed = await global.UnpackUI.confirmModal({
+      title: t("dialog.confirm_delete_title"),
+      message: t("dialog.confirm_delete_ws", { name: label }),
+      confirmText: t("dialog.confirm_btn"),
+      danger: true,
+    });
+    if (!confirmed) return;
     try {
       const res = await global.UnpackAPI.deleteWorkspace(wsId);
       global.UnpackUI.toast(t("ws.toast.deleted"), "muted");

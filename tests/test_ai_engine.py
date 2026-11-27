@@ -488,3 +488,138 @@ def test_giant_apk_context_is_strictly_budgeted() -> None:
     # Highest-severity finding was preserved at the top
     assert "F-0" in captured_user_prompt[0]
     assert "omitted" in captured_user_prompt[1] or "truncated" in captured_user_prompt[1]
+
+
+# ---------------------------------------------------------------------------
+# P0 Regression Tests: Real Schema Mapping, SSRF Scheme Guard, Dynamic UA
+# ---------------------------------------------------------------------------
+
+
+def test_real_schema_fields_preserved_in_ai_context() -> None:
+    """P0 regression: NativeLibInfo, PermissionInfo, and ScanResult schemas map cleanly."""
+    from unpack import __version__
+
+    captured: list[dict[str, Any]] = []
+
+    def fake_urlopen(req: Any, timeout: float = 0) -> _FakeHTTPResponse:
+        captured.append(
+            {
+                "headers": {k.lower(): v for k, v in req.header_items()},
+                "body": json.loads(req.data.decode("utf-8")),
+            }
+        )
+        return _FakeHTTPResponse({"choices": [{"message": {"content": "Analysis OK"}}]})
+
+    analyzer = AIAnalyzer(AIConfig(provider="ollama"))
+    scan_payload = {
+        "packer_name": "360加固保",
+        "protection_level": "vmp",
+        "confidence": 0.95,
+        "matched_signatures": ["so:lib/arm64-v8a/libjiagu_ls.so", "asset:assets/.appkey"],
+    }
+    inspect_payload = {
+        "file": "bank.apk",
+        "sha256": "f" * 64,
+        "risk_score": 68,
+        "risk_grade": "D",
+        "manifest": {"package": "com.bank.app", "debuggable": True},
+        "permissions": [
+            {"name": "android.permission.READ_SMS", "protection_level": "dangerous", "risk": "high"},
+            {"name": "android.permission.INTERNET", "protection_level": "normal", "risk": "low"},
+        ],
+        "native_libs": [
+            {
+                "name": "libplain.so",
+                "abi": "arm64-v8a",
+                "size_bytes": 9_000_000,
+                "is_security_related": False,
+                "vmp_indicators": [],
+                "dex2c_indicators": [],
+                "anti_debug_indicators": [],
+                "crypto_indicators": [],
+                "risk_flags": [],
+            },
+            {
+                "name": "libjiagu_ls.so",
+                "abi": "arm64-v8a",
+                "size_bytes": 200_000,
+                "is_security_related": True,
+                "vmp_indicators": ["vmp_entry"],
+                "dex2c_indicators": [],
+                "anti_debug_indicators": ["ptrace"],
+                "crypto_indicators": [],
+                "risk_flags": ["high_entropy_packed"],
+            },
+            {
+                "name": "libjgdtc.so",
+                "abi": "arm64-v8a",
+                "size_bytes": 150_000,
+                "is_security_related": False,
+                "dex2c_indicators": ["dtcloader"],
+                "risk_flags": [],
+            },
+        ],
+        "findings": [],
+    }
+
+    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+        analyzer.analyze_scan(scan_payload, inspect=inspect_payload, lang="en")
+        analyzer.analyze_security(inspect_payload, lang="en")
+        analyzer.analyze_vmp_native(
+            vmp={"dex": "classes.dex", "total_methods": 50, "vmp_count": 5},
+            native_libs=inspect_payload["native_libs"],
+            lang="en",
+        )
+
+    assert len(captured) == 3
+    # Dynamic User-Agent uses package __version__
+    assert captured[0]["headers"]["user-agent"] == f"UNPACK-Studio/{__version__}"
+
+    # 1. Scan context preserves matched_signatures and security native libs
+    scan_prompt = captured[0]["body"]["messages"][1]["content"]
+    assert "matched_signatures" in scan_prompt
+    assert "so:lib/arm64-v8a/libjiagu_ls.so" in scan_prompt
+    assert "libjiagu_ls.so" in scan_prompt
+    assert "libjgdtc.so" in scan_prompt
+    assert "libplain.so" not in scan_prompt
+
+    # 2. Security context extracts dangerous permissions via protection_level
+    sec_prompt = captured[1]["body"]["messages"][1]["content"]
+    assert "android.permission.READ_SMS" in sec_prompt
+    assert "android.permission.INTERNET" not in sec_prompt
+
+    # 3. VMP/Native context sorts security-flagged SOs ahead of larger plain SOs
+    vmp_prompt = captured[2]["body"]["messages"][1]["content"]
+    assert vmp_prompt.index("libjiagu_ls.so") < vmp_prompt.index("libplain.so")
+
+
+@pytest.mark.parametrize(
+    "bad_url",
+    [
+        "file:///etc/passwd",
+        "ftp://internal.host/v1",
+        "gopher://127.0.0.1:6379/_INFO",
+        "javascript:alert(1)",
+        "http://",
+        "not-a-url",
+    ],
+)
+def test_ssrf_non_http_base_url_rejected(bad_url: str) -> None:
+    """P0 security: non-http/https base_url must be rejected at config and call time."""
+    with pytest.raises(ValueError, match="http:// and https://"):
+        AIConfig(provider="custom", base_url=bad_url, model="test-model")
+
+    with patch("urllib.request.urlopen") as mock_open:
+        res = test_connection({"provider": "custom", "base_url": bad_url, "model": "test-model"}, lang="en")
+        assert res["ok"] is False
+        assert "http://" in res["error"] or "Unsupported" in res["error"]
+        mock_open.assert_not_called()
+
+    # Defense-in-depth: post-init mutation is also blocked before urlopen
+    cfg = AIConfig(provider="ollama")
+    cfg.base_url = bad_url
+    with patch("urllib.request.urlopen") as mock_open:
+        with pytest.raises(UnpackError) as exc_info:
+            AIAnalyzer(cfg).analyze_scan({"packer_name": None}, lang="en")
+        assert exc_info.value.code == ErrorCode.ENGINE_UNAVAILABLE
+        mock_open.assert_not_called()

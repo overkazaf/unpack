@@ -1811,3 +1811,49 @@ button { cursor: pointer; }
   line-height: 1.5;
   color: var(--text-primary);
 }
+
+/* ==========================================================================
+   Accessibility, Keyboard Focus, Confirm/Prompt Dialog & Motion Preferences
+   ========================================================================== */
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.dialog-backdrop {
+  z-index: 120;
+}
+
+.modal-dialog-sm {
+  width: min(440px, 92vw);
+  max-width: 440px;
+}
+
+.dialog-msg {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+  margin-bottom: 14px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

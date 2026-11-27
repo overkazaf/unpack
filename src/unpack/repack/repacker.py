@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-import hashlib
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from unpack.logging_config import get_logger
+from unpack.utils.fs import file_sha256
+
+log = get_logger(__name__)
 
 _SIGNATURE_SUFFIXES = (".SF", ".RSA", ".DSA", ".EC")
 
@@ -93,9 +97,8 @@ class Repacker:
         result.success = True
         result.output_path = output_path
         try:
-            raw = output_path.read_bytes()
-            result.output_size_bytes = len(raw)
-            result.output_sha256 = hashlib.sha256(raw).hexdigest()
-        except OSError:
-            pass
+            result.output_size_bytes = output_path.stat().st_size
+            result.output_sha256 = file_sha256(output_path)
+        except OSError as exc:
+            log.debug("Failed computing output stats for %s: %s", output_path, exc)
         return result

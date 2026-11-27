@@ -67,6 +67,30 @@ class TestI18nEngine:
         # Unknown key falls back safely to key string
         assert t("nonexistent.key.xyz", "zh") == "nonexistent.key.xyz"
 
+    def test_en_zh_catalog_parity_and_placeholders(self):
+        import string
+
+        from unpack._i18n_en import CATALOG_EN
+        from unpack._i18n_zh import CATALOG_ZH
+        from unpack.i18n import TRANSLATIONS
+
+        assert TRANSLATIONS["en"] is CATALOG_EN
+        assert TRANSLATIONS["zh"] is CATALOG_ZH
+        en_keys = set(CATALOG_EN.keys())
+        zh_keys = set(CATALOG_ZH.keys())
+        assert en_keys == zh_keys, f"Mismatch EN-ZH: {en_keys ^ zh_keys}"
+        assert len(en_keys) >= 500
+
+        formatter = string.Formatter()
+        for key in sorted(en_keys):
+            en_val = CATALOG_EN[key]
+            zh_val = CATALOG_ZH[key]
+            assert isinstance(en_val, str) and en_val.strip(), f"Empty EN value for {key}"
+            assert isinstance(zh_val, str) and zh_val.strip(), f"Empty ZH value for {key}"
+            en_fields = {fname for _, fname, _, _ in formatter.parse(en_val) if fname is not None}
+            zh_fields = {fname for _, fname, _, _ in formatter.parse(zh_val) if fname is not None}
+            assert en_fields == zh_fields, f"Placeholder mismatch for {key}: EN={en_fields} vs ZH={zh_fields}"
+
 
 class TestBilingualReports:
     def _sample_audit(self):

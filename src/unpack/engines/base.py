@@ -13,6 +13,14 @@ class EngineType(Enum):
 
 
 @dataclass
+class DumpOptions:
+    """Typed runtime configuration passed from Dispatcher to dump engines."""
+
+    timeout: int | None = None
+    anti_detect: bool = True
+
+
+@dataclass
 class DumpResult:
     engine: EngineType
     dex_files: list[Path] = field(default_factory=list)
@@ -34,6 +42,19 @@ class DumpResult:
 
 class BaseEngine(ABC):
     engine_type: EngineType
+    _unavailable_reason: str | None = None
+
+    @property
+    def unavailable_reason(self) -> str | None:
+        """Human-readable explanation when :meth:`is_available` returns ``False``."""
+        return self._unavailable_reason
+
+    def configure(self, options: DumpOptions) -> None:
+        """Apply runtime dump options without mutating private attributes externally."""
+        if options.timeout is not None and options.timeout > 0 and hasattr(self, "_wait_seconds"):
+            self._wait_seconds = options.timeout
+        if hasattr(self, "_anti_detect"):
+            self._anti_detect = options.anti_detect
 
     @abstractmethod
     def is_available(self) -> bool:
