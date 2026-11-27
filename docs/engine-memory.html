@@ -1,183 +1,207 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark" data-lang="en" data-title-en="Memory Engine — UNPACK" data-title-zh="Memory 引擎详解 — UNPACK">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Memory Engine - UNPACK</title>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'JetBrains Mono',monospace;background:#020617;min-height:100vh;padding:2rem;color:#fff}
-    .container{max-width:1200px;margin:0 auto}
-    .header{margin-bottom:2rem}.header-row{display:flex;align-items:center;gap:1rem;margin-bottom:.5rem}
-    .pulse-dot{width:12px;height:12px;background:#34d399;border-radius:50%;animation:pulse 2s infinite}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-    @keyframes flowDown{0%{stroke-dashoffset:20}100%{stroke-dashoffset:0}}
-    .flow-line{stroke-dasharray:10,5;animation:flowDown 1.5s linear infinite}
-    h1{font-size:1.5rem;font-weight:700;letter-spacing:-.025em}
-    .subtitle{color:#94a3b8;font-size:.875rem;margin-left:1.75rem}
-    .diagram-container{background:rgba(15,23,42,.5);border-radius:1rem;border:1px solid #1e293b;padding:1.5rem;overflow-x:auto}
-    svg{width:100%;min-width:900px;display:block}svg text{dominant-baseline:central}
-    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin-top:2rem}
-    .card{background:rgba(15,23,42,.5);border-radius:.75rem;border:1px solid #1e293b;padding:1.25rem}
-    .card-header{display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem}
-    .card-dot{width:8px;height:8px;border-radius:50%}.card-dot.emerald{background:#34d399}.card-dot.cyan{background:#22d3ee}.card-dot.rose{background:#fb7185}
-    .card h3{font-size:.875rem;font-weight:600}.card ul{list-style:none;color:#94a3b8;font-size:.75rem}.card li{margin-bottom:.375rem}
-    .footer{text-align:center;margin-top:1.5rem;color:#475569;font-size:.75rem}
-    .toolbar{display:flex;gap:.5rem;margin-left:auto;flex-shrink:0;align-items:center}
-    .toolbar-toggle{background:transparent;border:none;color:#475569;cursor:pointer;font-size:1.25rem;line-height:1;padding:.25rem .5rem;border-radius:.375rem;transition:color .2s,background .2s}
-    .toolbar-toggle:hover{color:#94a3b8;background:rgba(30,41,59,.5)}
-    .toolbar-actions{display:none;gap:.5rem}.toolbar.expanded .toolbar-actions{display:flex}
-    .toolbar-actions button{background:rgba(30,41,59,.8);border:1px solid #334155;color:#94a3b8;padding:.375rem .75rem;border-radius:.375rem;font-family:inherit;font-size:.75rem;cursor:pointer;transition:all .2s;white-space:nowrap}
-    .toolbar-actions button:hover{background:rgba(51,65,85,.8);color:#fff;border-color:#475569}
-    @media print{body{background:#020617;padding:1rem}.toolbar{display:none!important}}
-  </style>
+  <title>Memory Engine — UNPACK</title>
+  <meta name="description" content="UNPACK Memory Engine architecture: zero-injection /proc/pid/mem reader, multi-process child enumeration, VDEX/OAT/CDEX container extraction, 64KB sliding DEX-in-DEX scanning, and smart wait.">
+  <meta property="og:title" content="UNPACK Memory Engine — Zero-Injection Android Unpacker">
+  <meta property="og:description" content="Multi-process /proc/pid/mem scanning with VDEX/OAT/CDEX awareness and sliding DEX-in-DEX detection.">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322d3ee' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2L3 7v10l9 5 9-5V7l-9-5z'/%3E%3Cpath d='M12 22V12'/%3E%3Cpath d='M3 7l9 5 9-5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
-  <div class="container" id="report-container">
-    <div class="header">
-      <div class="header-row">
-        <div class="pulse-dot"></div>
-        <h1>Memory Engine</h1>
-        <div class="toolbar">
-          <div class="toolbar-actions">
-            <button onclick="copyAsImage(this)">&#128203; Copy</button>
-            <button onclick="downloadPNG(this)">&#128444;&#65039; PNG</button>
-            <button onclick="downloadPDF(this)">&#128196; PDF</button>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="site-nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="index.html">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L3 7v10l9 5 9-5V7l-9-5z"/><path d="M12 22V12"/><path d="M3 7l9 5 9-5"/></svg>
+        </span>
+        <span class="brand-word">UN<span>PACK</span></span>
+        <span class="brand-ver mono">v0.1.0</span>
+      </a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="index.html"><span class="lang-en">Home</span><span class="lang-zh">首页</span></a>
+        <a href="architecture.html"><span class="lang-en">Architecture</span><span class="lang-zh">架构</span></a>
+        <a href="studio.html"><span class="lang-en">Studio</span><span class="lang-zh">工作台</span></a>
+        <a href="cli.html"><span class="lang-en">CLI &amp; API</span><span class="lang-zh">命令行</span></a>
+        <a href="engine-memory.html" class="active">Memory</a>
+        <a href="engine-frida.html">Frida</a>
+        <a href="engine-ebpf.html">eBPF</a>
+      </nav>
+      <div class="nav-controls">
+        <div class="seg-toggle" role="group" aria-label="Language">
+          <button type="button" class="seg-btn" data-set-lang="zh">中</button>
+          <button type="button" class="seg-btn active" data-set-lang="en">EN</button>
+        </div>
+        <button type="button" class="icon-btn" data-theme-toggle aria-label="Toggle theme">☀ Light</button>
+        <a class="icon-btn" href="https://github.com/overkazaf/unpack" target="_blank" rel="noopener">GitHub</a>
+        <button type="button" class="icon-btn nav-burger" data-nav-burger aria-label="Toggle menu" aria-expanded="false">☰</button>
+      </div>
+    </div>
+    <div class="mobile-drawer" id="mobileDrawer">
+      <div class="mobile-drawer-links">
+        <a href="index.html"><span class="lang-en">Home</span><span class="lang-zh">首页</span></a>
+        <a href="architecture.html"><span class="lang-en">Architecture</span><span class="lang-zh">架构图</span></a>
+        <a href="studio.html"><span class="lang-en">UNPACK Studio</span><span class="lang-zh">Web 工作台</span></a>
+        <a href="cli.html"><span class="lang-en">CLI Reference</span><span class="lang-zh">CLI 参考</span></a>
+        <a href="engine-memory.html" class="active">Memory Engine</a>
+        <a href="engine-frida.html">Frida Engine</a>
+        <a href="engine-ebpf.html">eBPF Engine</a>
+        <a href="https://github.com/overkazaf/unpack" target="_blank" rel="noopener">GitHub Repo</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section class="page-hero">
+      <div class="page-hero-inner">
+        <div>
+          <div class="section-label"><span class="lang-en">Engine Deep Dive · Recommended</span><span class="lang-zh">引擎详解 · 推荐首选</span></div>
+          <h1><span class="pulse-dot cyan"></span>Memory Engine</h1>
+          <p class="lang-en">Host-side <code>/proc/pid/mem</code> reader with multi-process child enumeration, VDEX/OAT/CDEX container extraction, and 64KB sliding DEX-in-DEX scanning — zero injection, immune to anti-Frida.</p>
+          <p class="lang-zh">Host 侧解析 <code>/proc/pid/maps</code> 并直读 <code>/proc/pid/mem</code>，支持多进程子进程枚举、VDEX/OAT/CDEX 容器提取与 64KB 滑动窗口 DEX-in-DEX 扫描 —— 零注入，对 anti-Frida 完全免疫。</p>
+        </div>
+        <span class="badge badge-emerald">VERIFIED · ZERO INJECTION</span>
+      </div>
+    </section>
+
+    <section class="section section-tight">
+      <div class="diagram-card">
+        <div class="diagram-toolbar">
+          <span class="diagram-caption">Smart Wait &rarr; Multi-PID Enum &rarr; Maps Filter &rarr; Batch Probe &rarr; VDEX/OAT/CDEX + Sliding Scan &rarr; 4KB Block Dump &rarr; 10-Step Repair</span>
+          <div class="export-actions">
+            <button type="button" class="export-btn" data-export-action="copy" data-export-name="unpack-engine-memory">Copy PNG</button>
+            <button type="button" class="export-btn" data-export-action="svg" data-export-name="unpack-engine-memory">Download SVG</button>
+            <button type="button" class="export-btn" data-export-action="png" data-export-name="unpack-engine-memory">Download PNG</button>
+            <button type="button" class="export-btn" data-export-action="pdf" data-export-name="unpack-engine-memory">Print / PDF</button>
           </div>
-          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export" aria-label="Export">&#8943;</button>
+        </div>
+        <div class="diagram-scroll">
+          <svg viewBox="0 0 1000 840" data-exportable="true" role="img" aria-label="Memory Engine Workflow Diagram">
+            <defs>
+              <marker id="ah-c" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#22d3ee"/></marker>
+              <marker id="ah-g" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#34d399"/></marker>
+              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.6"/></pattern>
+            </defs>
+            <rect width="1000" height="840" fill="url(#grid)"/>
+
+            <!-- Flow Arrows -->
+            <line x1="500" y1="74" x2="500" y2="98" stroke="#22d3ee" stroke-width="1.5" class="flow-line" marker-end="url(#ah-c)"/>
+            <line x1="500" y1="168" x2="500" y2="192" stroke="#22d3ee" stroke-width="1.5" class="flow-line" marker-end="url(#ah-c)"/>
+            <line x1="500" y1="262" x2="500" y2="286" stroke="#22d3ee" stroke-width="1.5" class="flow-line" marker-end="url(#ah-c)"/>
+            <line x1="500" y1="354" x2="500" y2="378" stroke="#22d3ee" stroke-width="1.5" class="flow-line" marker-end="url(#ah-c)"/>
+            <!-- Split to Container & Sliding Scan -->
+            <line x1="280" y1="510" x2="280" y2="532" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="4,3"/>
+            <line x1="720" y1="510" x2="720" y2="532" stroke="#fbbf24" stroke-width="1.2" stroke-dasharray="4,3"/>
+            <line x1="280" y1="532" x2="720" y2="532" stroke="#475569" stroke-width="1"/>
+            <line x1="500" y1="532" x2="500" y2="554" stroke="#22d3ee" stroke-width="1.5" class="flow-line" marker-end="url(#ah-c)"/>
+            <line x1="500" y1="636" x2="500" y2="660" stroke="#34d399" stroke-width="1.5" class="flow-line" marker-end="url(#ah-g)"/>
+            <line x1="500" y1="726" x2="500" y2="750" stroke="#34d399" stroke-width="1.5" class="flow-line" marker-end="url(#ah-g)"/>
+
+            <!-- Step 1: Launch + Smart Wait -->
+            <rect x="220" y="20" width="560" height="52" rx="8" fill="#0f172a" stroke="#94a3b8" stroke-width="1.4"/>
+            <text x="500" y="38" fill="#ffffff" font-size="11.5" font-weight="700" text-anchor="middle">1. Launch App &amp; Smart Wait</text>
+            <text x="500" y="57" fill="#94a3b8" font-size="8.8" text-anchor="middle">am start → thread stabilization + logcat cues (replaces fixed sleep)</text>
+
+            <!-- Step 2: Multi-Process Enumeration -->
+            <rect x="170" y="102" width="660" height="64" rx="8" fill="#091a2a" stroke="#22d3ee" stroke-width="1.5"/>
+            <text x="500" y="124" fill="#ffffff" font-size="12" font-weight="700" text-anchor="middle">2. Multi-Process Child Enumeration + Maps Parse (Host Python)</text>
+            <text x="500" y="146" fill="#7dd3fc" font-size="8.8" text-anchor="middle">pgrep -P &lt;main_pid&gt; + numeric PID validation → cat /proc/$PID/maps across all related PIDs</text>
+
+            <!-- Step 3: Filter Regions -->
+            <rect x="170" y="196" width="660" height="64" rx="8" fill="#091a2a" stroke="#22d3ee" stroke-width="1.2"/>
+            <text x="500" y="216" fill="#ffffff" font-size="11.5" font-weight="700" text-anchor="middle">3. Region Filtering</text>
+            <rect x="200" y="232" width="76" height="18" rx="9" fill="#083344" stroke="#22d3ee"/><text x="238" y="241" fill="#7dd3fc" font-size="8" text-anchor="middle">.vdex / .odex</text>
+            <rect x="286" y="232" width="66" height="18" rx="9" fill="#083344" stroke="#22d3ee"/><text x="319" y="241" fill="#7dd3fc" font-size="8" text-anchor="middle">.oat / .apk</text>
+            <rect x="362" y="232" width="124" height="18" rx="9" fill="#083344" stroke="#22d3ee"/><text x="424" y="241" fill="#7dd3fc" font-size="8" text-anchor="middle">[anon:dalvik-*] / rw-p</text>
+            <rect x="500" y="232" width="196" height="18" rx="9" fill="#4c0519" stroke="#fb7185"/><text x="598" y="241" fill="#fda4af" font-size="8" text-anchor="middle">skip /system /apex /vendor</text>
+
+            <!-- Step 4: Batch Probe -->
+            <rect x="170" y="290" width="660" height="62" rx="8" fill="#091a2a" stroke="#22d3ee" stroke-width="1.2"/>
+            <text x="500" y="311" fill="#ffffff" font-size="11.5" font-weight="700" text-anchor="middle">4. Single-Round Batch Header Probe (256B / region)</text>
+            <text x="500" y="333" fill="#94a3b8" font-size="8.8" text-anchor="middle">Batched device shell reads first 256 bytes of each candidate region → base64 stream to host</text>
+
+            <!-- Step 5A & 5B: Dual Detection Paths -->
+            <rect x="60" y="382" width="420" height="126" rx="10" fill="#07221c" stroke="#34d399" stroke-width="1.5"/>
+            <text x="270" y="405" fill="#ffffff" font-size="11.5" font-weight="700" text-anchor="middle">5A. Container-Aware Extraction</text>
+            <text x="270" y="428" fill="#6ee7b7" font-size="8.8" text-anchor="middle">VDEX (Android 8+) · OAT ELF (Android 5–7) · CDEX</text>
+            <text x="270" y="450" fill="#94a3b8" font-size="8.5" text-anchor="middle">Walk consecutive 4-byte aligned DEX payloads inside containers</text>
+            <text x="270" y="472" fill="#94a3b8" font-size="8.5" text-anchor="middle">Validate file_size &gt; 112 · header_size == 0x70 · endian_tag</text>
+            <text x="270" y="494" fill="#a7f3d0" font-size="8" text-anchor="middle">Python 64-bit parsing avoids 32-bit device shell overflow</text>
+
+            <rect x="520" y="382" width="420" height="126" rx="10" fill="#1e1609" stroke="#fbbf24" stroke-width="1.5"/>
+            <text x="730" y="405" fill="#ffffff" font-size="11.5" font-weight="700" text-anchor="middle">5B. Sliding Window DEX-in-DEX Scan</text>
+            <text x="730" y="428" fill="#fde68a" font-size="8.8" text-anchor="middle">Anonymous rw-p regions · First 64 KB sliding scan</text>
+            <text x="730" y="450" fill="#94a3b8" font-size="8.5" text-anchor="middle">Detects decrypted DEX hidden at non-zero page offsets</text>
+            <text x="730" y="472" fill="#94a3b8" font-size="8.5" text-anchor="middle">Cross-checks header_size, endian_tag &amp; section bounds</text>
+            <text x="730" y="494" fill="#fde68a" font-size="8" text-anchor="middle">Defeats custom packer wrappers &amp; heap-loaded DEX</text>
+
+            <!-- Step 6: Block-Aligned Dump + Cross-PID Dedup -->
+            <rect x="170" y="558" width="660" height="76" rx="8" fill="#091a2a" stroke="#22d3ee" stroke-width="1.5"/>
+            <text x="500" y="580" fill="#ffffff" font-size="11.5" font-weight="700" text-anchor="middle">6. Block-Aligned Read + Streaming Cross-PID Dedup</text>
+            <text x="500" y="601" fill="#94a3b8" font-size="8.8" text-anchor="middle">dd if=/proc/$PID/mem bs=4096 skip=$BLK count=$N → host truncates to exact DEX file_size</text>
+            <text x="500" y="620" fill="#7dd3fc" font-size="8.5" text-anchor="middle">Dedup by file_size + first-32B quick key + streaming SHA-256 across parent &amp; child PIDs</text>
+
+            <!-- Step 7: 10-Step Repair -->
+            <rect x="220" y="664" width="560" height="60" rx="8" fill="#07221c" stroke="#34d399" stroke-width="1.5"/>
+            <text x="500" y="685" fill="#ffffff" font-size="11.5" font-weight="700" text-anchor="middle">7. 10-Step DEX Repair Pipeline + Integrity Verifier</text>
+            <text x="500" y="706" fill="#a7f3d0" font-size="8.5" text-anchor="middle">CDEX → Magic → Size → Sections → Truncation → Map → Align → Debug → NOP → SHA1/Adler32</text>
+
+            <!-- Step 8: Report -->
+            <rect x="250" y="754" width="500" height="58" rx="8" fill="#091a2a" stroke="#22d3ee" stroke-width="1.5"/>
+            <text x="500" y="775" fill="#ffffff" font-size="11.5" font-weight="700" text-anchor="middle">8. Quality &amp; Audit Output</text>
+            <text x="500" y="796" fill="#7dd3fc" font-size="8.8" text-anchor="middle">NetEase Cloud Music: 18 DEX · 150MB · 19.6s · 96.2%  |  Kugou: 31/31 PASS</text>
+          </svg>
         </div>
       </div>
-      <p class="subtitle">host-side /proc/pid/mem reader &mdash; no injection, invisible to anti-frida</p>
-    </div>
 
-    <div class="diagram-container">
-      <svg viewBox="0 0 1000 720">
-        <defs>
-          <marker id="ah" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#34d399"/></marker>
-          <marker id="ah-dim" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#64748b"/></marker>
-          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#grid)"/>
-
-        <!-- arrows behind boxes -->
-        <line x1="500" y1="68" x2="500" y2="88" stroke="#34d399" stroke-width="1.5" class="flow-line" marker-end="url(#ah)"/>
-        <line x1="500" y1="148" x2="500" y2="168" stroke="#34d399" stroke-width="1.5" class="flow-line" marker-end="url(#ah)"/>
-        <line x1="500" y1="228" x2="500" y2="248" stroke="#34d399" stroke-width="1.5" class="flow-line" marker-end="url(#ah)"/>
-        <line x1="500" y1="308" x2="500" y2="328" stroke="#34d399" stroke-width="1.5" class="flow-line" marker-end="url(#ah)"/>
-        <line x1="500" y1="428" x2="500" y2="448" stroke="#34d399" stroke-width="1.5" class="flow-line" marker-end="url(#ah)"/>
-        <line x1="500" y1="528" x2="500" y2="548" stroke="#34d399" stroke-width="1.5" class="flow-line" marker-end="url(#ah)"/>
-        <line x1="500" y1="608" x2="500" y2="628" stroke="#34d399" stroke-width="1.5" class="flow-line" marker-end="url(#ah)"/>
-
-        <!-- Step 1: APK + Launch -->
-        <rect x="300" y="20" width="400" height="46" rx="6" fill="#0f172a"/>
-        <rect x="300" y="20" width="400" height="46" rx="6" fill="rgba(30,41,59,.5)" stroke="#94a3b8" stroke-width="1.5"/>
-        <text x="500" y="37" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">APK File</text>
-        <text x="500" y="53" fill="#94a3b8" font-size="9" text-anchor="middle">scan() &rarr; am start &rarr; wait for unpack</text>
-
-        <!-- Step 2: Parse maps -->
-        <rect x="200" y="90" width="600" height="56" rx="6" fill="#0f172a"/>
-        <rect x="200" y="90" width="600" height="56" rx="6" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="500" y="110" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Parse /proc/pid/maps (on host)</text>
-        <text x="500" y="130" fill="#94a3b8" font-size="9" text-anchor="middle">adb shell su -c "cat /proc/$PID/maps" &rarr; Python parses all memory regions</text>
-
-        <!-- Step 3: Filter -->
-        <rect x="200" y="170" width="600" height="56" rx="6" fill="#0f172a"/>
-        <rect x="200" y="170" width="600" height="56" rx="6" fill="rgba(6,78,59,.3)" stroke="#34d399" stroke-width="1"/>
-        <text x="500" y="190" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Filter Regions</text>
-        <rect x="260" y="204" width="60" height="16" rx="8" fill="rgba(52,211,153,.15)" stroke="#34d399" stroke-width=".8"/>
-        <text x="290" y="212" fill="#6ee7b7" font-size="8" text-anchor="middle">.vdex</text>
-        <rect x="330" y="204" width="50" height="16" rx="8" fill="rgba(52,211,153,.15)" stroke="#34d399" stroke-width=".8"/>
-        <text x="355" y="212" fill="#6ee7b7" font-size="8" text-anchor="middle">.apk</text>
-        <rect x="390" y="204" width="100" height="16" rx="8" fill="rgba(52,211,153,.15)" stroke="#34d399" stroke-width=".8"/>
-        <text x="440" y="212" fill="#6ee7b7" font-size="8" text-anchor="middle">[anon:dalvik-*]</text>
-        <rect x="540" y="204" width="140" height="16" rx="8" fill="rgba(136,19,55,.3)" stroke="#fb7185" stroke-width=".8"/>
-        <text x="610" y="212" fill="#fb7185" font-size="8" text-anchor="middle">skip /system /apex /vendor</text>
-
-        <!-- Step 4: Batch probe -->
-        <rect x="200" y="250" width="600" height="56" rx="6" fill="#0f172a"/>
-        <rect x="200" y="250" width="600" height="56" rx="6" fill="rgba(6,78,59,.3)" stroke="#34d399" stroke-width="1"/>
-        <text x="500" y="270" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Batch Header Probe</text>
-        <text x="500" y="290" fill="#94a3b8" font-size="9" text-anchor="middle">One shell script reads 256 bytes from each region &rarr; base64 back to host</text>
-
-        <!-- Step 5: VDEX parsing (main box) -->
-        <rect x="100" y="330" width="800" height="96" rx="8" fill="#0f172a"/>
-        <rect x="100" y="330" width="800" height="96" rx="8" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="500" y="352" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">VDEX Container Parsing</text>
-        <text x="500" y="374" fill="#94a3b8" font-size="9" text-anchor="middle">magic "vdex" &rarr; scan for DEX magic at offset 0x84 (VDEX 027 format)</text>
-        <text x="500" y="394" fill="#94a3b8" font-size="9" text-anchor="middle">walk consecutive DEX files (4-byte aligned) &rarr; validate header_size == 0x70</text>
-        <text x="500" y="414" fill="#6ee7b7" font-size="9" text-anchor="middle">dedup by file_size + first 32 bytes hash</text>
-
-        <!-- Step 6: Block dump -->
-        <rect x="200" y="450" width="600" height="76" rx="6" fill="#0f172a"/>
-        <rect x="200" y="450" width="600" height="76" rx="6" fill="rgba(6,78,59,.3)" stroke="#34d399" stroke-width="1"/>
-        <text x="500" y="472" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Block-Aligned Dump</text>
-        <text x="500" y="494" fill="#94a3b8" font-size="9" text-anchor="middle">dd if=/proc/$PID/mem bs=4096 skip=$BLOCK count=$N &rarr; stream to host</text>
-        <text x="500" y="514" fill="#94a3b8" font-size="9" text-anchor="middle">Python truncates to exact DEX file_size on host side</text>
-
-        <!-- Step 7: Repair -->
-        <rect x="250" y="550" width="500" height="56" rx="6" fill="#0f172a"/>
-        <rect x="250" y="550" width="500" height="56" rx="6" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
-        <text x="500" y="570" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">DEX Repair Pipeline</text>
-        <text x="500" y="590" fill="#94a3b8" font-size="9" text-anchor="middle">magic &rarr; file_size &rarr; map_list &rarr; NOP detect &rarr; SHA-1 &rarr; Adler32</text>
-
-        <!-- Step 8: Report -->
-        <rect x="300" y="630" width="400" height="46" rx="6" fill="#0f172a"/>
-        <rect x="300" y="630" width="400" height="46" rx="6" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
-        <text x="500" y="648" fill="#fff" font-size="11" font-weight="600" text-anchor="middle">Quality Report</text>
-        <text x="500" y="664" fill="#94a3b8" font-size="8" text-anchor="middle">18 DEX | 327,660 classes | 96.2% coverage | 19.6s</text>
-
-        <!-- Side annotations -->
-        <rect x="30" y="90" width="140" height="30" rx="4" fill="rgba(6,78,59,.2)" stroke="#34d399" stroke-width=".8" stroke-dasharray="4,4"/>
-        <text x="100" y="105" fill="#34d399" font-size="8" text-anchor="middle" font-weight="600">HOST SIDE (Python)</text>
-        <line x1="170" y1="105" x2="198" y2="118" stroke="#34d399" stroke-width="1" stroke-dasharray="3,3"/>
-
-        <rect x="30" y="250" width="140" height="30" rx="4" fill="rgba(120,53,15,.2)" stroke="#fbbf24" stroke-width=".8" stroke-dasharray="4,4"/>
-        <text x="100" y="265" fill="#fbbf24" font-size="8" text-anchor="middle" font-weight="600">DEVICE SIDE (shell)</text>
-        <line x1="170" y1="265" x2="198" y2="278" stroke="#fbbf24" stroke-width="1" stroke-dasharray="3,3"/>
-
-        <rect x="30" y="370" width="60" height="20" rx="10" fill="rgba(52,211,153,.2)" stroke="#34d399" stroke-width=".8"/>
-        <text x="60" y="380" fill="#6ee7b7" font-size="8" text-anchor="middle" font-weight="600">KEY</text>
-      </svg>
-    </div>
-
-    <div class="cards">
-      <div class="card">
-        <div class="card-header"><div class="card-dot emerald"></div><h3>Why It Works</h3></div>
-        <ul>
-          <li>&bull; No process injection = invisible to all anti-frida</li>
-          <li>&bull; Root reads /proc/pid/mem directly (no ptrace needed)</li>
-          <li>&bull; VDEX-aware: extracts DEX from Android 8+ containers</li>
-          <li>&bull; Host-side Python avoids 32-bit shell integer overflow</li>
-        </ul>
+      <div class="grid-3" style="margin-top:2rem;">
+        <div class="card">
+          <div class="card-header"><div class="card-title-group"><span class="card-dot cyan"></span><h3><span class="lang-en">Key Advantages</span><span class="lang-zh">核心优势</span></h3></div></div>
+          <ul>
+            <li><span class="lang-en">Zero process injection — anti-Frida &amp; ptrace checks never trigger</span><span class="lang-zh">零进程注入 —— anti-Frida 与反调试检测完全无感</span></li>
+            <li><span class="lang-en">Multi-process child enumeration defeats multi-PID packers</span><span class="lang-zh">自动枚举子进程，有效对抗多进程守护壳</span></li>
+            <li><span class="lang-en">VDEX, OAT (Android 5–7), CDEX &amp; 64KB sliding DEX-in-DEX support</span><span class="lang-zh">全面支持 VDEX、OAT（Android 5–7）、CDEX 与匿名区滑动扫描</span></li>
+          </ul>
+        </div>
+        <div class="card accent-emerald">
+          <div class="card-header"><div class="card-title-group"><span class="card-dot emerald"></span><h3><span class="lang-en">Verified Production Results</span><span class="lang-zh">真机实测表现</span></h3></div></div>
+          <ul>
+            <li><span class="lang-en">NetEase Cloud Music (NetEase Shield v2): 18 DEX, 150MB, 19.6s, 96.2% coverage</span><span class="lang-zh">网易云音乐（网易易盾 v2）：18 个 DEX，150MB，19.6s，96.2% 覆盖率</span></li>
+            <li><span class="lang-en">Kugou Music (164MB): 31 DEX dumped in 33.7s, 31/31 verify PASS</span><span class="lang-zh">酷狗音乐（164MB）：31 个 DEX，33.7s，31/31 验证通过</span></li>
+            <li><span class="lang-en">Pairs with <code>--deep</code> Frida-free App Exerciser + <code>unpack rescan</code></span><span class="lang-zh">可配合 <code>--deep</code> 免 Frida 交互触发器与 <code>unpack rescan</code> 增量重扫</span></li>
+          </ul>
+        </div>
+        <div class="card accent-rose">
+          <div class="card-header"><div class="card-title-group"><span class="card-dot rose"></span><h3><span class="lang-en">Requirements &amp; Usage</span><span class="lang-zh">前提条件与用法</span></h3></div></div>
+          <ul>
+            <li><span class="lang-en">Requires rooted Android device (<code>su</code> access to <code>/proc/pid/mem</code>)</span><span class="lang-zh">需要已 Root 的 Android 设备（读取 <code>/proc/pid/mem</code>）</span></li>
+            <li><span class="lang-en">Captures DEX files already decrypted into process memory</span><span class="lang-zh">仅提取已解密加载到内存中的 DEX</span></li>
+            <li><code>unpack dump app.apk -e memory [--deep]</code></li>
+          </ul>
+        </div>
       </div>
-      <div class="card">
-        <div class="card-header"><div class="card-dot cyan"></div><h3>Tested Results</h3></div>
-        <ul>
-          <li>&bull; NetEase Cloud Music (NetEase Shield v2)</li>
-          <li>&bull; 18 DEX files, 150MB total, 19.6 seconds</li>
-          <li>&bull; 327,660 classes, 1.86M methods</li>
-          <li>&bull; 96.2% code coverage after repair</li>
-        </ul>
-      </div>
-      <div class="card">
-        <div class="card-header"><div class="card-dot rose"></div><h3>Limitations</h3></div>
-        <ul>
-          <li>&bull; Requires root (su) for /proc/pid/mem access</li>
-          <li>&bull; Only dumps DEX already in memory (post-unpack)</li>
-          <li>&bull; Function-extracted methods remain NOP-filled</li>
-          <li>&bull; Large apps (150MB+) need ~20s for full dump</li>
-        </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div>UNPACK v0.1.0 &bull; Memory Engine</div>
+      <div class="footer-links">
+        <a href="index.html"><span class="lang-en">Home</span><span class="lang-zh">首页</span></a>
+        <a href="architecture.html"><span class="lang-en">Architecture</span><span class="lang-zh">架构</span></a>
+        <a href="studio.html"><span class="lang-en">Studio</span><span class="lang-zh">工作台</span></a>
+        <a href="cli.html"><span class="lang-en">CLI</span><span class="lang-zh">命令行</span></a>
+        <a href="engine-frida.html">Frida &rarr;</a>
+        <a href="engine-ebpf.html">eBPF &rarr;</a>
       </div>
     </div>
-    <p class="footer">UNPACK Memory Engine &bull; multi-process + VDEX/OAT/CDEX + sliding DEX scan</p>
-  </div>
-  <script>
-    async function copyAsImage(b){const o=b.textContent;try{const e=document.getElementById('report-container'),r=e.getBoundingClientRect(),p=32,c=await html2canvas(document.body,{backgroundColor:'#020617',scale:2,useCORS:true,ignoreElements:e=>e.classList&&e.classList.contains('toolbar'),x:r.left+window.scrollX-p,y:r.top+window.scrollY-p,width:r.width+p*2,height:r.height+p*2}),bl=await new Promise(r=>c.toBlob(r,'image/png'));await navigator.clipboard.write([new ClipboardItem({'image/png':bl})]);b.textContent='✓ Copied!'}catch(e){b.textContent='✗ Failed'}setTimeout(()=>b.textContent=o,2000)}
-    async function downloadPNG(b){const o=b.textContent;b.textContent='⏳ ...';try{const e=document.getElementById('report-container'),r=e.getBoundingClientRect(),p=32,c=await html2canvas(document.body,{backgroundColor:'#020617',scale:2,useCORS:true,ignoreElements:e=>e.classList&&e.classList.contains('toolbar'),x:r.left+window.scrollX-p,y:r.top+window.scrollY-p,width:r.width+p*2,height:r.height+p*2}),a=document.createElement('a');a.download='engine-memory.png';a.href=c.toDataURL('image/png');a.click();b.textContent='✓ Done!'}catch(e){b.textContent='✗ Failed'}setTimeout(()=>b.textContent=o,2000)}
-    async function downloadPDF(b){const o=b.textContent;b.textContent='⏳ ...';try{const e=document.getElementById('report-container'),r=e.getBoundingClientRect(),p=32,c=await html2canvas(document.body,{backgroundColor:'#020617',scale:2,useCORS:true,ignoreElements:e=>e.classList&&e.classList.contains('toolbar'),x:r.left+window.scrollX-p,y:r.top+window.scrollY-p,width:r.width+p*2,height:r.height+p*2}),d=c.toDataURL('image/png'),{jsPDF:J}=window.jspdf,ori=c.width>c.height?'landscape':'portrait',pdf=new J({orientation:ori,unit:'px',format:[c.width,c.height],hotfixes:['px_scaling']});pdf.addImage(d,'PNG',0,0,c.width,c.height);pdf.save('engine-memory.pdf');b.textContent='✓ Done!'}catch(e){b.textContent='✗ Failed'}setTimeout(()=>b.textContent=o,2000)}
-  </script>
+  </footer>
+
+  <script src="assets/site.js"></script>
 </body>
 </html>

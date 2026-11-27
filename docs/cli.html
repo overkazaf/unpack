@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-lang="en" data-title-en="CLI &amp; Exit Code Reference — UNPACK" data-title-zh="CLI 命令行与退出码参考 — UNPACK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLI &amp; Exit Code Reference — UNPACK</title>
+  <meta name="description" content="Complete searchable CLI reference for UNPACK: 18 top-level commands, ai (4), workspace (6), global --lang and --log-level options, exit codes 0-5, and JSON/SARIF examples.">
+  <meta property="og:title" content="UNPACK CLI &amp; API Reference">
+  <meta property="og:description" content="Searchable reference for all 18 top-level commands, ai and workspace command groups, global flags, and exit codes.">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322d3ee' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2L3 7v10l9 5 9-5V7l-9-5z'/%3E%3Cpath d='M12 22V12'/%3E%3Cpath d='M3 7l9 5 9-5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="site-nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="index.html">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L3 7v10l9 5 9-5V7l-9-5z"/><path d="M12 22V12"/><path d="M3 7l9 5 9-5"/></svg>
+        </span>
+        <span class="brand-word">UN<span>PACK</span></span>
+        <span class="brand-ver mono">v0.1.0</span>
+      </a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="index.html"><span class="lang-en">Home</span><span class="lang-zh">首页</span></a>
+        <a href="architecture.html"><span class="lang-en">Architecture</span><span class="lang-zh">架构</span></a>
+        <a href="studio.html"><span class="lang-en">Studio</span><span class="lang-zh">工作台</span></a>
+        <a href="cli.html" class="active"><span class="lang-en">CLI &amp; API</span><span class="lang-zh">命令行</span></a>
+        <a href="engine-memory.html">Memory</a>
+        <a href="engine-frida.html">Frida</a>
+        <a href="engine-ebpf.html">eBPF</a>
+      </nav>
+      <div class="nav-controls">
+        <div class="seg-toggle" role="group" aria-label="Language">
+          <button type="button" class="seg-btn" data-set-lang="zh">中</button>
+          <button type="button" class="seg-btn active" data-set-lang="en">EN</button>
+        </div>
+        <button type="button" class="icon-btn" data-theme-toggle aria-label="Toggle theme">☀ Light</button>
+        <a class="icon-btn" href="https://github.com/overkazaf/unpack" target="_blank" rel="noopener">GitHub</a>
+        <button type="button" class="icon-btn nav-burger" data-nav-burger aria-label="Toggle menu" aria-expanded="false">☰</button>
+      </div>
+    </div>
+    <div class="mobile-drawer" id="mobileDrawer">
+      <div class="mobile-drawer-links">
+        <a href="index.html"><span class="lang-en">Home</span><span class="lang-zh">首页</span></a>
+        <a href="architecture.html"><span class="lang-en">Architecture</span><span class="lang-zh">架构图</span></a>
+        <a href="studio.html"><span class="lang-en">UNPACK Studio</span><span class="lang-zh">Web 工作台</span></a>
+        <a href="cli.html" class="active"><span class="lang-en">CLI Reference</span><span class="lang-zh">CLI 参考</span></a>
+        <a href="engine-memory.html">Memory Engine</a>
+        <a href="engine-frida.html">Frida Engine</a>
+        <a href="engine-ebpf.html">eBPF Engine</a>
+        <a href="https://github.com/overkazaf/unpack" target="_blank" rel="noopener">GitHub Repo</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section class="page-hero">
+      <div class="page-hero-inner">
+        <div>
+          <div class="section-label"><span class="lang-en">Command-Line Interface</span><span class="lang-zh">命令行参考手册</span></div>
+          <h1><span class="pulse-dot cyan"></span><span class="lang-en">CLI Reference (18 Top-Level + ai + workspace)</span><span class="lang-zh">CLI 完整参考（18 顶级命令 + ai + workspace）</span></h1>
+          <p class="lang-en">Modular Typer + Rich CLI (<code>src/unpack/cli/</code>) with bilingual output (<code>--lang zh|en</code>), structured logging (<code>--log-level</code>), script-safe exit codes, and JSON/SARIF exports.</p>
+          <p class="lang-zh">基于 Typer + Rich 的模块化 CLI（<code>src/unpack/cli/</code>），支持双语输出（<code>--lang zh|en</code>）、结构化日志（<code>--log-level</code>）、CI 友好退出码及 JSON / SARIF 导出。</p>
+        </div>
+        <div class="badge badge-cyan" id="cliResultCount">28 / 28</div>
+      </div>
+    </section>
+
+    <!-- Global Options -->
+    <section class="section section-tight">
+      <div class="section-label"><span class="lang-en">Global Options</span><span class="lang-zh">全局参数</span></div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th><span class="lang-en">Flag</span><span class="lang-zh">参数</span></th>
+              <th><span class="lang-en">Values</span><span class="lang-zh">取值</span></th>
+              <th><span class="lang-en">Description</span><span class="lang-zh">说明</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>--lang</code></td><td class="mono">en | zh</td><td><span class="lang-en">Switch CLI panels, wizard prompts, and report language (also respects <code>UNPACK_LANG</code>).</span><span class="lang-zh">切换终端面板、向导提示与报告语言（也可通过 <code>UNPACK_LANG</code> 环境变量设置）。</span></td></tr>
+            <tr><td><code>--log-level</code></td><td class="mono">DEBUG | INFO | WARNING | ERROR</td><td><span class="lang-en">Configure structured diagnostic logging via <code>unpack.logging_config</code>.</span><span class="lang-zh">配置 <code>unpack.logging_config</code> 结构化诊断日志级别。</span></td></tr>
+            <tr><td><code>--no-color</code></td><td class="mono">flag</td><td><span class="lang-en">Disable ANSI styling for CI logs and file redirection.</span><span class="lang-zh">关闭 ANSI 彩色输出，便于 CI 日志收集与文件重定向。</span></td></tr>
+            <tr><td><code>--quiet</code></td><td class="mono">flag</td><td><span class="lang-en">Suppress decorative panels for machine-readable pipelines.</span><span class="lang-zh">静默模式，抑制装饰面板，便于脚本与管道消费。</span></td></tr>
+            <tr><td><code>--version</code></td><td class="mono">flag</td><td><span class="lang-en">Print unified version from <code>unpack.__version__</code> and exit.</span><span class="lang-zh">输出 <code>unpack.__version__</code> 版本号并退出。</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Interactive Searchable Command Catalog -->
+    <section class="section section-tight">
+      <div class="section-label"><span class="lang-en">Command Catalog</span><span class="lang-zh">命令目录（支持实时检索）</span></div>
+      <div class="filter-bar">
+        <input id="cliSearchInput" class="search-input" type="search" placeholder="Search commands, flags, e.g. sarif, deep, frida, workspace..." data-ph-en="Search commands, flags, e.g. sarif, deep, frida, workspace..." data-ph-zh="搜索命令或参数，例如 sarif、deep、frida、workspace..." aria-label="Search CLI commands">
+        <div class="filter-pills" role="group" aria-label="Filter by category">
+          <button type="button" class="filter-pill active" data-cli-cat="all" aria-pressed="true"><span class="lang-en">All (28)</span><span class="lang-zh">全部 (28)</span></button>
+          <button type="button" class="filter-pill" data-cli-cat="core"><span class="lang-en">Core &amp; Unpack</span><span class="lang-zh">识别与脱壳</span></button>
+          <button type="button" class="filter-pill" data-cli-cat="analysis"><span class="lang-en">Repair &amp; RE</span><span class="lang-zh">修复与分析</span></button>
+          <button type="button" class="filter-pill" data-cli-cat="workflow"><span class="lang-en">Workflow &amp; Studio</span><span class="lang-zh">流水线与工作台</span></button>
+          <button type="button" class="filter-pill" data-cli-cat="ai">ai (4)</button>
+          <button type="button" class="filter-pill" data-cli-cat="workspace">workspace (6)</button>
+        </div>
+      </div>
+
+      <div class="cmd-list">
+        <!-- 1. doctor -->
+        <article class="cmd-card" data-cat="workflow" data-search="doctor environment adb frida ebpf check preflight json">
+          <div class="cmd-head"><span class="cmd-name">unpack doctor</span><span class="badge badge-emerald">PREFLIGHT</span></div>
+          <p class="lang-en">Check Python dependencies, RE tools, connected ADB devices, root access, and engine readiness.</p>
+          <p class="lang-zh">检查 Python 依赖、逆向工具链、ADB 设备连接、Root 权限与三引擎就绪状态。</p>
+          <div class="cmd-usage">unpack doctor [--device SERIAL] [--no-devices] [--format json]</div>
+          <div class="cmd-flags"><span class="flag-chip">--json</span><span class="flag-chip">--format</span><span class="flag-chip">--device</span><span class="flag-chip">--no-devices</span><span class="flag-chip">--lang</span></div>
+        </article>
+
+        <!-- 2. scan -->
+        <article class="cmd-card" data-cat="core" data-search="scan packer detect 24 vendors batch verbose report json">
+          <div class="cmd-head"><span class="cmd-name">unpack scan</span><span class="badge badge-cyan">CORE</span></div>
+          <p class="lang-en">Identify packer vendor (24 signatures), version, confidence breakdown, and protection level without a device.</p>
+          <p class="lang-zh">免设备静态识别 24 家壳厂商、版本号、6 维置信度分布与保护等级，支持批量扫描。</p>
+          <div class="cmd-usage">unpack scan app.apk [-v] [-r] [--batch] [-j out.json]</div>
+          <div class="cmd-flags"><span class="flag-chip">-v / --verbose</span><span class="flag-chip">-r / --report</span><span class="flag-chip">--batch</span><span class="flag-chip">-j / --json</span><span class="flag-chip">--format</span></div>
+        </article>
+
+        <!-- 3. inspect -->
+        <article class="cmd-card" data-cat="core" data-search="inspect apk dex manifest signing libs elf classes methods disasm permissions">
+          <div class="cmd-head"><span class="cmd-name">unpack inspect</span><span class="badge badge-cyan">STATIC RE</span></div>
+          <p class="lang-en">Deep static inspection of an APK (manifest, signing cert, native ELF libs, permissions) or DEX (classes, methods, Dalvik disassembly).</p>
+          <p class="lang-zh">深度静态检视 APK（Manifest、签名、原生 ELF、权限）或 DEX（类表、方法、Dalvik 反汇编）。</p>
+          <div class="cmd-usage">unpack inspect app.apk [--classes] [--methods CLASS] [--disasm METHOD] [--permissions]</div>
+          <div class="cmd-flags"><span class="flag-chip">--classes</span><span class="flag-chip">--methods CLASS</span><span class="flag-chip">--disasm METHOD</span><span class="flag-chip">--permissions</span><span class="flag-chip">--json PATH</span></div>
+        </article>
+
+        <!-- 4. dump -->
+        <article class="cmd-card" data-cat="core" data-search="dump unpack memory frida ebpf deep active invoke anti-detect timeout report-html explain">
+          <div class="cmd-head"><span class="cmd-name">unpack dump</span><span class="badge badge-amber">UNPACK</span></div>
+          <p class="lang-en">Full automated flow: scan &rarr; dispatch engine &rarr; dump DEX/SO &rarr; optional <code>--deep</code> active invoke &rarr; 10-step repair &rarr; verify.</p>
+          <p class="lang-zh">全自动脱壳流程：壳识别 &rarr; 策略路由 &rarr; 提取 DEX/SO &rarr; 可选 <code>--deep</code> 主动调用 &rarr; 10 步修复 &rarr; 质量校验。</p>
+          <div class="cmd-usage">unpack dump app.apk [-o ./out] [-e memory|frida|ebpf] [--deep] [--report-html report.html]</div>
+          <div class="cmd-flags"><span class="flag-chip">-e / --engine</span><span class="flag-chip">-d / --device</span><span class="flag-chip">-t / --timeout</span><span class="flag-chip">--deep</span><span class="flag-chip">--no-anti-detect</span><span class="flag-chip">--skip-repair</span><span class="flag-chip">--report-html PATH</span><span class="flag-chip">--explain</span></div>
+        </article>
+
+        <!-- 5. repair -->
+        <article class="cmd-card" data-cat="analysis" data-search="repair dex 10-step cdex magic header checksum in-place">
+          <div class="cmd-head"><span class="cmd-name">unpack repair</span><span class="badge badge-emerald">10-STEP</span></div>
+          <p class="lang-en">Run the 10-step DEX repair pipeline on dumped DEX files (CDEX, header, sections, truncation, map, debug_info, NOP, checksum).</p>
+          <p class="lang-zh">对 dump 产出的 DEX 文件执行 10 步修复流水线（CDEX、头部、越界段、截断恢复、校验和重算等）。</p>
+          <div class="cmd-usage">unpack repair ./unpacked/ [--in-place] [--json out.json]</div>
+          <div class="cmd-flags"><span class="flag-chip">--in-place</span><span class="flag-chip">--json</span><span class="flag-chip">--format</span><span class="flag-chip">--out</span></div>
+        </article>
+
+        <!-- 6. verify -->
+        <article class="cmd-card" data-cat="analysis" data-search="verify integrity coverage nop quality metrics">
+          <div class="cmd-head"><span class="cmd-name">unpack verify</span><span class="badge badge-emerald">VERIFY</span></div>
+          <p class="lang-en">Verify DEX structural integrity, checksums, class/method coverage, and remaining NOP-only methods.</p>
+          <p class="lang-zh">校验 DEX 结构完整性、校验和、类/方法覆盖率以及残留的 NOP 函数抽取方法数。</p>
+          <div class="cmd-usage">unpack verify ./unpacked/ [--json verify.json]</div>
+          <div class="cmd-flags"><span class="flag-chip">--json</span><span class="flag-chip">--format</span><span class="flag-chip">--out</span></div>
+        </article>
+
+        <!-- 7. vmp -->
+        <article class="cmd-card" data-cat="analysis" data-search="vmp classify methods stub nop virtualization">
+          <div class="cmd-head"><span class="cmd-name">unpack vmp</span><span class="badge badge-rose">VMP</span></div>
+          <p class="lang-en">Classify DEX methods into normal, NOP-extracted, and VMP-stub categories to focus manual RE effort.</p>
+          <p class="lang-zh">按方法粒度分类标注 normal / NOP / VMP-stub，快速锁定虚拟化保护焦点方法。</p>
+          <div class="cmd-usage">unpack vmp ./unpacked/ [-j vmp.json]</div>
+          <div class="cmd-flags"><span class="flag-chip">-j / --json</span><span class="flag-chip">--format</span><span class="flag-chip">--out</span></div>
+        </article>
+
+        <!-- 8. xref -->
+        <article class="cmd-card" data-cat="analysis" data-search="xref cross reference strings calls reflection fields search">
+          <div class="cmd-head"><span class="cmd-name">unpack xref</span><span class="badge badge-rose">XREF</span></div>
+          <p class="lang-en">Build a cross-reference index across strings, method calls, reflection targets, and field accesses with keyword search.</p>
+          <p class="lang-zh">构建字符串、方法调用、反射目标与字段引用的交叉引用索引，支持关键字过滤检索。</p>
+          <div class="cmd-usage">unpack xref ./unpacked/ [--search "decrypt"] [-j xref.json]</div>
+          <div class="cmd-flags"><span class="flag-chip">--search</span><span class="flag-chip">-j / --json</span><span class="flag-chip">--format</span><span class="flag-chip">--out</span></div>
+        </article>
+
+        <!-- 9. repack -->
+        <article class="cmd-card" data-cat="analysis" data-search="repack apk jadx jeb rebuild">
+          <div class="cmd-head"><span class="cmd-name">unpack repack</span><span class="badge badge-emerald">RECONSTRUCT</span></div>
+          <p class="lang-en">Combine original APK resources/manifest with unpacked repaired DEX files into a clean APK for jadx/JEB.</p>
+          <p class="lang-zh">将原始 APK 资源/清单与脱壳修复后的 DEX 重打包为可直接拖入 jadx / JEB 的可分析 APK。</p>
+          <div class="cmd-usage">unpack repack app.apk ./unpacked/ -o ./repacked</div>
+          <div class="cmd-flags"><span class="flag-chip">-o / --output</span><span class="flag-chip">--json</span></div>
+        </article>
+
+        <!-- 10. reassemble -->
+        <article class="cmd-card" data-cat="analysis" data-search="reassemble multi-dex layout numbering">
+          <div class="cmd-head"><span class="cmd-name">unpack reassemble</span><span class="badge badge-emerald">RECONSTRUCT</span></div>
+          <p class="lang-en">Map dumped DEX classes back onto the original APK multi-DEX layout and numbering.</p>
+          <p class="lang-zh">将散落的脱壳 DEX 按类分布映射回原始 APK 的 multi-DEX 编号布局。</p>
+          <div class="cmd-usage">unpack reassemble app.apk ./unpacked/ [-j map.json]</div>
+          <div class="cmd-flags"><span class="flag-chip">-j / --json</span></div>
+        </article>
+
+        <!-- 11. export -->
+        <article class="cmd-card" data-cat="analysis" data-search="export fart bin txt ecosystem">
+          <div class="cmd-head"><span class="cmd-name">unpack export</span><span class="badge badge-amber">EXPORT</span></div>
+          <p class="lang-en">Export dumped DEX artifacts into FART-compatible format (<code>fart.bin</code> + <code>fart.txt</code>) for downstream tooling.</p>
+          <p class="lang-zh">将脱壳产物导出为兼容 FART 生态工具的 <code>fart.bin</code> 与 <code>fart.txt</code> 格式。</p>
+          <div class="cmd-usage">unpack export ./unpacked/ -f fart [-o ./fart_out]</div>
+          <div class="cmd-flags"><span class="flag-chip">-f / --format</span><span class="flag-chip">-o / --output</span><span class="flag-chip">--json</span></div>
+        </article>
+
+        <!-- 12. rescan -->
+        <article class="cmd-card" data-cat="core" data-search="rescan incremental exerciser rounds trigger decrypt">
+          <div class="cmd-head"><span class="cmd-name">unpack rescan</span><span class="badge badge-amber">INCREMENTAL</span></div>
+          <p class="lang-en">Frida-free incremental memory re-scan: exercise exported app components across rounds to trigger lazy method decryption.</p>
+          <p class="lang-zh">免 Frida 增量式重扫：多轮触发 App 组件执行以唤醒按需解密方法并回填增量 DEX。</p>
+          <div class="cmd-usage">unpack rescan app.apk ./unpacked/ -r 5 [-d SERIAL]</div>
+          <div class="cmd-flags"><span class="flag-chip">-r / --rounds</span><span class="flag-chip">-d / --device</span><span class="flag-chip">--json</span></div>
+        </article>
+
+        <!-- 13. report -->
+        <article class="cmd-card" data-cat="workflow" data-search="report html markdown sarif json audit security findings">
+          <div class="cmd-head"><span class="cmd-name">unpack report</span><span class="badge badge-cyan">AUDIT</span></div>
+          <p class="lang-en">Generate a commercial security &amp; unpacking audit report in HTML5, Markdown, JSON, or SARIF 2.1.0.</p>
+          <p class="lang-zh">生成商业级安全与脱壳审计报告，支持 HTML5、Markdown、JSON 与 SARIF 2.1.0 标准格式。</p>
+          <div class="cmd-usage">unpack report ./unpacked/ --apk app.apk --format sarif --vmp --xref -o audit.sarif</div>
+          <div class="cmd-flags"><span class="flag-chip">--apk</span><span class="flag-chip">--format html|md|json|sarif</span><span class="flag-chip">--out</span><span class="flag-chip">--title</span><span class="flag-chip">--vmp</span><span class="flag-chip">--xref</span></div>
+        </article>
+
+        <!-- 14. pipeline -->
+        <article class="cmd-card" data-cat="workflow" data-search="pipeline guided planner offline device execute explain">
+          <div class="cmd-head"><span class="cmd-name">unpack pipeline</span><span class="badge badge-violet">GUIDED</span></div>
+          <p class="lang-en">Guided 6-stage pipeline planner &amp; runner with live preflight blueprint and zero-device offline or device execution.</p>
+          <p class="lang-zh">6 阶段引导式流水线规划与执行器，支持实时预检蓝图预览、零设备离线执行与真机全流程执行。</p>
+          <div class="cmd-usage">unpack pipeline app.apk --mode offline --execute</div>
+          <div class="cmd-flags"><span class="flag-chip">--mode offline|device</span><span class="flag-chip">--execute</span><span class="flag-chip">--deep</span><span class="flag-chip">--repack</span><span class="flag-chip">--report-html</span><span class="flag-chip">--explain</span></div>
+        </article>
+
+        <!-- 15. guide -->
+        <article class="cmd-card" data-cat="workflow" data-search="guide wizard onboarding interactive scenario">
+          <div class="cmd-head"><span class="cmd-name">unpack guide</span><span class="badge badge-violet">WIZARD</span></div>
+          <p class="lang-en">Interactive onboarding wizard: inspect environment readiness, pick an analysis goal, preview commands, and run.</p>
+          <p class="lang-zh">交互式新手向导：检测环境状态、选择分析场景、预览命令蓝图并一键执行。</p>
+          <div class="cmd-usage">unpack guide [--scenario SCENARIO] [--target app.apk] [--execute]</div>
+          <div class="cmd-flags"><span class="flag-chip">--scenario</span><span class="flag-chip">--target</span><span class="flag-chip">--non-interactive</span><span class="flag-chip">--execute</span></div>
+        </article>
+
+        <!-- 16. wizard -->
+        <article class="cmd-card" data-cat="workflow" data-search="wizard alias guide onboarding interactive">
+          <div class="cmd-head"><span class="cmd-name">unpack wizard</span><span class="badge badge-violet">ALIAS</span></div>
+          <p class="lang-en">Alias for <code>unpack guide</code> — interactive step-by-step onboarding wizard.</p>
+          <p class="lang-zh"><code>unpack guide</code> 的快捷别名 —— 交互式分步引导向导。</p>
+          <div class="cmd-usage">unpack wizard [--target app.apk] [--lang zh]</div>
+          <div class="cmd-flags"><span class="flag-chip">--scenario</span><span class="flag-chip">--target</span><span class="flag-chip">--non-interactive</span><span class="flag-chip">--execute</span></div>
+        </article>
+
+        <!-- 17. analyze -->
+        <article class="cmd-card" data-cat="workflow" data-search="analyze claude codex pipe prompt llm">
+          <div class="cmd-head"><span class="cmd-name">unpack analyze</span><span class="badge badge-rose">PIPE LLM</span></div>
+          <p class="lang-en">Emit a prompt-wrapped technical scan dossier designed for Unix piping into <code>claude -p</code> or Codex.</p>
+          <p class="lang-zh">输出带分析提示词的纯文本扫描档案，专为管道对接 <code>claude -p</code> 或 Codex 打造。</p>
+          <div class="cmd-usage">unpack analyze app.apk [--prompt "..."] | claude -p</div>
+          <div class="cmd-flags"><span class="flag-chip">--prompt</span></div>
+        </article>
+
+        <!-- 18. web -->
+        <article class="cmd-card" data-cat="workflow" data-search="web studio server flask ui port host">
+          <div class="cmd-head"><span class="cmd-name">unpack web</span><span class="badge badge-violet">STUDIO</span></div>
+          <p class="lang-en">Launch the 7-view UNPACK Studio commercial web workbench (also exposed as <code>unpack-web</code> script).</p>
+          <p class="lang-zh">启动 7 视图 UNPACK Studio Web 工作台（亦支持独立入口 <code>unpack-web</code>）。</p>
+          <div class="cmd-usage">unpack web [--host 127.0.0.1] [--port 8080]</div>
+          <div class="cmd-flags"><span class="flag-chip">--host</span><span class="flag-chip">--port</span></div>
+        </article>
+
+        <!-- AI group (4) -->
+        <article class="cmd-card" data-cat="ai" data-search="ai show provider config presets masked">
+          <div class="cmd-head"><span class="cmd-name">unpack ai show</span><span class="badge badge-rose">AI GROUP</span></div>
+          <p class="lang-en">Display active AI provider settings (API key masked) and all 7 built-in provider presets.</p>
+          <p class="lang-zh">展示当前 AI 模型配置（API Key 自动脱敏）及 7 家内置模型预设。</p>
+          <div class="cmd-usage">unpack ai show [--json -]</div>
+          <div class="cmd-flags"><span class="flag-chip">--json PATH</span><span class="flag-chip">--lang</span></div>
+        </article>
+
+        <article class="cmd-card" data-cat="ai" data-search="ai config openai anthropic gemini deepseek qwen ollama custom api-key base-url">
+          <div class="cmd-head"><span class="cmd-name">unpack ai config</span><span class="badge badge-rose">AI GROUP</span></div>
+          <p class="lang-en">Persist provider, model, base URL (HTTP/HTTPS validated), temperature, timeout, and masked API key.</p>
+          <p class="lang-zh">安全持久化模型服务商、模型名、Base URL（校验 HTTP/HTTPS）、温度、超时与 API Key。</p>
+          <div class="cmd-usage">unpack ai config --provider deepseek --model deepseek-chat --api-key sk-...</div>
+          <div class="cmd-flags"><span class="flag-chip">--provider</span><span class="flag-chip">--model</span><span class="flag-chip">--base-url</span><span class="flag-chip">--api-key</span><span class="flag-chip">--clear-key</span><span class="flag-chip">--temperature</span><span class="flag-chip">--timeout</span></div>
+        </article>
+
+        <article class="cmd-card" data-cat="ai" data-search="ai test connectivity health check provider">
+          <div class="cmd-head"><span class="cmd-name">unpack ai test</span><span class="badge badge-rose">AI GROUP</span></div>
+          <p class="lang-en">Verify live connectivity, authentication, and response latency against the configured AI provider.</p>
+          <p class="lang-zh">向当前已配置的 AI 模型发起连通性探测，验证鉴权与响应延迟。</p>
+          <div class="cmd-usage">unpack ai test [--json -]</div>
+          <div class="cmd-flags"><span class="flag-chip">--json PATH</span><span class="flag-chip">--lang</span></div>
+        </article>
+
+        <article class="cmd-card" data-cat="ai" data-search="ai analyze target module method save-workspace">
+          <div class="cmd-head"><span class="cmd-name">unpack ai analyze</span><span class="badge badge-rose">AI GROUP</span></div>
+          <p class="lang-en">Run domain-expert AI reverse-engineering analysis on an APK or DEX target and optionally archive into a workspace.</p>
+          <p class="lang-zh">针对 APK 或 DEX 目标执行领域专家级 AI 逆向研判，可选自动归档至指定工作区。</p>
+          <div class="cmd-usage">unpack ai analyze app.apk [--module overview|vmp|method] [--save-workspace WS_ID]</div>
+          <div class="cmd-flags"><span class="flag-chip">--module</span><span class="flag-chip">--method</span><span class="flag-chip">--save-workspace WS_ID</span><span class="flag-chip">--json PATH</span></div>
+        </article>
+
+        <!-- Workspace group (6) -->
+        <article class="cmd-card" data-cat="workspace" data-search="workspace list sqlite projects">
+          <div class="cmd-head"><span class="cmd-name">unpack workspace list</span><span class="badge badge-violet">WORKSPACE</span></div>
+          <p class="lang-en">List saved persistent SQLite workspaces with sample, pipeline run, and AI analysis counts.</p>
+          <p class="lang-zh">列出所有 SQLite 持久化工作区及其样本数、流水线运行数与 AI 分析数。</p>
+          <div class="cmd-usage">unpack workspace list [--json -]</div>
+          <div class="cmd-flags"><span class="flag-chip">--json PATH</span><span class="flag-chip">--lang</span></div>
+        </article>
+
+        <article class="cmd-card" data-cat="workspace" data-search="workspace show samples runs history">
+          <div class="cmd-head"><span class="cmd-name">unpack workspace show</span><span class="badge badge-violet">WORKSPACE</span></div>
+          <p class="lang-en">Inspect samples, pipeline run history, and saved AI briefings inside a specific workspace.</p>
+          <p class="lang-zh">查看指定工作区内的全部样本、流水线执行历史与 AI 分析报告。</p>
+          <div class="cmd-usage">unpack workspace show &lt;WORKSPACE_ID&gt; [--json -]</div>
+          <div class="cmd-flags"><span class="flag-chip">--json PATH</span><span class="flag-chip">--lang</span></div>
+        </article>
+
+        <article class="cmd-card" data-cat="workspace" data-search="workspace create new project tags">
+          <div class="cmd-head"><span class="cmd-name">unpack workspace create</span><span class="badge badge-violet">WORKSPACE</span></div>
+          <p class="lang-en">Create a new named persistent workspace with optional description and tags.</p>
+          <p class="lang-zh">创建新的持久化工作区，可附带描述与分类标签。</p>
+          <div class="cmd-usage">unpack workspace create "Q4 Audit" --desc "Finance APKs" --tags bank,v2</div>
+          <div class="cmd-flags"><span class="flag-chip">--desc</span><span class="flag-chip">--tags</span><span class="flag-chip">--json</span></div>
+        </article>
+
+        <article class="cmd-card" data-cat="workspace" data-search="workspace delete remove archive">
+          <div class="cmd-head"><span class="cmd-name">unpack workspace delete</span><span class="badge badge-violet">WORKSPACE</span></div>
+          <p class="lang-en">Delete a saved workspace and its archived SQLite snapshots.</p>
+          <p class="lang-zh">删除指定工作区及其归档快照记录。</p>
+          <div class="cmd-usage">unpack workspace delete &lt;WORKSPACE_ID&gt;</div>
+          <div class="cmd-flags"><span class="flag-chip">--json</span><span class="flag-chip">--lang</span></div>
+        </article>
+
+        <article class="cmd-card" data-cat="workspace" data-search="workspace export json bundle backup share">
+          <div class="cmd-head"><span class="cmd-name">unpack workspace export</span><span class="badge badge-violet">WORKSPACE</span></div>
+          <p class="lang-en">Export an entire workspace (samples, runs, AI analyses) into a portable JSON snapshot bundle.</p>
+          <p class="lang-zh">将整个工作区（样本、流水线记录与 AI 研判）导出为可移植的 JSON 快照包。</p>
+          <div class="cmd-usage">unpack workspace export &lt;WORKSPACE_ID&gt; --out case-bundle.json</div>
+          <div class="cmd-flags"><span class="flag-chip">--out</span><span class="flag-chip">--lang</span></div>
+        </article>
+
+        <article class="cmd-card" data-cat="workspace" data-search="workspace import restore json bundle transaction">
+          <div class="cmd-head"><span class="cmd-name">unpack workspace import</span><span class="badge badge-violet">WORKSPACE</span></div>
+          <p class="lang-en">Import a workspace JSON bundle atomically into a restored workspace (auto-relocates matching local APKs).</p>
+          <p class="lang-zh">通过原子事务将工作区 JSON 快照包导入恢复（支持匹配本地 APK 的自动重定位）。</p>
+          <div class="cmd-usage">unpack workspace import case-bundle.json [--name "Restored Audit"]</div>
+          <div class="cmd-flags"><span class="flag-chip">--name</span><span class="flag-chip">--json</span><span class="flag-chip">--lang</span></div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Exit Codes & SARIF Example -->
+    <section class="section">
+      <div class="grid-2">
+        <div>
+          <div class="section-label"><span class="lang-en">Automation Contract</span><span class="lang-zh">自动化退出码约定</span></div>
+          <h2><span class="lang-en">Exit Codes</span><span class="lang-zh">标准退出码</span></h2>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>Code</th><th>Constant</th><th><span class="lang-en">Meaning</span><span class="lang-zh">含义</span></th></tr>
+              </thead>
+              <tbody>
+                <tr><td class="ok mono">0</td><td><code>EXIT_OK</code></td><td><span class="lang-en">Success</span><span class="lang-zh">执行成功</span></td></tr>
+                <tr><td class="bad mono">1</td><td><code>EXIT_ERROR</code></td><td><span class="lang-en">General execution or validation error</span><span class="lang-zh">通用错误或参数校验失败</span></td></tr>
+                <tr><td class="warn mono">2</td><td><code>EXIT_NO_DEVICE</code></td><td><span class="lang-en">No ADB device connected or authorized</span><span class="lang-zh">未检测到可用 ADB 设备</span></td></tr>
+                <tr><td class="hl mono">3</td><td><code>EXIT_NO_PACKER</code></td><td><span class="lang-en">No known packer detected (clean APK)</span><span class="lang-zh">未检出已知加壳特征（未加壳）</span></td></tr>
+                <tr><td class="bad mono">4</td><td><code>EXIT_DUMP_FAILED</code></td><td><span class="lang-en">Unpack engine failed or yielded 0 DEX files</span><span class="lang-zh">脱壳引擎失败或未提取到有效 DEX</span></td></tr>
+                <tr><td class="warn mono">5</td><td><code>EXIT_NOT_FOUND</code></td><td><span class="lang-en">Target APK, DEX, or workspace not found</span><span class="lang-zh">目标文件或工作区不存在</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-label"><span class="lang-en">CI/CD &amp; SARIF 2.1.0</span><span class="lang-zh">CI/CD 与 SARIF 2.1.0 示例</span></div>
+          <h2><span class="lang-en">Structured Output Examples</span><span class="lang-zh">结构化输出示例</span></h2>
+          <div class="code-block"><pre><span class="comment"># Generate SARIF 2.1.0 for GitHub Code Scanning</span>
+<span class="cmd">unpack report</span> ./unpacked/ \
+  <span class="flag">--apk</span> app.apk \
+  <span class="flag">--format</span> sarif \
+  <span class="flag">--vmp --xref</span> \
+  <span class="flag">--out</span> unpack-audit.sarif
+
+<span class="comment"># Machine-readable batch scan across a release folder</span>
+<span class="cmd">unpack</span> <span class="flag">--quiet --log-level</span> WARNING <span class="cmd">scan</span> ./apks/ <span class="flag">--batch --json</span> batch.json
+
+<span class="comment"># Pipe scan dossier into Claude CLI</span>
+<span class="cmd">unpack analyze</span> app.apk <span class="flag">--prompt</span> <span class="str">"Summarize anti-debug hooks &amp; unpack order"</span> | <span class="cmd">claude</span> <span class="flag">-p</span></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div>UNPACK v0.1.0 &bull; MIT License</div>
+      <div class="footer-links">
+        <a href="index.html"><span class="lang-en">Home</span><span class="lang-zh">首页</span></a>
+        <a href="architecture.html"><span class="lang-en">Architecture</span><span class="lang-zh">架构</span></a>
+        <a href="studio.html"><span class="lang-en">Studio</span><span class="lang-zh">工作台</span></a>
+        <a href="cli.html"><span class="lang-en">CLI</span><span class="lang-zh">命令行</span></a>
+        <a href="engine-memory.html">Memory</a>
+        <a href="engine-frida.html">Frida</a>
+        <a href="engine-ebpf.html">eBPF</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>

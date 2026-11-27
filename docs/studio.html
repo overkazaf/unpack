@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-lang="en" data-title-en="UNPACK Studio — Web Workbench, AI &amp; Workspaces" data-title-zh="UNPACK Studio — Web 工作台、AI 与工作区">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UNPACK Studio — Web Workbench, AI &amp; Workspaces</title>
+  <meta name="description" content="Explore UNPACK Studio: 7-view bilingual Android reverse-engineering workbench, 3-pane Dalvik disassembler, 7-provider AI analyzer, persistent SQLite workspaces, guided 6-stage pipeline, and hardened Flask Blueprint API v1.">
+  <meta property="og:title" content="UNPACK Studio — Commercial Android RE Workbench">
+  <meta property="og:description" content="Zero-CDN 7-view Web Studio with 3-pane DEX disassembler, Repair Diff Lab, Multi-Provider AI, SQLite Workspaces, and Security Hardening.">
+  <meta property="og:type" content="website">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a78bfa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 2L3 7v10l9 5 9-5V7l-9-5z'/%3E%3Cpath d='M12 22V12'/%3E%3Cpath d='M3 7l9 5 9-5'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="site-nav">
+    <div class="nav-inner">
+      <a class="nav-brand" href="index.html">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L3 7v10l9 5 9-5V7l-9-5z"/><path d="M12 22V12"/><path d="M3 7l9 5 9-5"/></svg>
+        </span>
+        <span class="brand-word">UN<span>PACK</span></span>
+        <span class="brand-ver mono">v0.1.0</span>
+      </a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="index.html"><span class="lang-en">Home</span><span class="lang-zh">首页</span></a>
+        <a href="architecture.html"><span class="lang-en">Architecture</span><span class="lang-zh">架构</span></a>
+        <a href="studio.html" class="active"><span class="lang-en">Studio</span><span class="lang-zh">工作台</span></a>
+        <a href="cli.html"><span class="lang-en">CLI &amp; API</span><span class="lang-zh">命令行</span></a>
+        <a href="engine-memory.html">Memory</a>
+        <a href="engine-frida.html">Frida</a>
+        <a href="engine-ebpf.html">eBPF</a>
+      </nav>
+      <div class="nav-controls">
+        <div class="seg-toggle" role="group" aria-label="Language">
+          <button type="button" class="seg-btn" data-set-lang="zh">中</button>
+          <button type="button" class="seg-btn active" data-set-lang="en">EN</button>
+        </div>
+        <button type="button" class="icon-btn" data-theme-toggle aria-label="Toggle theme">☀ Light</button>
+        <a class="icon-btn" href="https://github.com/overkazaf/unpack" target="_blank" rel="noopener">GitHub</a>
+        <button type="button" class="icon-btn nav-burger" data-nav-burger aria-label="Toggle menu" aria-expanded="false">☰</button>
+      </div>
+    </div>
+    <div class="mobile-drawer" id="mobileDrawer">
+      <div class="mobile-drawer-links">
+        <a href="index.html"><span class="lang-en">Home</span><span class="lang-zh">首页</span></a>
+        <a href="architecture.html"><span class="lang-en">Architecture</span><span class="lang-zh">架构图</span></a>
+        <a href="studio.html" class="active"><span class="lang-en">UNPACK Studio</span><span class="lang-zh">Web 工作台</span></a>
+        <a href="cli.html"><span class="lang-en">CLI Reference</span><span class="lang-zh">CLI 参考</span></a>
+        <a href="engine-memory.html">Memory Engine</a>
+        <a href="engine-frida.html">Frida Engine</a>
+        <a href="engine-ebpf.html">eBPF Engine</a>
+        <a href="https://github.com/overkazaf/unpack" target="_blank" rel="noopener">GitHub Repo</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="main-content">
+    <section class="page-hero">
+      <div class="page-hero-inner">
+        <div>
+          <div class="section-label"><span class="lang-en">Commercial Web Workbench</span><span class="lang-zh">商业级 Web 工作台</span></div>
+          <h1><span class="pulse-dot violet"></span>UNPACK Studio</h1>
+          <p class="lang-en">A zero-CDN, bilingual (中/EN), dark/light Android reverse-engineering workbench backed by modular Flask Blueprints (<code>src/unpack/studio/</code>), persistent SQLite workspaces, and a built-in 7-provider AI engine.</p>
+          <p class="lang-zh">零外部 CDN 依赖、支持中英双语与深浅色主题的 Android 逆向分析工作台，底层基于模块化 Flask Blueprints（<code>src/unpack/studio/</code>）、SQLite 持久化工作区与内置 7 大模型 AI 引擎构建。</p>
+        </div>
+        <div class="hero-actions">
+          <a href="#launch" class="btn btn-primary"><span class="lang-en">Launch Studio</span><span class="lang-zh">启动工作台</span></a>
+          <a href="#api-v1" class="btn btn-ghost">API v1</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- 7 Views -->
+    <section class="section">
+      <div class="section-label"><span class="lang-en">7 Integrated Views</span><span class="lang-zh">7 大核心视图</span></div>
+      <h2><span class="lang-en">Everything in One Cohesive Workspace</span><span class="lang-zh">全链路逆向任务一站式协同</span></h2>
+      <div class="grid-3">
+        <article class="card">
+          <div class="card-header"><h3>1. Samples &amp; Intake</h3><span class="badge badge-cyan">VAULT</span></div>
+          <p class="lang-en">Drag-and-drop APK/DEX intake, SHA-256 deduplication, local library browser, automatic SHA-256 file relocation after folder moves, and explicit offline/snapshot-only indicators.</p>
+          <p class="lang-zh">支持拖拽上传 APK/DEX、SHA-256 去重缓存、本地样本库导入、目录迁移后的 SHA-256 自动重定位，以及离线快照模式显式徽章与重挂载提示。</p>
+        </article>
+
+        <article class="card">
+          <div class="card-header"><h3>2. Scan &amp; Intelligence</h3><span class="badge badge-cyan">24 PACKERS</span></div>
+          <p class="lang-en">6-dimension packer breakdown, confidence bars, protection-level badge, version detection, and one-click AI packer strategy briefing.</p>
+          <p class="lang-zh">可视化呈现 6 维壳识别证据、置信度评分、保护等级与版本指纹，支持一键唤起内置 AI 生成脱壳与绕过策略简报。</p>
+        </article>
+
+        <article class="card accent-violet">
+          <div class="card-header"><h3>3. APK &amp; DEX Inspector</h3><span class="badge badge-violet">3-PANE</span></div>
+          <p class="lang-en">Full Manifest, signing certificate, permission risk analysis, plus a live 3-pane DEX browser: class tree, method table, Dalvik bytecode disassembler, strings &amp; IOC explorer.</p>
+          <p class="lang-zh">涵盖 Manifest、签名证书与权限风险解析，并提供三栏式 DEX 浏览器：类树导航、方法列表、Dalvik 反汇编视图与字符串/IOC 检索。</p>
+        </article>
+
+        <article class="card accent-rose">
+          <div class="card-header"><h3>4. VMP &amp; Native Studio</h3><span class="badge badge-rose">ELF + VMP</span></div>
+          <p class="lang-en">Method-level classification (normal / NOP / VMP-stub) with search filtering, paired with ELF SO inspection for anti-debug, VMP, DEX2C, and crypto indicators.</p>
+          <p class="lang-zh">方法级 VMP 分类（normal / NOP / VMP-stub）与实时过滤，联动原生 ELF SO 分析，高亮反调试、VMP、DEX2C 与加解密风险标记。</p>
+        </article>
+
+        <article class="card accent-emerald">
+          <div class="card-header"><h3>5. Repair &amp; Verify Lab</h3><span class="badge badge-emerald">DIFF VIEW</span></div>
+          <p class="lang-en">Run the 10-step DEX repair pipeline with before/after header &amp; metric diffs, code coverage scoring, FART export, and APK repacking.</p>
+          <p class="lang-zh">执行 10 步 DEX 修复并展示修复前后头部/指标 Diff，联动覆盖率评分、FART 格式导出与可分析 APK 一键重打包。</p>
+        </article>
+
+        <article class="card accent-amber">
+          <div class="card-header"><h3>6. Pipeline Studio</h3><span class="badge badge-amber">6-STAGE</span></div>
+          <p class="lang-en">Guided 6-stage planner with live Environment Doctor preflight. Run zero-device offline pipelines or connected-device Memory/Frida/eBPF unpacking with live SSE job logs.</p>
+          <p class="lang-zh">6 阶段引导式流水线规划器，联动 Environment Doctor 预检；支持无设备离线模式或真机三引擎模式，通过 SSE 实时推送任务日志。</p>
+        </article>
+
+        <article class="card">
+          <div class="card-header"><h3>7. Reports &amp; Export</h3><span class="badge badge-cyan">SARIF 2.1.0</span></div>
+          <p class="lang-en">Generate and preview commercial audit reports in sandboxed HTML5 (<code>sandbox=""</code>), Markdown, JSON, and SARIF 2.1.0 for GitHub Code Scanning / CI pipelines.</p>
+          <p class="lang-zh">支持在无脚本安全沙箱（<code>sandbox=""</code>）内即时预览并导出 HTML5、Markdown、JSON 及 SARIF 2.1.0 审计报告，直接对接 CI 安全门禁。</p>
+        </article>
+
+        <article class="card accent-violet">
+          <div class="card-header"><h3>Command Palette &amp; Accessibility</h3><span class="badge badge-violet">⌘K</span></div>
+          <p class="lang-en">Keyboard-first <code>⌘K</code> command palette with ArrowUp/ArrowDown navigation, in-app modals (zero native <code>window.prompt()</code>), <code>:focus-visible</code> rings, and <code>prefers-reduced-motion</code> support.</p>
+          <p class="lang-zh">键盘优先的 <code>⌘K</code> 命令面板（支持方向键导航）、内建弹窗替代原生 <code>window.prompt()</code>、完整的 <code>:focus-visible</code> 焦点环与减弱动效适配。</p>
+        </article>
+
+        <article class="card accent-emerald">
+          <div class="card-header"><h3>Environment Doctor Modal</h3><span class="badge badge-emerald">LIVE CHECK</span></div>
+          <p class="lang-en">Real-time check of ADB, rooted devices, Frida server, eBPF/bpftrace, and optional RE Python packages directly from the sidebar status dot.</p>
+          <p class="lang-zh">从侧边栏状态指示灯随时检视 ADB、Root 设备、Frida Server、eBPF/bpftrace 与 Python 逆向依赖的就绪度。</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- AI Engine + Workspaces -->
+    <section class="section section-tight">
+      <div class="grid-2">
+        <div class="card accent-rose">
+          <div class="section-label"><span class="lang-en">Built-In AI Engine</span><span class="lang-zh">内置 AI 逆向引擎</span></div>
+          <h3><span class="lang-en">7 LLM Providers · Zero Glue Scripts</span><span class="lang-zh">7 大模型开箱即用 · 无需外部胶水脚本</span></h3>
+          <p class="lang-en">Configure once in Studio Settings or <code>unpack ai config</code>. API keys are masked in all CLI/API outputs, base URLs enforce <code>http://</code>/<code>https://</code> SSRF guards, and structured APK/DEX/ELF/VMP/XRef context is assembled automatically.</p>
+          <p class="lang-zh">在 Studio 设置面板或通过 <code>unpack ai config</code> 一次配置即可使用。API Key 全程脱敏显示，Endpoint 强制校验 <code>http://</code>/<code>https://</code> 防止 SSRF，自动注入脱壳/ELF/VMP/XRef 结构化上下文。</p>
+          <ul>
+            <li><strong>OpenAI</strong> — GPT-4o / o3 / OpenAI API</li>
+            <li><strong>Anthropic Claude</strong> — Claude Sonnet / Opus Messages API</li>
+            <li><strong>Google Gemini</strong> — Gemini 2.5 Pro / Flash API</li>
+            <li><strong>DeepSeek</strong> — DeepSeek-Chat / Reasoner</li>
+            <li><strong>Qwen / DashScope</strong> — Alibaba Cloud Qwen models</li>
+            <li><strong>Local Ollama</strong> — Air-gapped local inference (<code>ollama serve</code>)</li>
+            <li><strong>Custom OpenAI-Compatible</strong> — vLLM, LiteLLM, Azure, corporate proxies</li>
+          </ul>
+        </div>
+
+        <div class="card accent-violet">
+          <div class="section-label"><span class="lang-en">Persistent Workspaces</span><span class="lang-zh">持久化 SQLite 工作区</span></div>
+          <h3><span class="lang-en">Auditable Case Management</span><span class="lang-zh">可归档、可迁移的样本工程管理</span></h3>
+          <p class="lang-en">Every scan, DEX inspection, pipeline run, and AI briefing can be persisted in local SQLite workspaces (<code>~/.unpack/</code>) and exchanged across teams as self-contained JSON bundles.</p>
+          <p class="lang-zh">所有扫描结论、DEX 检视、流水线记录与 AI 研判均沉淀至本地 SQLite 工作区（<code>~/.unpack/</code>），支持导出/导入完整 JSON 快照包在团队间流转。</p>
+          <ul>
+            <li><span class="lang-en">Atomic transaction import/export via JSON bundles</span><span class="lang-zh">JSON 快照包原子事务导入/导出</span></li>
+            <li><span class="lang-en">SHA-256 auto-relocation when local APK directories move</span><span class="lang-zh">本地 APK 目录移动后按 SHA-256 自动重定位</span></li>
+            <li><span class="lang-en">Snapshot-only read-only fallback when binary is detached</span><span class="lang-zh">原始样本缺失时自动降级为快照只读模式</span></li>
+            <li><span class="lang-en">Shared store between CLI (<code>unpack workspace</code>) and Studio</span><span class="lang-zh">CLI（<code>unpack workspace</code>）与 Studio 实时共享同一数据库</span></li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Architecture & Security Hardening -->
+    <section class="section" id="api-v1">
+      <div class="section-label"><span class="lang-en">Backend Architecture &amp; Security</span><span class="lang-zh">后端模块化架构与安全加固</span></div>
+      <h2><span class="lang-en">Flask Blueprints, API v1 &amp; Production Hardening</span><span class="lang-zh">Flask 蓝图拆分、API v1 与生产级安全基线</span></h2>
+      <div class="grid-2">
+        <div class="card">
+          <h3><span class="lang-en">Modular <code>src/unpack/studio/</code> Layout</span><span class="lang-zh">模块化 <code>src/unpack/studio/</code> 结构</span></h3>
+          <ul>
+            <li><code>studio/routes/system.py</code> — <code>/api/v1/health</code>, diagnostics, doctor, config</li>
+            <li><code>studio/routes/samples.py</code> — intake, upload, local library, auto-relocate</li>
+            <li><code>studio/routes/analysis.py</code> — scan, inspect, DEX browser, disasm, VMP, XRef</li>
+            <li><code>studio/routes/repair_export.py</code> — verify, 10-step repair diff, FART export, repack, reports</li>
+            <li><code>studio/routes/pipeline.py</code> — 6-stage plan, offline &amp; device job runner, SSE stream</li>
+            <li><code>studio/routes/workspaces.py</code> &amp; <code>ai.py</code> — SQLite workspace CRUD &amp; 7-provider AI endpoints</li>
+            <li><code>web.py</code> — thin backward-compatible facade (<code>create_app</code>, <code>JobManager</code>, <code>main</code>)</li>
+          </ul>
+        </div>
+
+        <div class="card accent-emerald">
+          <h3><span class="lang-en">Security &amp; Reliability Hardening</span><span class="lang-zh">安全响应头与资源边界保护</span></h3>
+          <ul>
+            <li><span class="lang-en">HTTP headers: <code>Content-Security-Policy</code>, <code>X-Content-Type-Options: nosniff</code>, <code>X-Frame-Options: SAMEORIGIN</code>, <code>Referrer-Policy: no-referrer</code>, <code>Permissions-Policy</code></span><span class="lang-zh">全站安全响应头：<code>CSP</code>、<code>nosniff</code>、<code>X-Frame-Options: SAMEORIGIN</code>、<code>Referrer-Policy</code>、<code>Permissions-Policy</code></span></li>
+            <li><span class="lang-en">Script-free report iframe preview (<code>sandbox=""</code>) &amp; XSS-safe Markdown rendering</span><span class="lang-zh">报告预览采用无脚本沙箱（<code>sandbox=""</code>）与 XSS 安全的 Markdown 渲染</span></li>
+            <li><span class="lang-en">Bounded artifact/lock LRU eviction &amp; capped <code>ThreadPoolExecutor</code> background jobs</span><span class="lang-zh">有界 LRU 产物/锁缓存驱逐与限流 <code>ThreadPoolExecutor</code> 异步任务池</span></li>
+            <li><span class="lang-en">Unified <code>api_error()</code> envelope, strict input allowlists, and enriched <code>/api/v1/health</code> telemetry</span><span class="lang-zh">统一 <code>api_error()</code> 错误信封、严格入参白名单及增强型 <code>/api/v1/health</code> 健康遥测</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <div id="launch" class="code-block" style="margin-top:1.5rem;"><pre><span class="comment"># Install with Studio web extras and start locally</span>
+<span class="cmd">pip install</span> <span class="flag">-e ".[web,analysis]"</span>
+<span class="cmd">unpack web</span>                          <span class="comment"># http://127.0.0.1:8080</span>
+<span class="cmd">unpack web</span> <span class="flag">--host 127.0.0.1 --port 3000</span>
+
+<span class="comment"># Check enriched health &amp; capabilities telemetry</span>
+<span class="cmd">curl</span> <span class="str">http://127.0.0.1:8080/api/v1/health</span></pre>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div>UNPACK v0.1.0 &bull; MIT License</div>
+      <div class="footer-links">
+        <a href="index.html"><span class="lang-en">Home</span><span class="lang-zh">首页</span></a>
+        <a href="architecture.html"><span class="lang-en">Architecture</span><span class="lang-zh">架构</span></a>
+        <a href="studio.html"><span class="lang-en">Studio</span><span class="lang-zh">工作台</span></a>
+        <a href="cli.html"><span class="lang-en">CLI</span><span class="lang-zh">命令行</span></a>
+        <a href="engine-memory.html">Memory</a>
+        <a href="engine-frida.html">Frida</a>
+        <a href="engine-ebpf.html">eBPF</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="assets/site.js"></script>
+</body>
+</html>
